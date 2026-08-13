@@ -18,18 +18,19 @@ import {
   detectLinkedProjectRef,
   endpointFor,
   formatSetupReport,
+  normalizePublicUrl,
   type SetupAuthMode,
   type SetupReport,
 } from "./setup.js";
 
-const HELP = `create-supabase-mcp 0.3.0
+const HELP = `supa-mcp 0.1.0
 
 Usage:
-  create-supabase-mcp setup [options]   Guided, resumable installation
-  create-supabase-mcp status [options]  Read-only setup status
-  create-supabase-mcp init [options]    Generate files only
-  create-supabase-mcp doctor [options]  Check local or deployed setup
-  create-supabase-mcp dev [options]     Serve the function locally
+  supa-mcp setup [options]   Guided, resumable installation
+  supa-mcp status [options]  Read-only setup status
+  supa-mcp init [options]    Generate files only
+  supa-mcp doctor [options]  Check local or deployed setup
+  supa-mcp dev [options]     Serve the function locally
 
 Setup options:
   --function <name>       Edge Function name (default: mcp)
@@ -37,6 +38,7 @@ Setup options:
   --auth <mode>           oauth, bearer, or public (guided when interactive)
   --consent <mode>        none or minimal (default: none)
   --project-ref <ref>     Supabase project ref for deploy and endpoint discovery
+  --public-url <url>      Clean URL clients will use, such as https://app.com/mcp
   --apply-migrations      Apply the generated public limiter migration
   --deploy                Deploy after generation and local checks
   --skip-checks           Do not run generated Deno checks
@@ -53,8 +55,8 @@ Shared options:
   --help                  Show this help
 
 Agent quickstart:
-  create-supabase-mcp setup --auth oauth --yes --json
-  create-supabase-mcp status --json
+  supa-mcp setup --auth oauth --yes --json
+  supa-mcp status --json
 `;
 
 interface CommandResult {
@@ -79,6 +81,7 @@ function parse(commandArgs: string[]) {
       "no-config": { type: "boolean" },
       plan: { type: "boolean" },
       "project-ref": { type: "string" },
+      "public-url": { type: "string" },
       resume: { type: "boolean" },
       "server-name": { type: "string" },
       "skip-checks": { type: "boolean" },
@@ -143,6 +146,29 @@ async function guidedConsent(): Promise<"none" | "minimal"> {
   if (answer === "" || answer === "1") return "none";
   if (answer === "2") return "minimal";
   throw new Error("Choose 1 or 2 for the OAuth consent UI.");
+}
+
+async function guidedPublicUrl(): Promise<string | undefined> {
+  const reader = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  console.log("\nWhat URL should people connect to?");
+  console.log("  1. The Supabase function URL (fastest; no extra setup)");
+  console.log("  2. A clean URL on my app or domain");
+  const answer = (await reader.question("Choose public URL [1]: ")).trim();
+  if (answer === "" || answer === "1") {
+    reader.close();
+    return undefined;
+  }
+  if (answer !== "2") {
+    reader.close();
+    throw new Error("Choose 1 or 2 for the public MCP URL.");
+  }
+  const value = (await reader.question("Public MCP URL: ")).trim();
+  reader.close();
+  if (!value) throw new Error("Enter the complete public MCP URL.");
+  return normalizePublicUrl(value);
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -255,7 +281,7 @@ async function init(args: string[]): Promise<void> {
       auth,
       files: fileSummary(files, root),
       nextCommand: needsConfirmation
-        ? `npx create-supabase-mcp init --function ${functionName} --auth ${auth} --yes --json`
+        ? `npx supa-mcp init --function ${functionName} --auth ${auth} --yes --json`
         : undefined,
     });
     return;
@@ -277,13 +303,13 @@ async function init(args: string[]): Promise<void> {
       functionName,
       auth,
       files: fileSummary(files, root),
-      nextCommand: `npx create-supabase-mcp setup --resume --function ${functionName} --auth ${auth} --yes --json`,
+      nextCommand: `npx supa-mcp setup --resume --function ${functionName} --auth ${auth} --yes --json`,
     });
     return;
   }
-  console.log(`Created Supabase MCP function '${functionName}'.`);
+  console.log(`Created Supa MCP function '${functionName}'.`);
   console.log(
-    `\nContinue with:\n  create-supabase-mcp setup --resume --function ${functionName}`,
+    `\nContinue with:\n  supa-mcp setup --resume --function ${functionName}`,
   );
 }
 
@@ -339,7 +365,13 @@ async function setup(args: string[]): Promise<void> {
         : "none";
   const projectRef =
     parsed.values["project-ref"] ?? (await detectLinkedProjectRef(root));
-  const endpoint = parsed.values.url ?? endpointFor(projectRef, functionName);
+  const publicUrl = parsed.values["public-url"]
+    ? normalizePublicUrl(parsed.values["public-url"])
+    : !existingAuth && process.stdin.isTTY && !machine && !parsed.values.yes
+      ? await guidedPublicUrl()
+      : undefined;
+  const endpoint =
+    parsed.values.url ?? publicUrl ?? endpointFor(projectRef, functionName);
   const planOnly = Boolean(parsed.values.plan);
   let files: PlannedFile[] = [];
   const addConsent = Boolean(
@@ -393,6 +425,7 @@ async function setup(args: string[]): Promise<void> {
       needsConfirmation,
       projectRef,
       endpoint,
+      publicUrl,
       localChecks: "ready",
       migrations: auth === "public" ? "ready" : "skipped",
     });
@@ -466,7 +499,7 @@ async function setup(args: string[]): Promise<void> {
 
   let deployed = false;
   let deployDetail: string | undefined;
-  const deploymentAllowed =
+  let deploymentAllowed =
     parsed.values.deploy &&
     localChecks !== "blocked" &&
     (auth !== "public" || migrations === "complete");
@@ -475,6 +508,27 @@ async function setup(args: string[]): Promise<void> {
       auth === "public" && migrations !== "complete"
         ? "Deployment paused: public mode requires --apply-migrations so the endpoint does not start in a 503 state."
         : "Deployment paused until local checks pass.";
+  }
+  let publicUrlConfigured = !publicUrl;
+  if (deploymentAllowed && publicUrl) {
+    if (!machine) console.log("\nConfiguring the public MCP URL...");
+    const result = await runCommand(
+      "supabase",
+      [
+        "secrets",
+        "set",
+        `MCP_PUBLIC_URL=${publicUrl}`,
+        "--yes",
+        ...(projectRef ? ["--project-ref", projectRef] : []),
+      ],
+      root,
+      machine,
+    );
+    publicUrlConfigured = result.ok;
+    if (!result.ok) {
+      deploymentAllowed = false;
+      deployDetail = `Public URL configuration failed: ${result.detail}`;
+    }
   }
   if (deploymentAllowed) {
     if (!machine) console.log("\nDeploying the MCP Edge Function...");
@@ -530,6 +584,7 @@ async function setup(args: string[]): Promise<void> {
         [
           "oauth-challenge",
           "protected-resource-metadata",
+          "advertised-resource-url",
           "bearer-gate",
           "authenticated-tools-list",
           "public-tools-list",
@@ -564,6 +619,8 @@ async function setup(args: string[]): Promise<void> {
     remoteVerified,
     remoteAttempted: shouldVerify,
     endpoint,
+    publicUrl,
+    publicUrlConfigured,
     projectRef,
     checkDetail,
     migrationDetail,
@@ -594,7 +651,11 @@ async function status(args: string[]): Promise<void> {
     : "none";
   const projectRef =
     parsed.values["project-ref"] ?? (await detectLinkedProjectRef(root));
-  const endpoint = parsed.values.url ?? endpointFor(projectRef, functionName);
+  const publicUrl = parsed.values["public-url"]
+    ? normalizePublicUrl(parsed.values["public-url"])
+    : undefined;
+  const endpoint =
+    parsed.values.url ?? publicUrl ?? endpointFor(projectRef, functionName);
   const localChecks = await runDoctor({
     cwd: root,
     functionName,
@@ -643,6 +704,7 @@ async function status(args: string[]): Promise<void> {
     remoteVerified,
     remoteAttempted,
     endpoint,
+    publicUrl,
     projectRef,
     checkDetail: allChecksPass(localChecks)
       ? "Generated files and gateway configuration are present."

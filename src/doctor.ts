@@ -35,8 +35,8 @@ function modernRequest(method: string): string {
       _meta: {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientInfo": {
-          name: "create-supabase-mcp-doctor",
-          version: "0.3.0",
+          name: "supa-mcp-doctor",
+          version: "0.1.0",
         },
         "io.modelcontextprotocol/clientCapabilities": {},
       },
@@ -94,7 +94,7 @@ export async function runDoctor(
     const deno = await readFile(denoPath, "utf8");
     checks.push({
       name: "dependencies",
-      ok: /create-supabase-mcp@\d+\.\d+\.\d+/.test(deno),
+      ok: /supa-mcp@\d+\.\d+\.\d+/.test(deno),
       detail: "generated runtime import is pinned",
     });
   }
@@ -179,6 +179,22 @@ export async function runDoctor(
         typeof metadata?.resource === "string" &&
         Array.isArray(metadata.authorization_servers),
       detail: `HTTP ${metadataResponse.status}`,
+    });
+    const expectedResource = new URL(options.url);
+    expectedResource.hash = "";
+    expectedResource.search = "";
+    expectedResource.pathname = expectedResource.pathname.replace(/\/+$/, "");
+    checks.push({
+      name: "advertised-resource-url",
+      ok:
+        metadataResponse.ok &&
+        typeof metadata?.resource === "string" &&
+        metadata.resource.replace(/\/+$/, "") ===
+          expectedResource.href.replace(/\/+$/, ""),
+      detail:
+        typeof metadata?.resource === "string"
+          ? metadata.resource
+          : "protected-resource metadata did not advertise a resource URL",
     });
   }
 

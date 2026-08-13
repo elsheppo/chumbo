@@ -1,8 +1,10 @@
-# create-supabase-mcp
+# Supa MCP
 
-Add an end-user MCP server to an existing Supabase app. It runs as a Supabase
-Edge Function and uses the app's Supabase Auth, Postgres, and Row Level
-Security instead of introducing another backend.
+**Your Supabase app, now an MCP.**
+
+Run one command to add a polished end-user MCP server to an existing Supabase
+app. It runs as an Edge Function and uses the app's Supabase Auth, Postgres,
+and Row Level Security instead of introducing another backend.
 
 This package exposes your application's capabilities to its users. It is not
 the official Supabase management MCP used to administer Supabase projects.
@@ -12,7 +14,7 @@ the official Supabase management MCP used to administer Supabase projects.
 From a repository that already contains `supabase/config.toml`:
 
 ```sh
-npx create-supabase-mcp setup
+npx supa-mcp setup
 ```
 
 The installer requires Node 22+ and the Supabase CLI. Deno is recommended for
@@ -20,10 +22,10 @@ the generated local type-check and test; when it is unavailable, setup reports
 those checks as an explicit next action instead of hanging or pretending they
 ran.
 
-The installer asks who should be able to connect, previews every file it will
-write, generates the Edge Function, and runs its local checks when Deno is
-available. It then gives you an ordered list of the remaining migration,
-deployment, OAuth, and verification actions.
+The installer asks who should be able to connect and which URL they should
+use, previews every file it will write, generates the Edge Function, and runs
+its local checks when Deno is available. It then gives you an ordered list of
+the remaining migration, deployment, OAuth, routing, and verification actions.
 
 The three access choices are:
 
@@ -37,8 +39,8 @@ The three access choices are:
 Setup is resumable without a hidden state file:
 
 ```sh
-npx create-supabase-mcp setup --resume
-npx create-supabase-mcp status
+npx supa-mcp setup --resume
+npx supa-mcp status
 ```
 
 Both commands inspect the generated project and, when a project ref or URL is
@@ -76,13 +78,13 @@ terminal prose.
 Inspect the complete plan without writing:
 
 ```sh
-npx create-supabase-mcp setup --auth oauth --plan --json
+npx supa-mcp setup --auth oauth --plan --json
 ```
 
 Apply it and receive structured next actions:
 
 ```sh
-npx create-supabase-mcp setup \
+npx supa-mcp setup \
   --auth oauth \
   --function mcp \
   --server-name "My app" \
@@ -93,8 +95,8 @@ npx create-supabase-mcp setup \
 Resume or re-observe after a user completes a dashboard action:
 
 ```sh
-npx create-supabase-mcp setup --resume --function mcp --yes --json
-npx create-supabase-mcp status --function mcp --json
+npx supa-mcp setup --resume --function mcp --yes --json
+npx supa-mcp status --function mcp --json
 ```
 
 JSON output has a versioned envelope and stable step IDs:
@@ -118,7 +120,7 @@ JSON output has a versioned envelope and stable step IDs:
     { "id": "configure_oauth", "status": "needs_user_action" },
     { "id": "verify_remote", "status": "ready" }
   ],
-  "resumeCommand": "npx create-supabase-mcp setup --resume --function mcp --auth oauth --yes --json"
+  "resumeCommand": "npx supa-mcp setup --resume --function mcp --auth oauth --yes --json"
 }
 ```
 
@@ -134,6 +136,8 @@ Useful automation flags:
 - `--resume`: inspect the existing scaffold and continue idempotently.
 - `--skip-checks`: leave Deno checks as a reported next action.
 - `--project-ref <ref>`: make deployment and endpoint discovery explicit.
+- `--public-url <url>`: make clients see a clean URL such as
+  `https://yourapp.com/mcp` while Supabase continues to run the function.
 - `--deploy`: deploy the generated function after successful local checks.
 - `--apply-migrations`: run `supabase db push --yes` for public mode.
 - `--url <url>`: verify an explicit deployed endpoint.
@@ -142,7 +146,7 @@ Public deployment deliberately requires both mutation flags because
 `supabase db push` may include other pending application migrations:
 
 ```sh
-npx create-supabase-mcp setup \
+npx supa-mcp setup \
   --resume \
   --auth public \
   --apply-migrations \
@@ -161,7 +165,7 @@ import {
   jsonResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "create-supabase-mcp";
+} from "supa-mcp";
 import { z } from "zod";
 
 export function registerCapabilities(
@@ -214,7 +218,7 @@ registration when the intended MCP clients need it.
 If the app does not yet have a consent UI, generate the small fallback:
 
 ```sh
-npx create-supabase-mcp setup --consent minimal
+npx supa-mcp setup --consent minimal
 ```
 
 Existing applications should normally integrate Supabase's authorization
@@ -224,7 +228,7 @@ fallback is a runnable bridge, not a replacement for the app's eventual UX.
 ### Existing bearer tokens
 
 ```sh
-npx create-supabase-mcp setup --auth bearer
+npx supa-mcp setup --auth bearer
 ```
 
 Bearer mode accepts an existing Supabase user access token without advertising
@@ -233,7 +237,7 @@ an interactive OAuth flow. RLS behavior is the same as OAuth.
 ### Intentionally public MCP
 
 ```sh
-npx create-supabase-mcp setup --auth public
+npx supa-mcp setup --auth public
 ```
 
 Public mode uses the Supabase anonymous client, so only capabilities and rows
@@ -246,7 +250,7 @@ per caller. The endpoint fails closed until that migration is applied.
 Setup can perform deployment when explicitly requested:
 
 ```sh
-npx create-supabase-mcp setup \
+npx supa-mcp setup \
   --resume \
   --project-ref PROJECT_REF \
   --deploy \
@@ -258,7 +262,7 @@ Or run the underlying commands yourself:
 ```sh
 supabase functions deploy mcp --no-verify-jwt
 
-npx create-supabase-mcp doctor \
+npx supa-mcp doctor \
   --function mcp \
   --url https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
@@ -273,6 +277,80 @@ The remote MCP URL is:
 ```text
 https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
+
+That URL works immediately. A product-facing server can instead use a clean
+URL without moving the Edge Function:
+
+```sh
+npx supa-mcp setup \
+  --resume \
+  --project-ref PROJECT_REF \
+  --public-url https://yourapp.com/mcp \
+  --deploy \
+  --yes
+```
+
+Supa MCP sets `MCP_PUBLIC_URL` so OAuth discovery advertises the clean URL,
+while the authorization issuer remains the project's Supabase Auth server.
+Your app or edge provider must proxy both `/mcp` and every path below it to the
+Supabase function; the suffix paths serve MCP authorization metadata.
+
+### Clean URL on an existing Next.js site
+
+This uses the domain your app already has, so it needs no new DNS record. Add
+an external rewrite to `next.config.ts`:
+
+```ts
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: "/mcp/:path*",
+        destination: "https://PROJECT_REF.supabase.co/functions/v1/mcp/:path*",
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+```
+
+Deploy the site, then verify the public route rather than the upstream URL:
+
+```sh
+npx supa-mcp doctor --url https://yourapp.com/mcp
+```
+
+### Dedicated MCP subdomain
+
+For `https://mcp.yourapp.com`, the domain's DNS or hosting provider must route
+that hostname. A small Cloudflare Worker can forward the complete route tree:
+
+```ts
+const upstream = "https://PROJECT_REF.supabase.co/functions/v1/mcp";
+
+export default {
+  async fetch(request: Request) {
+    const incoming = new URL(request.url);
+    const suffix = incoming.pathname === "/" ? "" : incoming.pathname;
+    const target = new URL(`${upstream}${suffix}${incoming.search}`);
+    const headers = new Headers(request.headers);
+    headers.delete("host");
+
+    return fetch(target, {
+      method: request.method,
+      headers,
+      body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
+      redirect: "manual",
+    });
+  },
+};
+```
+
+Supa MCP cannot create a DNS record without access to that provider, but setup
+reports the exact remaining route and verifies it once it exists.
 
 ## Optional capability scopes
 
@@ -342,7 +420,7 @@ RLS policies, and a two-user negative isolation test.
 | `doctor` | Diagnose generated files, gateway config, auth, and MCP discovery |
 | `dev`    | Delegate to `supabase functions serve`                            |
 
-Use `npx create-supabase-mcp --help` for all flags.
+Use `npx supa-mcp --help` for all flags.
 
 ## Troubleshooting
 
@@ -371,7 +449,7 @@ recognized, `setup --resume` leaves application-authored capabilities alone.
 
 ## Development
 
-Version 0.3.0 pins the runtime dependencies in each generated Deno project.
+Version 0.1.0 pins the runtime dependencies in each generated Deno project.
 The package test suite covers MCP discovery, scopes, public rate limiting,
 concurrent request isolation, generated OAuth/public projects, structured CLI
 output, and real two-user Postgres RLS when integration credentials are

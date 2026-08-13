@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, parse, relative, resolve } from "node:path";
 
-export const PACKAGE_VERSION = "0.3.0";
+export const PACKAGE_VERSION = "0.1.0";
 
 export interface PlannedFile {
   path: string;
@@ -125,7 +125,9 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
     AUTH_CONFIG:
       options.auth === "public"
         ? '{ mode: "public", rateLimit: true }'
-        : `{ mode: "${options.auth}" }`,
+        : options.auth === "oauth"
+          ? '{ mode: "oauth", issuer: new URL(`${projectUrl}/auth/v1`) }'
+          : '{ mode: "bearer" }',
     ACCESS_DESCRIPTION:
       options.auth === "public"
         ? "Requests use Supabase's anonymous RLS role. The generated Postgres migration adds a 60 request/minute, per-caller guardrail."
@@ -167,7 +169,7 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
       root,
       "supabase",
       "migrations",
-      "20260813000000_create_supabase_mcp_rate_limits.sql",
+      "20260813000000_create_supa_mcp_rate_limits.sql",
     );
     files.push(
       await classifyFile(

@@ -8,10 +8,11 @@ import {
   buildSetupReport,
   detectGeneratedAuth,
   endpointFor,
+  normalizePublicUrl,
 } from "../src/setup.js";
 
 async function fixture(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "create-supabase-mcp-"));
+  const root = await mkdtemp(join(tmpdir(), "supa-mcp-"));
   await mkdir(join(root, "supabase"), { recursive: true });
   await writeFile(
     join(root, "supabase", "config.toml"),
@@ -83,6 +84,13 @@ describe("initializer", () => {
     expect(generatedTest).toContain("Deno.env.set(");
     expect(generatedTest).toContain('"SUPABASE_URL"');
     expect(generatedTest).toContain('await import("./index.ts")');
+
+    const entrypoint = await readFile(
+      join(root, "supabase", "functions", "mcp", "index.ts"),
+      "utf8",
+    );
+    expect(entrypoint).toContain('Deno.env.get("MCP_PUBLIC_URL")');
+    expect(entrypoint).toContain("issuer: new URL(`${projectUrl}/auth/v1`)");
   });
 
   it("applies idempotently and refuses a conflicting capability file", async () => {
@@ -138,7 +146,7 @@ describe("initializer", () => {
     expect(publicTest).toContain("rate-limit guardrail");
     expect(publicTest).not.toContain("OAuth challenge");
     const migration = publicPlan.find((file) =>
-      file.path.endsWith("create_supabase_mcp_rate_limits.sql"),
+      file.path.endsWith("create_supa_mcp_rate_limits.sql"),
     );
     expect(migration?.status).toBe("create");
     expect(migration?.content).toContain("security invoker");
@@ -216,6 +224,7 @@ describe("doctor", () => {
           [
             "oauth-challenge",
             "protected-resource-metadata",
+            "advertised-resource-url",
             "authenticated-tools-list",
           ].includes(check.name),
         ),
@@ -223,6 +232,10 @@ describe("doctor", () => {
         expect.objectContaining({ name: "oauth-challenge", ok: true }),
         expect.objectContaining({
           name: "protected-resource-metadata",
+          ok: true,
+        }),
+        expect.objectContaining({
+          name: "advertised-resource-url",
           ok: true,
         }),
         expect.objectContaining({
@@ -277,6 +290,18 @@ describe("doctor", () => {
 });
 
 describe("guided setup", () => {
+  it("normalizes clean public URLs and rejects ambiguous ones", () => {
+    expect(normalizePublicUrl("https://directory.example/mcp/")).toBe(
+      "https://directory.example/mcp",
+    );
+    expect(() => normalizePublicUrl("ftp://directory.example/mcp")).toThrow(
+      "http or https",
+    );
+    expect(() =>
+      normalizePublicUrl("https://directory.example/mcp?preview=true"),
+    ).toThrow("query string");
+  });
+
   it("detects an existing generated auth mode for idempotent resume", async () => {
     const root = await fixture();
     await applyPlan(
@@ -341,6 +366,36 @@ describe("guided setup", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "configure_oauth",
+          status: "needs_user_action",
+        }),
+      ]),
+    );
+  });
+
+  it("makes a clean public route an explicit, verifiable setup step", () => {
+    const report = buildSetupReport({
+      command: "setup",
+      projectRoot: "/tmp/project",
+      functionName: "mcp",
+      auth: "oauth",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+      localChecks: "complete",
+      projectRef: "project-ref",
+      publicUrl: "https://directory.example/mcp/",
+    });
+
+    expect(report.endpoint).toBe("https://directory.example/mcp");
+    expect(report.upstreamEndpoint).toBe(
+      "https://project-ref.supabase.co/functions/v1/mcp",
+    );
+    expect(report.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "configure_public_url" }),
+        expect.objectContaining({
+          id: "publish_public_route",
           status: "needs_user_action",
         }),
       ]),

@@ -8,7 +8,7 @@ Edit `capabilities.ts` to expose your app, then let the setup command re-check
 the project and report the remaining actions:
 
 ```sh
-npx create-supabase-mcp setup --resume --function {{FUNCTION_NAME}}
+npx supa-mcp setup --resume --function {{FUNCTION_NAME}}
 ```
 
 ## Develop
@@ -26,16 +26,30 @@ user JWT itself.
 
 ```sh
 supabase functions deploy {{FUNCTION_NAME}} --no-verify-jwt
-create-supabase-mcp doctor \
+npx supa-mcp doctor \
   --function {{FUNCTION_NAME}} \
   --url https://YOUR_PROJECT.supabase.co/functions/v1/{{FUNCTION_NAME}}
 ```
 
+To give clients a clean URL, configure the Edge Function's advertised identity
+and proxy the entire route tree—including its `/.well-known/...` suffixes—to
+the Supabase function:
+
+```sh
+npx supa-mcp setup \
+  --resume \
+  --function {{FUNCTION_NAME}} \
+  --public-url https://yourapp.com/mcp
+```
+
+The project's Supabase Auth URL remains the OAuth issuer. Run `doctor` against
+the clean URL after the proxy is live.
+
 For agents and CI, both continuation and diagnostics have stable JSON output:
 
 ```sh
-npx create-supabase-mcp setup --resume --function {{FUNCTION_NAME}} --yes --json
-npx create-supabase-mcp doctor --function {{FUNCTION_NAME}} --url https://YOUR_PROJECT.supabase.co/functions/v1/{{FUNCTION_NAME}} --json
+npx supa-mcp setup --resume --function {{FUNCTION_NAME}} --yes --json
+npx supa-mcp doctor --function {{FUNCTION_NAME}} --url https://YOUR_PROJECT.supabase.co/functions/v1/{{FUNCTION_NAME}} --json
 ```
 
 For OAuth mode, enable Supabase OAuth Server, configure your application's

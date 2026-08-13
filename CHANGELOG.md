@@ -1,32 +1,18 @@
 # Changelog
 
-## 0.3.0 — 2026-08-13
+## 0.1.0 — 2026-08-13
 
-- Add a guided, resumable `setup` command over the existing initializer.
-- Add read-only `status`, auth-aware remote diagnostics, and versioned JSON
-  reports with stable setup step IDs for agents and CI.
-- Add explicit opt-in migration and deployment execution without hiding
-  dashboard actions or pending application migrations.
-- Rewrite onboarding around a progressive human and agent installation ladder.
-
-## 0.2.0 — 2026-08-13
-
-- Add optional application-resolved scopes and scoped capability discovery.
-- Add `ctx.hasScope()`, `ctx.hasScopes()`, and `server.withScopes()` without
-  changing unscoped registration.
-- Guard new public scaffolds with a Postgres-backed, per-caller rate limit.
-- Keep OAuth as the unchanged default and generate no access-control storage
-  for authenticated projects.
-
-## 0.1.1 — 2026-08-13
-
-- Make the generated Deno test self-contained when run directly from a clean project.
-
-## 0.1.0 — 2026-08-11
-
-- Initial release.
-- Request-scoped Supabase Auth and RLS context for MCP Edge Functions.
-- OAuth protected-resource discovery and Bearer challenges.
-- Modern MCP 2026-07-28 with stateless legacy compatibility.
-- `init`, `doctor`, and `dev` commands.
-- Tool, resource, prompt, and multi-round-trip examples.
+- Launch Supa MCP as an end-user MCP runtime and guided setup experience for
+  existing Supabase applications.
+- Generate a deployable Edge Function with tools, resources, prompts, and an
+  MCP multi-round-trip example on the official SDK.
+- Use Supabase Auth, request-scoped clients, and application-owned RLS instead
+  of introducing another identity or authorization model.
+- Support OAuth, bearer-token, and intentionally public access modes, with a
+  generated Postgres rate limiter for public servers.
+- Add optional capability scopes without imposing an organization, role, or
+  entitlement schema on the application.
+- Add resumable setup, status, deployment, auth-aware diagnostics, and stable
+  JSON next actions for agents and CI.
+- Support clean public MCP URLs while keeping Supabase Auth as the independent
+  OAuth issuer, and verify that discovery advertises the client-facing URL.

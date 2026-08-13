@@ -1,5 +1,5 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
-import { jsonResult, type SupabaseMcpContext } from "create-supabase-mcp";
+import { jsonResult, type SupabaseMcpContext } from "supa-mcp";
 import { z } from "zod";
 
 interface ExampleDatabase {
