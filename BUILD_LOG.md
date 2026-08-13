@@ -149,3 +149,5 @@
 ### Public-registry follow-up
 
 The clean npm install exposed a generated-test defect hidden by the repository smoke harness: `deno task test` failed unless the caller supplied `SUPABASE_URL`, even though the generated README presented it as a direct command. The scaffold now installs a local test URL before dynamically importing the function, and the smoke harness no longer injects the variable externally. This fix ships as `0.1.1`; `0.1.0` remains the immutable initial artifact, while `0.1.1` is the release tag and `latest` plateau.
+
+The second blank-project install pulled `0.1.1` from the public registry, generated both Edge Functions, passed `doctor`, resolved the public npm import under Deno, passed `deno task check`, passed the generated OAuth-challenge test, and typechecked the consent function. The public-package quickstart is verified.
