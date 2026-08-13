@@ -1,0 +1,73 @@
+{
+  "name": "create-supabase-mcp",
+  "version": "0.1.0",
+  "description": "Add an end-user MCP server to a Supabase app, with OAuth and RLS already wired.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Shep Bryan",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elsheppo/create-supabase-mcp.git"
+  },
+  "homepage": "https://github.com/elsheppo/create-supabase-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/elsheppo/create-supabase-mcp/issues"
+  },
+  "keywords": [
+    "supabase",
+    "mcp",
+    "model-context-protocol",
+    "edge-functions",
+    "oauth",
+    "rls"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "create-supabase-mcp": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    }
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:generated",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:generated": "node scripts/generated-smoke.mjs",
+    "test:rls": "vitest run test/rls.integration.test.ts",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepack": "pnpm run check"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "@supabase/server": "1.4.1",
+    "@supabase/supabase-js": "2.105.4",
+    "zod": "4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "prettier": "3.8.1",
+    "tsdown": "0.20.3",
+    "typescript": "5.9.3",
+    "vitest": "4.1.0"
+  },
+  "packageManager": "pnpm@10.11.0"
+}
