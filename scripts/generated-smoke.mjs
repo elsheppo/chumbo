@@ -73,13 +73,7 @@ try {
   await writeFile(denoPath, `${JSON.stringify(denoConfig, null, 2)}\n`);
 
   run("deno", ["task", "check"], { cwd: functionDirectory });
-  run("deno", ["task", "test"], {
-    cwd: functionDirectory,
-    env: {
-      ...process.env,
-      SUPABASE_URL: "http://127.0.0.1:54321",
-    },
-  });
+  run("deno", ["task", "test"], { cwd: functionDirectory });
   run("deno", [
     "check",
     join(fixture, "supabase", "functions", "mcp-consent", "index.ts"),

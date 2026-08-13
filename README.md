@@ -228,7 +228,7 @@ be exported directly from a Supabase Edge Function.
 
 ## Compatibility
 
-Version 0.1.0 pins:
+Version 0.1.1 pins:
 
 - MCP TypeScript SDK `2.0.0` and protocol `2026-07-28`;
 - stateless compatibility for 2025-era Streamable HTTP clients;

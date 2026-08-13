@@ -129,3 +129,23 @@
 
 - Enable cloud OAuth and complete the independent-client authorization flow.
 - Publish `create-supabase-mcp@0.1.0`, tag the matching Git commit, and run the public-package Deno quickstart.
+
+---
+
+## Iteration 8: npm publication
+
+**Changes**:
+
+- Authenticated the npm CLI as `elsheppo` and published the exact release-candidate artifact with public access and the `latest` tag.
+
+**Result**: `create-supabase-mcp@0.1.0` is public on npm. The registry reports 21 files, a 94,126-byte unpacked size, SHA-1 `394de2151a0635498aebc0c0fd744337d39538f8`, and SHA-512 integrity `TvsF/b2RaczyJy4zV21GMQBtOGcc1JfWOc8FVW/4e2EL0HTXnDqa32Oom9MkUn8GGBMJXHhLJQzFOoYbaTOQbw==`, matching the locally proven tarball.
+**Diagnosis**: Package publication is complete. npm's registry view normalizes the CLI bin path for display, but the published artifact records `gitHead` `c332467f9e33eff1a6078be5c7c8074e1eb0954d`; the Git release must tag that exact source commit. The remaining release proof is installation and Deno resolution from the public registry. The separate hosted OAuth authorization-code flow still depends on enabling OAuth Server in the Supabase Dashboard.
+**Next**:
+
+- Install from npm in a clean project and run the complete generated Deno checks.
+- Tag and publish the GitHub `v0.1.0` release.
+- Enable hosted Supabase OAuth and complete the independent-client PKCE flow.
+
+### Public-registry follow-up
+
+The clean npm install exposed a generated-test defect hidden by the repository smoke harness: `deno task test` failed unless the caller supplied `SUPABASE_URL`, even though the generated README presented it as a direct command. The scaffold now installs a local test URL before dynamically importing the function, and the smoke harness no longer injects the variable externally. This fix ships as `0.1.1`; `0.1.0` remains the immutable initial artifact, while `0.1.1` is the release tag and `latest` plateau.

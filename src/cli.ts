@@ -11,7 +11,7 @@ import {
   planInit,
 } from "./project.js";
 
-const HELP = `create-supabase-mcp 0.1.0
+const HELP = `create-supabase-mcp 0.1.1
 
 Usage:
   create-supabase-mcp init [options]
