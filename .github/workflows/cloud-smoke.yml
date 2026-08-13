@@ -1,0 +1,35 @@
+name: Cloud smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      mcp_url:
+        description: Deployed MCP endpoint
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.11.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: OAuth discovery and authenticated tools/list
+        env:
+          MCP_URL: ${{ inputs.mcp_url }}
+          MCP_SMOKE_TOKEN: ${{ secrets.MCP_SMOKE_TOKEN }}
+        run: >-
+          node dist/cli.js doctor
+          --url "$MCP_URL"
+          --token "$MCP_SMOKE_TOKEN"

@@ -1,0 +1,14 @@
+project_id = "create-supabase-mcp-example"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+
+[functions.mcp]
+verify_jwt = false
