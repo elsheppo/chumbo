@@ -7,7 +7,7 @@ if (!projectUrl) throw new Error("SUPABASE_URL is not configured");
 const app = createSupabaseMcp({
   server: { name: "{{SERVER_NAME}}", version: "1.0.0" },
   resourceUrl: new URL(`${projectUrl}/functions/v1/{{FUNCTION_NAME}}`),
-  auth: { mode: "{{AUTH_MODE}}" },
+  auth: {{AUTH_CONFIG}},
   register: registerCapabilities,
   onError({ error, phase, traceId }) {
     console.error(JSON.stringify({

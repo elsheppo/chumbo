@@ -198,11 +198,11 @@ mode, not the normal end-user configuration.
 The intended hand-authored file should remain small:
 
 ```ts
-import { McpServer } from "@modelcontextprotocol/server";
 import {
   createSupabaseMcp,
   jsonResult,
   type SupabaseMcpContext,
+  type SupabaseMcpServer,
 } from "create-supabase-mcp";
 import { z } from "zod";
 
@@ -210,7 +210,7 @@ const app = createSupabaseMcp({
   server: { name: "acme", version: "1.0.0" },
   resourceUrl: new URL(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mcp`),
   auth: { mode: "oauth" },
-  register(server: McpServer, ctx: SupabaseMcpContext) {
+  register(server: SupabaseMcpServer, ctx: SupabaseMcpContext) {
     server.registerTool(
       "list_projects",
       {
@@ -435,6 +435,8 @@ export interface SupabaseMcpContext<Database = unknown> {
   jwtClaims: Record<string, unknown>;
   clientId?: string;
   scopes: readonly string[];
+  hasScope(scope: string): boolean;
+  hasScopes(scopes: readonly string[]): boolean;
   traceId?: string;
   json(value: unknown): CallToolResult;
 }
@@ -487,8 +489,25 @@ already supplies them.
   context explicit.
 - The initializer requires explicit selection; it is never the production
   default.
+- New public scaffolds install a private fixed-window Postgres limiter and
+  enable it in generated configuration. Existing authenticated scaffolds do
+  not receive a migration or additional setup.
 
-### 13.4 Privileged access
+### 13.4 Progressive capability scopes
+
+Scopes are an optional capability boundary above authentication and below RLS.
+Unscoped registration remains unchanged. Advanced builders can register a
+tool, resource, prompt, or resource template through
+`server.withScopes([...])`; capabilities missing any required scope are not
+advertised or callable for that request.
+
+Token scopes are the initial value. An optional per-request resolver can
+replace them with application-owned grants loaded through the existing
+RLS-aware client. The package does not prescribe scope names, roles,
+organizations, or a grant-table schema. Supabase OAuth's standard identity
+scopes must not be presented as arbitrary application permissions.
+
+### 13.5 Privileged access
 
 The default handler context does not expose `supabaseAdmin`. A builder who needs
 an internal operation must opt into a separately named privileged capability and

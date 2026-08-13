@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, parse, relative, resolve } from "node:path";
 
-export const PACKAGE_VERSION = "0.1.1";
+export const PACKAGE_VERSION = "0.2.0";
 
 export interface PlannedFile {
   path: string;
@@ -122,9 +122,20 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
     options.functionName,
   );
   const replacements = {
-    AUTH_MODE: options.auth,
+    AUTH_CONFIG:
+      options.auth === "public"
+        ? '{ mode: "public", rateLimit: true }'
+        : `{ mode: "${options.auth}" }`,
+    ACCESS_DESCRIPTION:
+      options.auth === "public"
+        ? "Requests use Supabase's anonymous RLS role. The generated Postgres migration adds a 60 request/minute, per-caller guardrail."
+        : "A request's `ctx.supabase` client carries that user's Supabase access token, so your existing Row Level Security policies decide which rows are visible.",
     FUNCTION_NAME: options.functionName,
     PACKAGE_VERSION,
+    PUBLIC_SETUP:
+      options.auth === "public"
+        ? "\nPublic mode is intentionally anonymous and rate limited. Apply the generated migration before starting the function:\n\n```sh\nsupabase db push\n```\n"
+        : "",
     SERVER_NAME: options.serverName,
   };
   const templates = [
@@ -134,7 +145,10 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
       join(functionDirectory, "capabilities.ts"),
     ],
     ["function/deno.json.tpl", join(functionDirectory, "deno.json")],
-    ["function/index_test.ts.tpl", join(functionDirectory, "index_test.ts")],
+    [
+      `function/index_test_${options.auth}.ts.tpl`,
+      join(functionDirectory, "index_test.ts"),
+    ],
     ["function/README.md.tpl", join(functionDirectory, "README.md")],
   ] as const;
 
@@ -144,6 +158,24 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
       await classifyFile(
         path,
         render(await loadTemplate(template), replacements),
+      ),
+    );
+  }
+
+  if (options.auth === "public") {
+    const path = join(
+      root,
+      "supabase",
+      "migrations",
+      "20260813000000_create_supabase_mcp_rate_limits.sql",
+    );
+    files.push(
+      await classifyFile(
+        path,
+        render(
+          await loadTemplate("migrations/rate-limit.sql.tpl"),
+          replacements,
+        ),
       ),
     );
   }

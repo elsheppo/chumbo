@@ -12,7 +12,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const RESOURCE_URL = "https://project.supabase.co/functions/v1/mcp";
 const ISSUER = "https://project.supabase.co/auth/v1";
 
-function identity(id: string, clientId?: string): VerifiedSupabaseIdentity {
+function identity(
+  id: string,
+  clientId?: string,
+  scopes?: readonly string[],
+): VerifiedSupabaseIdentity {
   return {
     token: id,
     userClaims: { id, email: `${id}@example.com`, role: "authenticated" },
@@ -21,12 +25,18 @@ function identity(id: string, clientId?: string): VerifiedSupabaseIdentity {
       email: `${id}@example.com`,
       exp: Math.floor(Date.now() / 1000) + 3600,
       ...(clientId ? { client_id: clientId } : {}),
+      ...(scopes ? { scope: scopes.join(" ") } : {}),
     },
   };
 }
 
 function dependencies(
   users: Record<string, VerifiedSupabaseIdentity> = {},
+  rateLimit: {
+    allowed?: boolean;
+    currentCount?: number;
+    error?: Error;
+  } = {},
 ): RuntimeDependencies<any> {
   let sequence = 0;
   return {
@@ -37,6 +47,24 @@ function dependencies(
     },
     createClient(token) {
       return { token } as unknown as SupabaseClient;
+    },
+    createAdminClient() {
+      return {
+        async rpc() {
+          return {
+            data: rateLimit.error
+              ? null
+              : [
+                  {
+                    allowed: rateLimit.allowed ?? true,
+                    current_count: rateLimit.currentCount ?? 1,
+                    reset_at: new Date(Date.now() + 60_000).toISOString(),
+                  },
+                ],
+            error: rateLimit.error ?? null,
+          };
+        },
+      } as unknown as SupabaseClient;
     },
     async fetch() {
       return Response.json({
@@ -297,6 +325,268 @@ describe("request context", () => {
     const response = await app.fetch(request("tools/list"));
     expect(response.status).toBe(200);
     expect((await response.json()).result.tools[0].name).toBe("ping");
+  });
+});
+
+describe("progressive access controls", () => {
+  it("keeps unscoped registration simple and filters scoped capabilities", async () => {
+    let deniedCalls = 0;
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "scoped", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "bearer" },
+        register(server, context) {
+          expect(context.hasScope("projects:read")).toBe(true);
+          expect(context.hasScopes(["projects:read"])).toBe(true);
+          server.registerTool(
+            "health",
+            { inputSchema: z.object({}) },
+            async () => jsonResult({ ok: true }),
+          );
+          server
+            .withScopes(["projects:read"])
+            .registerTool(
+              "list_projects",
+              { inputSchema: z.object({}) },
+              async () => jsonResult({ projects: [] }),
+            );
+          server
+            .withScopes(["projects:write"])
+            .registerTool(
+              "create_project",
+              { inputSchema: z.object({}) },
+              async () => {
+                deniedCalls += 1;
+                return jsonResult({ created: true });
+              },
+            );
+        },
+      },
+      dependencies({
+        reader: identity("reader", undefined, ["projects:read"]),
+      }),
+    );
+
+    const response = await app.fetch(request("tools/list", "reader"));
+    const names = (await response.json()).result.tools.map(
+      (tool: { name: string }) => tool.name,
+    );
+    expect(names).toEqual(["health", "list_projects"]);
+
+    const denied = await app.fetch(
+      request("tools/call", "reader", {
+        name: "create_project",
+        arguments: {},
+      }),
+    );
+    expect((await denied.json()).error).toBeDefined();
+    expect(deniedCalls).toBe(0);
+  });
+
+  it("lets an application resolver supply authoritative scopes", async () => {
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "resolved", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "bearer" },
+        access: {
+          resolveScopes(context) {
+            return context.user?.id === "writer" ? ["projects:write"] : [];
+          },
+        },
+        register(server) {
+          server
+            .withScopes(["projects:write"])
+            .registerTool(
+              "create_project",
+              { inputSchema: z.object({}) },
+              async () => jsonResult({ created: true }),
+            );
+        },
+      },
+      dependencies({ writer: identity("writer") }),
+    );
+
+    const response = await app.fetch(request("tools/list", "writer"));
+    expect((await response.json()).result.tools).toMatchObject([
+      { name: "create_project" },
+    ]);
+  });
+
+  it("redacts scope resolver failures", async () => {
+    const errors: string[] = [];
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "resolved", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "bearer" },
+        access: {
+          resolveScopes() {
+            throw new Error("private grant-table failure");
+          },
+        },
+        register() {},
+        onError(event) {
+          errors.push(`${event.phase}:${event.error.message}`);
+        },
+      },
+      dependencies({ reader: identity("reader") }),
+    );
+
+    const response = await app.fetch(request("tools/list", "reader"));
+    const body = await response.text();
+    expect(response.status).toBe(500);
+    expect(body).not.toContain("private grant-table failure");
+    expect(errors).toEqual(["runtime:private grant-table failure"]);
+  });
+
+  it("supports deliberately narrow public scopes", async () => {
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "public-scoped", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "public", scopes: ["catalog:read"] },
+        register(server, context) {
+          expect(context.hasScope("catalog:read")).toBe(true);
+          server
+            .withScopes(["catalog:read"])
+            .registerTool("catalog", { inputSchema: z.object({}) }, async () =>
+              jsonResult({ items: [] }),
+            );
+          server
+            .withScopes(["catalog:read"])
+            .registerResource(
+              "catalog-help",
+              "app://catalog-help",
+              { mimeType: "text/plain" },
+              async (uri) => ({
+                contents: [{ uri: uri.href, text: "Catalog help" }],
+              }),
+            );
+          server
+            .withScopes(["catalog:write"])
+            .registerResource(
+              "catalog-admin",
+              "app://catalog-admin",
+              { mimeType: "text/plain" },
+              async (uri) => ({
+                contents: [{ uri: uri.href, text: "Admin" }],
+              }),
+            );
+          server
+            .withScopes(["catalog:read"])
+            .registerPrompt(
+              "summarize-catalog",
+              { argsSchema: z.object({}) },
+              () => ({
+                messages: [
+                  {
+                    role: "user",
+                    content: { type: "text", text: "Summarize the catalog" },
+                  },
+                ],
+              }),
+            );
+          server
+            .withScopes(["catalog:write"])
+            .registerPrompt(
+              "rewrite-catalog",
+              { argsSchema: z.object({}) },
+              () => ({
+                messages: [
+                  {
+                    role: "user",
+                    content: { type: "text", text: "Rewrite the catalog" },
+                  },
+                ],
+              }),
+            );
+        },
+      },
+      dependencies(),
+    );
+
+    const response = await app.fetch(request("tools/list"));
+    expect((await response.json()).result.tools[0].name).toBe("catalog");
+
+    const resources = await app.fetch(request("resources/list"));
+    expect(
+      (await resources.json()).result.resources.map(
+        (resource: { name: string }) => resource.name,
+      ),
+    ).toEqual(["catalog-help"]);
+
+    const prompts = await app.fetch(request("prompts/list"));
+    expect(
+      (await prompts.json()).result.prompts.map(
+        (prompt: { name: string }) => prompt.name,
+      ),
+    ).toEqual(["summarize-catalog"]);
+  });
+
+  it("rate limits a generated public server with standard retry headers", async () => {
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "limited", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "public", rateLimit: true },
+        register() {},
+      },
+      dependencies({}, { allowed: false, currentCount: 61 }),
+    );
+
+    const response = await app.fetch(request("tools/list"));
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBeTruthy();
+    expect(response.headers.get("x-ratelimit-limit")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limit_exceeded" });
+  });
+
+  it("reports remaining public capacity on accepted requests", async () => {
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "limited", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: {
+          mode: "public",
+          rateLimit: { requests: 10, windowSeconds: 30 },
+        },
+        register(server) {
+          server.registerTool("ping", { inputSchema: z.object({}) }, async () =>
+            jsonResult({ pong: true }),
+          );
+        },
+      },
+      dependencies({}, { allowed: true, currentCount: 4 }),
+    );
+
+    const response = await app.fetch(request("tools/list"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-ratelimit-limit")).toBe("10");
+    expect(response.headers.get("x-ratelimit-remaining")).toBe("6");
+    expect(response.headers.get("x-ratelimit-reset")).toBeTruthy();
+  });
+
+  it("fails closed when the configured public limiter is unavailable", async () => {
+    const errors: string[] = [];
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "limited", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "public", rateLimit: true },
+        register() {},
+        onError(event) {
+          errors.push(`${event.phase}:${event.error.message}`);
+        },
+      },
+      dependencies({}, { error: new Error("missing limiter function") }),
+    );
+
+    const response = await app.fetch(request("tools/list"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "rate_limit_unavailable" });
+    expect(errors).toEqual(["rate-limit:missing limiter function"]);
   });
 });
 

@@ -151,3 +151,38 @@
 The clean npm install exposed a generated-test defect hidden by the repository smoke harness: `deno task test` failed unless the caller supplied `SUPABASE_URL`, even though the generated README presented it as a direct command. The scaffold now installs a local test URL before dynamically importing the function, and the smoke harness no longer injects the variable externally. This fix ships as `0.1.1`; `0.1.0` remains the immutable initial artifact, while `0.1.1` is the release tag and `latest` plateau.
 
 The second blank-project install pulled `0.1.1` from the public registry, generated both Edge Functions, passed `doctor`, resolved the public npm import under Deno, passed `deno task check`, passed the generated OAuth-challenge test, and typechecked the consent function. The public-package quickstart is verified.
+
+---
+
+## Iteration 9: Progressive access ladder
+
+**Changes**:
+
+- Kept OAuth plus request-scoped RLS as the unchanged starter path.
+- Added optional application-resolved scopes, `ctx.hasScope()`, and
+  `server.withScopes()` across tools, resources, prompts, and resource
+  templates.
+- Added deliberately narrow public scopes without inventing a role,
+  organization, membership, or entitlement schema.
+- Added an opt-in Postgres fixed-window limiter backed by one counter per
+  caller/window, standard `429` retry headers, and fail-closed behavior.
+- Made the initializer enable that limiter and generate its migration only
+  when a builder explicitly selects public mode.
+
+**Design result**: The capability ladder lives behind optional surfaces. The
+default generated function and capability file remain unchanged; authenticated
+projects receive no new database objects or setup. Public builders get a
+guardrail without choosing a rate-limit provider, while experienced builders
+can resolve scopes from their own Supabase tables.
+
+**Boundary**: Supabase OAuth currently supplies standard identity scopes rather
+than arbitrary application permissions. Application scopes therefore resolve
+inside the resource server today. Standards-native OAuth step-up remains a
+separate future cut instead of being simulated by the library.
+
+**Verification**: The package gate passes with 26 runtime/generator tests and
+both OAuth and public generated-project Deno checks. The migration was applied
+twice in one local Supabase Postgres transaction, proving idempotency; `anon`
+and `authenticated` had no execute privilege, while `service_role` received an
+allow on the first request and a denial above the configured limit. The entire
+database probe rolled back.
