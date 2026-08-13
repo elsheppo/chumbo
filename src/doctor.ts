@@ -1,12 +1,14 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { findSupabaseProject } from "./project.js";
+import { detectGeneratedAuth, type SetupAuthMode } from "./setup.js";
 
 export interface DoctorOptions {
   cwd: string;
   functionName: string;
   url?: string;
   token?: string;
+  auth?: SetupAuthMode;
 }
 
 export interface DoctorCheck {
@@ -34,7 +36,7 @@ function modernRequest(method: string): string {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientInfo": {
           name: "create-supabase-mcp-doctor",
-          version: "0.2.0",
+          version: "0.3.0",
         },
         "io.modelcontextprotocol/clientCapabilities": {},
       },
@@ -54,6 +56,10 @@ export async function runDoctor(
   options: DoctorOptions,
 ): Promise<DoctorCheck[]> {
   const root = await findSupabaseProject(options.cwd);
+  const auth =
+    options.auth ??
+    (await detectGeneratedAuth(root, options.functionName)) ??
+    "oauth";
   const checks: DoctorCheck[] = [];
   const config = await readFile(join(root, "supabase", "config.toml"), "utf8");
   const escaped = options.functionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -104,6 +110,51 @@ export async function runDoctor(
     headers,
     body: modernRequest("tools/list"),
   });
+
+  if (auth === "public") {
+    const body = (await response.json().catch(() => null)) as {
+      result?: { tools?: unknown[] };
+    } | null;
+    checks.push({
+      name: "public-tools-list",
+      ok: response.ok && Array.isArray(body?.result?.tools),
+      detail: `HTTP ${response.status}`,
+    });
+    checks.push({
+      name: "public-rate-limit",
+      ok: response.ok && response.headers.has("x-ratelimit-limit"),
+      detail: response.headers.has("x-ratelimit-limit")
+        ? `${response.headers.get("x-ratelimit-limit")} requests per window`
+        : "missing rate-limit response headers",
+    });
+    return checks;
+  }
+
+  if (auth === "bearer") {
+    checks.push({
+      name: "bearer-gate",
+      ok: response.status === 401,
+      detail: `HTTP ${response.status}`,
+    });
+    if (!options.token) return checks;
+
+    const authenticatedHeaders = new Headers(headers);
+    authenticatedHeaders.set("authorization", `Bearer ${options.token}`);
+    const authenticatedResponse = await fetch(options.url, {
+      method: "POST",
+      headers: authenticatedHeaders,
+      body: modernRequest("tools/list"),
+    });
+    const body = (await authenticatedResponse.json().catch(() => null)) as {
+      result?: { tools?: unknown[] };
+    } | null;
+    checks.push({
+      name: "authenticated-tools-list",
+      ok: authenticatedResponse.ok && Array.isArray(body?.result?.tools),
+      detail: `HTTP ${authenticatedResponse.status}`,
+    });
+    return checks;
+  }
 
   const metadataUrl = challengeMetadataUrl(
     response.headers.get("www-authenticate"),
