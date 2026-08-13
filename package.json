@@ -1,17 +1,17 @@
 {
-  "name": "create-supabase-mcp",
-  "version": "0.3.0",
-  "description": "Add an end-user MCP server to a Supabase app, with OAuth and RLS already wired.",
+  "name": "supa-mcp",
+  "version": "0.1.0",
+  "description": "Turn a Supabase app into a polished end-user MCP server.",
   "type": "module",
   "license": "MIT",
   "author": "Shep Bryan",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/elsheppo/create-supabase-mcp.git"
+    "url": "git+https://github.com/elsheppo/supa-mcp.git"
   },
-  "homepage": "https://github.com/elsheppo/create-supabase-mcp#readme",
+  "homepage": "https://github.com/elsheppo/supa-mcp#readme",
   "bugs": {
-    "url": "https://github.com/elsheppo/create-supabase-mcp/issues"
+    "url": "https://github.com/elsheppo/supa-mcp/issues"
   },
   "keywords": [
     "supabase",
@@ -19,13 +19,14 @@
     "model-context-protocol",
     "edge-functions",
     "oauth",
-    "rls"
+    "rls",
+    "mcp-server"
   ],
   "engines": {
     "node": ">=22"
   },
   "bin": {
-    "create-supabase-mcp": "dist/cli.js"
+    "supa-mcp": "dist/cli.js"
   },
   "exports": {
     ".": {

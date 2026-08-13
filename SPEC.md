@@ -1,8 +1,8 @@
-# create-supabase-mcp: Product and Implementation Specification
+# supa-mcp: Product and Implementation Specification
 
 Status: Published; guided setup implemented, hosted OAuth proof still pending\
 Date: 2026-08-13\
-Current release: `0.3.0`\
+Current release: `0.1.0`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the
@@ -10,7 +10,7 @@ official SDK provides it
 
 ## 1. Executive decision
 
-`create-supabase-mcp` will be a small TypeScript package and initializer that
+`supa-mcp` will be a small TypeScript package and initializer that
 adds an end-user-facing MCP server to an existing Supabase application.
 
 The product promise is:
@@ -102,6 +102,8 @@ Version `0.1.0` must:
 10. prove tenant separation with two users from different organizations;
 11. provide a `doctor` command that catches the common configuration failures;
 12. publish a pinned, reproducible package and tagged public GitHub release.
+13. support a clean public MCP URL without coupling it to the Supabase OAuth
+    issuer, and verify the complete proxied discovery route.
 
 ## 6. Non-goals
 
@@ -157,13 +159,13 @@ not sufficient evidence.
 Primary command:
 
 ```sh
-npx create-supabase-mcp setup
+npx supa-mcp setup
 ```
 
 Non-interactive equivalent:
 
 ```sh
-npx create-supabase-mcp setup \
+npx supa-mcp setup \
   --function mcp \
   --auth oauth \
   --server-name my-app \
@@ -216,7 +218,7 @@ import {
   jsonResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "create-supabase-mcp";
+} from "supa-mcp";
 import { z } from "zod";
 
 const app = createSupabaseMcp({
@@ -256,7 +258,7 @@ Supabase client construction.
 ### 8.3 Run locally
 
 ```sh
-npx create-supabase-mcp dev
+npx supa-mcp dev
 ```
 
 The command may delegate to the installed Supabase CLI rather than wrapping its
@@ -274,7 +276,7 @@ deno test supabase/functions/mcp
 ### 8.4 Diagnose
 
 ```sh
-npx create-supabase-mcp doctor
+npx supa-mcp doctor
 ```
 
 `doctor` should check, without exposing secrets:
@@ -327,7 +329,7 @@ Keep one repository and one npm package for `0.1.0` unless implementation
 evidence forces a split.
 
 ```text
-create-supabase-mcp/
+supa-mcp/
 ├── src/
 │   ├── runtime.ts
 │   ├── types.ts
@@ -357,7 +359,7 @@ Expected exports:
 }
 ```
 
-The executable may be named `create-supabase-mcp` and expose `init`, `doctor`,
+The executable may be named `supa-mcp` and expose `init`, `doctor`,
 and `dev` subcommands. Confirm GitHub and npm namespace availability before the
 first public release; current web search found no exact-name collision but does
 not reserve the name.
@@ -411,7 +413,7 @@ Supabase owns:
 - JWT signing and discovery;
 - request-scoped Supabase Data API behavior and RLS enforcement.
 
-`create-supabase-mcp` owns:
+`supa-mcp` owns:
 
 - composing the web-standard MCP handler with Supabase request identity;
 - protected-resource metadata and OAuth challenge configuration for the Edge
@@ -913,7 +915,7 @@ Resolved:
 4. Host the optional minimal consent UI as a second Supabase Edge Function.
 5. Keep one combined runtime/CLI package; the packed artifact is 27 KB and its
    clean-consumer proof passes.
-6. Use the unscoped `create-supabase-mcp` name and position it explicitly as an
+6. Use the unscoped `supa-mcp` name and position it explicitly as an
    end-user application MCP, not the Supabase management MCP.
 
 Still to verify before release:
