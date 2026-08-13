@@ -26,4 +26,16 @@ jobs:
           deno-version: v2.2.3
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: npm publish --provenance --access public
+      - id: package
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.package.outputs.published != 'true'
+        run: npm publish --provenance --access public
+      - if: steps.package.outputs.published == 'true'
+        run: echo "Package version is already published; release verified."
