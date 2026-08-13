@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const repository = dirname(dirname(fileURLToPath(import.meta.url)));
-const fixture = await mkdtemp(join(tmpdir(), "create-supabase-mcp-smoke-"));
+const fixture = await mkdtemp(join(tmpdir(), "supa-mcp-smoke-"));
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -38,6 +38,10 @@ try {
     "mcp",
     "--server-name",
     "Generated smoke",
+    "--project-ref",
+    "generated-project",
+    "--public-url",
+    "https://directory.example/mcp/",
   ]);
   const setupReport = JSON.parse(setup.stdout);
   if (setupReport.schemaVersion !== 1 || setupReport.command !== "setup") {
@@ -46,6 +50,19 @@ try {
   if (setupReport.status !== "needs_user_action") {
     throw new Error(
       `OAuth setup should name its dashboard action: ${setup.stdout}`,
+    );
+  }
+  if (setupReport.endpoint !== "https://directory.example/mcp") {
+    throw new Error(
+      `Setup did not preserve the clean public URL: ${setup.stdout}`,
+    );
+  }
+  if (
+    setupReport.upstreamEndpoint !==
+    "https://generated-project.supabase.co/functions/v1/mcp"
+  ) {
+    throw new Error(
+      `Setup did not report its Supabase upstream: ${setup.stdout}`,
     );
   }
   const capabilityPath = join(
@@ -137,8 +154,7 @@ try {
     );
     const denoPath = join(functionDirectory, "deno.json");
     const denoConfig = JSON.parse(await readFile(denoPath, "utf8"));
-    denoConfig.imports["create-supabase-mcp"] =
-      pathToFileURL(runtimeWrapper).href;
+    denoConfig.imports["supa-mcp"] = pathToFileURL(runtimeWrapper).href;
     await writeFile(denoPath, `${JSON.stringify(denoConfig, null, 2)}\n`);
     run("deno", ["task", "check"], { cwd: functionDirectory });
     run("deno", ["task", "test"], { cwd: functionDirectory });

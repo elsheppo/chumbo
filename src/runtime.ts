@@ -31,7 +31,7 @@ const DEFAULT_SCOPES = ["openid", "email", "profile", "phone"] as const;
 const DEFAULT_RATE_LIMIT = {
   requests: 60,
   windowSeconds: 60,
-  functionName: "create_supabase_mcp_rate_limit",
+  functionName: "supa_mcp_rate_limit",
 } as const;
 const REGISTRATION_METHODS = new Set([
   "registerPrompt",

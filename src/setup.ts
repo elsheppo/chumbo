@@ -32,6 +32,7 @@ export interface SetupReport {
   functionName: string;
   auth: SetupAuthMode;
   endpoint?: string;
+  upstreamEndpoint?: string;
   files: Array<{
     path: string;
     status: "create" | "unchanged" | "update" | "conflict";
@@ -57,6 +58,8 @@ export interface BuildSetupReportOptions {
   remoteVerified?: boolean;
   remoteAttempted?: boolean;
   endpoint?: string;
+  publicUrl?: string;
+  publicUrlConfigured?: boolean;
   projectRef?: string;
   checkDetail?: string;
   migrationDetail?: string;
@@ -112,6 +115,24 @@ export function endpointFor(
     : undefined;
 }
 
+export function normalizePublicUrl(value: string): string {
+  const url = new URL(value);
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("--public-url must use http or https");
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(
+      "--public-url cannot contain credentials, a query string, or a fragment",
+    );
+  }
+  url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+  return url.href;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
 function overallStatus(
   options: BuildSetupReportOptions,
   steps: readonly SetupStep[],
@@ -130,8 +151,14 @@ function overallStatus(
 export function buildSetupReport(
   options: BuildSetupReportOptions,
 ): SetupReport {
-  const endpoint =
-    options.endpoint ?? endpointFor(options.projectRef, options.functionName);
+  const upstreamEndpoint = endpointFor(
+    options.projectRef,
+    options.functionName,
+  );
+  const publicUrl = options.publicUrl
+    ? normalizePublicUrl(options.publicUrl)
+    : undefined;
+  const endpoint = options.endpoint ?? publicUrl ?? upstreamEndpoint;
   const steps: SetupStep[] = [
     {
       id: "scaffold",
@@ -142,7 +169,7 @@ export function buildSetupReport(
         : "Review and apply the generated file plan.",
       command: options.applied
         ? undefined
-        : `npx create-supabase-mcp setup --function ${options.functionName} --auth ${options.auth} --yes --json`,
+        : `npx supa-mcp setup --function ${options.functionName} --auth ${options.auth} --yes --json`,
     },
     {
       id: "local_checks",
@@ -164,6 +191,30 @@ export function buildSetupReport(
         options.migrationDetail ??
         "The public endpoint returns 503 until its Postgres limiter migration is applied.",
       command: "supabase db push --yes",
+    });
+  }
+
+  if (publicUrl && publicUrl !== upstreamEndpoint) {
+    steps.push({
+      id: "configure_public_url",
+      title: "Set the public MCP URL",
+      status:
+        options.publicUrlConfigured || options.remoteVerified
+          ? "complete"
+          : "ready",
+      detail:
+        "Tell the Edge Function which clean URL to advertise to MCP clients.",
+      command: `supabase secrets set ${shellQuote(`MCP_PUBLIC_URL=${publicUrl}`)} --yes${options.projectRef ? ` --project-ref ${options.projectRef}` : ""}`,
+      url: publicUrl,
+    });
+    steps.push({
+      id: "publish_public_route",
+      title: "Publish the clean MCP route",
+      status: options.remoteVerified ? "complete" : "needs_user_action",
+      detail: upstreamEndpoint
+        ? `Proxy ${publicUrl} and every path below it to ${upstreamEndpoint}. The suffix routes provide OAuth discovery.`
+        : `Proxy ${publicUrl} and every path below it to the deployed Supabase Edge Function. The suffix routes provide OAuth discovery.`,
+      url: publicUrl,
     });
   }
 
@@ -217,8 +268,8 @@ export function buildSetupReport(
         ? "Probe the deployed endpoint and its authentication contract."
         : "Pass --url or --project-ref so doctor can probe the deployed endpoint."),
     command: endpoint
-      ? `npx create-supabase-mcp doctor --function ${options.functionName} --url ${endpoint} --json`
-      : `npx create-supabase-mcp doctor --function ${options.functionName} --url <MCP_URL> --json`,
+      ? `npx supa-mcp doctor --function ${options.functionName} --url ${endpoint} --json`
+      : `npx supa-mcp doctor --function ${options.functionName} --url <MCP_URL> --json`,
   });
 
   if (options.remoteVerified) {
@@ -243,10 +294,11 @@ export function buildSetupReport(
     functionName: options.functionName,
     auth: options.auth,
     ...(endpoint ? { endpoint } : {}),
+    ...(upstreamEndpoint ? { upstreamEndpoint } : {}),
     files: options.files,
     steps,
     nextActions,
-    resumeCommand: `npx create-supabase-mcp setup --resume --function ${options.functionName} --auth ${options.auth} --yes --json`,
+    resumeCommand: `npx supa-mcp setup --resume --function ${options.functionName} --auth ${options.auth} --yes --json`,
   };
 }
 
@@ -259,10 +311,10 @@ export function formatSetupReport(report: SetupReport): string {
   const lines = [
     "",
     report.status === "complete"
-      ? "Your Supabase MCP is live and verified."
+      ? "Your Supa MCP is live and verified."
       : report.status === "planned" || report.status === "needs_confirmation"
         ? "Setup plan ready."
-        : "Your Supabase MCP scaffold is ready.",
+        : "Your Supa MCP scaffold is ready.",
   ];
   if (completed.length > 0) {
     lines.push("", "Done:");

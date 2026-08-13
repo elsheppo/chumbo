@@ -6,7 +6,7 @@ import {
   jsonResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "create-supabase-mcp";
+} from "supa-mcp";
 import { z } from "zod";
 
 export function registerCapabilities(

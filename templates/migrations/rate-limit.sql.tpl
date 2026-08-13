@@ -1,22 +1,22 @@
 create schema if not exists private;
 
-create table if not exists private.create_supabase_mcp_rate_limits (
+create table if not exists private.supa_mcp_rate_limits (
   key_hash text not null,
   bucket_start timestamptz not null,
   request_count integer not null check (request_count > 0),
   primary key (key_hash, bucket_start)
 );
 
-create index if not exists create_supabase_mcp_rate_limits_bucket_start_idx
-  on private.create_supabase_mcp_rate_limits (bucket_start);
+create index if not exists supa_mcp_rate_limits_bucket_start_idx
+  on private.supa_mcp_rate_limits (bucket_start);
 
-revoke all on table private.create_supabase_mcp_rate_limits from public, anon, authenticated;
+revoke all on table private.supa_mcp_rate_limits from public, anon, authenticated;
 grant usage on schema private to service_role;
 grant select, insert, update, delete
-  on table private.create_supabase_mcp_rate_limits
+  on table private.supa_mcp_rate_limits
   to service_role;
 
-create or replace function public.create_supabase_mcp_rate_limit(
+create or replace function public.supa_mcp_rate_limit(
   p_key text,
   p_limit integer,
   p_window_seconds integer
@@ -45,7 +45,7 @@ begin
     floor(extract(epoch from v_now) / p_window_seconds) * p_window_seconds
   );
 
-  insert into private.create_supabase_mcp_rate_limits (
+  insert into private.supa_mcp_rate_limits (
     key_hash,
     bucket_start,
     request_count
@@ -53,14 +53,14 @@ begin
   values (p_key, v_bucket_start, 1)
   on conflict (key_hash, bucket_start)
   do update set request_count =
-    private.create_supabase_mcp_rate_limits.request_count + 1
+    private.supa_mcp_rate_limits.request_count + 1
   returning request_count into current_count;
 
   allowed := current_count <= p_limit;
   reset_at := v_bucket_start + make_interval(secs => p_window_seconds);
 
   if random() < 0.01 then
-    delete from private.create_supabase_mcp_rate_limits
+    delete from private.supa_mcp_rate_limits
     where bucket_start < v_now - interval '1 day';
   end if;
 
@@ -68,7 +68,7 @@ begin
 end;
 $$;
 
-revoke all on function public.create_supabase_mcp_rate_limit(text, integer, integer)
+revoke all on function public.supa_mcp_rate_limit(text, integer, integer)
   from public, anon, authenticated;
-grant execute on function public.create_supabase_mcp_rate_limit(text, integer, integer)
+grant execute on function public.supa_mcp_rate_limit(text, integer, integer)
   to service_role;
