@@ -186,3 +186,38 @@ twice in one local Supabase Postgres transaction, proving idempotency; `anon`
 and `authenticated` had no execute privilege, while `service_role` received an
 allow on the first request and a denial above the configured limit. The entire
 database probe rolled back.
+
+---
+
+## Iteration 10: Guided human and agent onboarding
+
+**Problem**: The published package had good installation primitives but no
+actual wizard. `init` made files and printed three commands. Agents had to
+parse prose, could hang at a confirmation prompt, and had no durable vocabulary
+for a multi-step setup that crosses local generation, migrations, deployment,
+Supabase Dashboard configuration, and remote verification.
+
+**Changes**:
+
+- Added `setup` as a thin conductor over the existing conflict-safe generator.
+- Added a plain-language interactive access choice while preserving flags for
+  every consequential decision.
+- Added `--plan`, `--resume`, `--apply-migrations`, `--deploy`,
+  `--project-ref`, `--skip-checks`, and a non-interactive `--json` contract.
+- Added versioned reports with stable step IDs, explicit `ready`,
+  `needs_user_action`, and `blocked` states, exact commands, and no secrets.
+- Added read-only `status` and made remote doctor probes auth-aware across
+  OAuth, bearer, and public modes.
+- Made resume derive truth from generated files, linked-project state, and the
+  endpoint instead of persisting an opaque installer state file.
+
+**Design result**: A first-time builder can run one short wizard. An agent can
+plan, apply, stop for a real Dashboard action, and resume without guessing from
+terminal text. `init` remains available as the small deterministic primitive;
+the onboarding layer does not invade the runtime library.
+
+**Boundary**: Migration and deployment mutations are never implied by JSON or
+resume. Public deployment pauses unless `--apply-migrations` is explicit,
+because `supabase db push` may include unrelated pending application
+migrations. OAuth Dashboard work remains a named user action rather than fake
+automation.

@@ -1,8 +1,8 @@
 # create-supabase-mcp: Product and Implementation Specification
 
-Status: Release candidate implemented; interactive OAuth and publication pending\
-Date: 2026-08-11\
-Target first release: `0.1.0`\
+Status: Published; guided setup implemented, hosted OAuth proof still pending\
+Date: 2026-08-13\
+Current release: `0.3.0`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the
@@ -152,24 +152,31 @@ not sufficient evidence.
 
 ## 8. User experience
 
-### 8.1 Initialize
+### 8.1 Guided setup
 
 Primary command:
 
 ```sh
-npx create-supabase-mcp init
+npx create-supabase-mcp setup
 ```
 
 Non-interactive equivalent:
 
 ```sh
-npx create-supabase-mcp init \
+npx create-supabase-mcp setup \
   --function mcp \
   --auth oauth \
-  --server-name my-app
+  --server-name my-app \
+  --yes \
+  --json
 ```
 
-The initializer must:
+`init` remains the deterministic file-generation primitive. `setup` composes
+it with local checks, optional migration/deployment execution, remote
+verification, and an ordered next-action report. `status` provides the same
+observation model without mutation.
+
+The setup flow must:
 
 1. locate `supabase/config.toml`;
 2. refuse to invent a new Supabase project unless `--create-project` is
@@ -178,15 +185,21 @@ The initializer must:
 4. print a proposed file plan before mutation;
 5. support `--dry-run`;
 6. generate or patch only the files listed in the plan;
-7. print exact local-run, test, deploy, OAuth-setup, and connection commands.
+7. print exact local-run, test, deploy, OAuth-setup, and connection commands;
+8. expose a versioned JSON envelope with stable step IDs;
+9. never prompt in JSON mode;
+10. resume by re-observing project and endpoint state rather than trusting a
+    hidden mutable state file.
 
 Interactive prompts:
 
-- Edge Function name, default `mcp`;
-- MCP server display name, inferred from the repository name;
-- authentication mode: `oauth`, `bearer`, or `public`;
-- whether to add the example tool/resource fixtures;
-- whether to patch `supabase/config.toml`.
+- authentication mode in plain builder language: `oauth`, `bearer`, or
+  `public`;
+- confirmation of the complete file plan.
+
+Function name, display name, consent fallback, config patching, migration
+application, project ref, and deployment remain explicit flags. This keeps the
+human path short and the agent path deterministic.
 
 `oauth` is the recommended production choice. `bearer` is useful for automated
 tests and developer clients that can inject an existing Supabase JWT. `public`
@@ -753,7 +766,10 @@ must:
   files;
 - return non-zero on partial failure and list exactly what changed;
 - never print secrets;
-- offer an idempotent `init` re-run and a read-only `doctor`.
+- offer an idempotent `init` re-run, a repository-derived `setup --resume`, and
+  read-only `status` and `doctor` commands;
+- emit JSON only on stdout in machine mode and keep subprocess output captured;
+- return stable statuses and next commands without serializing tokens.
 
 ## 22. Documentation requirements
 
@@ -828,10 +844,12 @@ Exit: the complete end-user definition of done passes.
 
 ### Plateau 4: EZ Mode initializer
 
-- Implement `init`, `doctor`, and minimal `dev` delegation.
+- Implement guided `setup`, deterministic `init`, read-only `status`,
+  auth-aware `doctor`, and minimal `dev` delegation.
 - Generate capability and test files.
 - Add conflict-safe mutation and dry run.
-- Run the initializer against clean and existing Supabase fixtures.
+- Run human and machine setup paths against clean and existing Supabase
+  fixtures.
 
 Exit: a new builder reaches the proven runtime without copying repository code.
 

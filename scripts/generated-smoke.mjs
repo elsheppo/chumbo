@@ -19,6 +19,7 @@ function run(command, args, options = {}) {
       `${command} ${args.join(" ")} failed\n${result.stdout}\n${result.stderr}`,
     );
   }
+  return result;
 }
 
 try {
@@ -27,17 +28,53 @@ try {
     join(fixture, "supabase", "config.toml"),
     'project_id = "generated-smoke"\n',
   );
-  run("node", [
+  const setup = run("node", [
     join(repository, "dist", "cli.js"),
-    "init",
+    "setup",
     "--yes",
+    "--json",
+    "--skip-checks",
     "--function",
     "mcp",
     "--server-name",
     "Generated smoke",
+  ]);
+  const setupReport = JSON.parse(setup.stdout);
+  if (setupReport.schemaVersion !== 1 || setupReport.command !== "setup") {
+    throw new Error(`Unexpected setup report: ${setup.stdout}`);
+  }
+  if (setupReport.status !== "needs_user_action") {
+    throw new Error(
+      `OAuth setup should name its dashboard action: ${setup.stdout}`,
+    );
+  }
+  const capabilityPath = join(
+    fixture,
+    "supabase",
+    "functions",
+    "mcp",
+    "capabilities.ts",
+  );
+  const customizedCapabilities = `// builder-owned\n${await readFile(capabilityPath, "utf8")}`;
+  await writeFile(capabilityPath, customizedCapabilities);
+  const resumed = run("node", [
+    join(repository, "dist", "cli.js"),
+    "setup",
+    "--resume",
     "--consent",
     "minimal",
+    "--yes",
+    "--json",
+    "--skip-checks",
   ]);
+  if (JSON.parse(resumed.stdout).status !== "needs_user_action") {
+    throw new Error(
+      `Resumed OAuth setup lost its dashboard action: ${resumed.stdout}`,
+    );
+  }
+  if ((await readFile(capabilityPath, "utf8")) !== customizedCapabilities) {
+    throw new Error("setup --resume overwrote builder-owned capabilities");
+  }
   run("node", [
     join(repository, "dist", "cli.js"),
     "init",
@@ -49,12 +86,27 @@ try {
     "--auth",
     "public",
   ]);
-  run("node", [
+  const doctor = run("node", [
     join(repository, "dist", "cli.js"),
     "doctor",
+    "--json",
     "--function",
     "mcp",
   ]);
+  if (JSON.parse(doctor.stdout).status !== "complete") {
+    throw new Error(`Doctor JSON did not report completion: ${doctor.stdout}`);
+  }
+  const status = run("node", [
+    join(repository, "dist", "cli.js"),
+    "status",
+    "--json",
+    "--function",
+    "mcp",
+  ]);
+  const statusReport = JSON.parse(status.stdout);
+  if (!Array.isArray(statusReport.nextActions)) {
+    throw new Error(`Status JSON is missing next actions: ${status.stdout}`);
+  }
 
   const runtimeWrapper = join(fixture, "local-runtime.ts");
   const entryTypes = await readFile(

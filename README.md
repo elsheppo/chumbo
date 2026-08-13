@@ -1,32 +1,51 @@
 # create-supabase-mcp
 
-Add an end-user MCP server to a Supabase app, with OAuth and Row Level
-Security already wired.
+Add an end-user MCP server to an existing Supabase app. It runs as a Supabase
+Edge Function and uses the app's Supabase Auth, Postgres, and Row Level
+Security instead of introducing another backend.
+
+This package exposes your application's capabilities to its users. It is not
+the official Supabase management MCP used to administer Supabase projects.
+
+## Guided setup
+
+From a repository that already contains `supabase/config.toml`:
 
 ```sh
-cd your-supabase-project
-npx create-supabase-mcp init
-supabase functions deploy mcp --no-verify-jwt
+npx create-supabase-mcp setup
 ```
 
-Your MCP handlers receive a request-scoped `ctx.supabase` client carrying the
-connected user's access token. Queries therefore run through the same RLS
-policies as the rest of your application.
+The installer requires Node 22+ and the Supabase CLI. Deno is recommended for
+the generated local type-check and test; when it is unavailable, setup reports
+those checks as an explicit next action instead of hanging or pretending they
+ran.
 
-This is for exposing your application's own capabilities to its users. It is
-not the official Supabase management MCP, which lets agents administer a
-Supabase project.
+The installer asks who should be able to connect, previews every file it will
+write, generates the Edge Function, and runs its local checks when Deno is
+available. It then gives you an ordered list of the remaining migration,
+deployment, OAuth, and verification actions.
 
-## Quickstart
+The three access choices are:
 
-You need an existing Supabase repository with `supabase/config.toml`, Node 22+
-for the initializer, and the Supabase CLI.
+1. **Supabase OAuth** — recommended when your app's users will connect their
+   accounts from an MCP client.
+2. **Bearer token** — useful when your platform already gives clients a
+   Supabase user access token.
+3. **Public** — anonymous access through the Supabase `anon` role, with a
+   generated Postgres rate limiter.
+
+Setup is resumable without a hidden state file:
 
 ```sh
-npx create-supabase-mcp init
+npx create-supabase-mcp setup --resume
+npx create-supabase-mcp status
 ```
 
-The command previews every write and generates:
+Both commands inspect the generated project and, when a project ref or URL is
+available, the deployed endpoint. Re-running setup does not overwrite an
+application-authored capability file.
+
+### What gets generated
 
 ```text
 supabase/functions/mcp/
@@ -37,42 +56,105 @@ supabase/functions/mcp/
 └── README.md
 ```
 
-It also adds this required gateway setting without replacing the rest of your
-config:
+The initializer also adds the required function gateway setting without
+replacing the rest of `supabase/config.toml`:
 
 ```toml
 [functions.mcp]
 verify_jwt = false
 ```
 
-That setting does **not** make the MCP server public. It lets the Edge Function
-answer unauthenticated requests with MCP's OAuth discovery challenge. The
-function then validates Supabase JWTs itself before MCP dispatch.
+This does not make an authenticated MCP public. It lets the Edge Function
+answer an unauthenticated request with the MCP OAuth challenge before the
+function validates the resulting Supabase access token itself.
 
-Run the generated checks and function:
+## Agent and CI setup
+
+Agents should use the non-interactive JSON interface instead of parsing
+terminal prose.
+
+Inspect the complete plan without writing:
 
 ```sh
-deno task --config supabase/functions/mcp/deno.json test
-supabase functions serve mcp
+npx create-supabase-mcp setup --auth oauth --plan --json
 ```
 
-For a non-interactive initialization:
+Apply it and receive structured next actions:
 
 ```sh
-npx create-supabase-mcp init \
+npx create-supabase-mcp setup \
+  --auth oauth \
   --function mcp \
   --server-name "My app" \
-  --auth oauth \
-  --yes
+  --yes \
+  --json
 ```
 
-Use `--dry-run` to inspect the file plan without writing. Existing files are
-never silently overwritten, and an identical re-run is a no-op.
+Resume or re-observe after a user completes a dashboard action:
 
-## Write application capabilities
+```sh
+npx create-supabase-mcp setup --resume --function mcp --yes --json
+npx create-supabase-mcp status --function mcp --json
+```
 
-The package intentionally uses the official MCP SDK's registration API. There
-is no parallel tool framework to learn.
+JSON output has a versioned envelope and stable step IDs:
+
+```json
+{
+  "schemaVersion": 1,
+  "command": "setup",
+  "status": "needs_user_action",
+  "functionName": "mcp",
+  "auth": "oauth",
+  "steps": [
+    { "id": "scaffold", "status": "complete" },
+    { "id": "local_checks", "status": "complete" },
+    { "id": "deploy", "status": "ready" },
+    { "id": "configure_oauth", "status": "needs_user_action" },
+    { "id": "verify_remote", "status": "ready" }
+  ],
+  "nextActions": [
+    { "id": "deploy", "status": "ready" },
+    { "id": "configure_oauth", "status": "needs_user_action" },
+    { "id": "verify_remote", "status": "ready" }
+  ],
+  "resumeCommand": "npx create-supabase-mcp setup --resume --function mcp --auth oauth --yes --json"
+}
+```
+
+`--json` never prompts. Without `--yes`, a new setup returns
+`needs_confirmation` and makes no changes. Failures return a structured
+`command_failed` error and a non-zero exit code. Tokens are never included in
+the setup report or resume command.
+
+Useful automation flags:
+
+- `--plan`: calculate the full setup plan without writing.
+- `--yes`: accept selected or default choices without prompting.
+- `--resume`: inspect the existing scaffold and continue idempotently.
+- `--skip-checks`: leave Deno checks as a reported next action.
+- `--project-ref <ref>`: make deployment and endpoint discovery explicit.
+- `--deploy`: deploy the generated function after successful local checks.
+- `--apply-migrations`: run `supabase db push --yes` for public mode.
+- `--url <url>`: verify an explicit deployed endpoint.
+
+Public deployment deliberately requires both mutation flags because
+`supabase db push` may include other pending application migrations:
+
+```sh
+npx create-supabase-mcp setup \
+  --resume \
+  --auth public \
+  --apply-migrations \
+  --deploy \
+  --yes \
+  --json
+```
+
+## Write your MCP capabilities
+
+Edit the generated `capabilities.ts`. The package uses the official MCP SDK's
+registration API, so there is no parallel tool framework to learn.
 
 ```ts
 import {
@@ -105,96 +187,116 @@ export function registerCapabilities(
 }
 ```
 
-The generated example also shows a resource, prompt, and MCP 2026-07-28
-multi-round-trip confirmation flow. Advanced features remain available through
-the underlying `McpServer`.
+Every request receives a new `ctx.supabase` client carrying the connected
+user's access token. Queries therefore use the same grants and RLS policies as
+the rest of the application.
 
-## Authentication modes
+The generated example also demonstrates a resource, a prompt, and an MCP
+multi-round-trip confirmation flow. Advanced MCP features remain available
+through the underlying official `McpServer`.
 
-### OAuth
+## Finish each access mode
 
-`oauth` is the default for an end-user server. The Edge Function:
+### OAuth for end users
 
-1. returns a Bearer challenge pointing to function-local protected-resource
-   metadata;
+OAuth is the default and recommended path. The Edge Function:
+
+1. returns a Bearer challenge pointing to protected-resource metadata;
 2. advertises the project's Supabase Auth OAuth issuer;
-3. validates the resulting Supabase access token;
-4. constructs one RLS-scoped client for that request;
-5. passes the client and verified identity to every registered capability.
+3. validates the Supabase access token;
+4. creates one RLS-scoped client for that request;
+5. exposes the registered MCP capabilities.
 
-Enable Supabase OAuth Server in **Authentication → OAuth Server**, configure an
-application-owned authorization/consent page, and enable dynamic client
-registration for clients that need it. Supabase currently supports the
-standard identity scopes (`openid`, `email`, `profile`, and `phone`), not custom
-application scopes. Use RLS and, where useful, the OAuth token's `client_id`
-claim for application authorization.
+Enable **Authentication → OAuth Server** in the Supabase Dashboard. Configure
+an application-owned authorization/consent path and enable dynamic client
+registration when the intended MCP clients need it.
 
-For a runnable fallback consent screen:
+If the app does not yet have a consent UI, generate the small fallback:
 
 ```sh
-npx create-supabase-mcp init --consent minimal
-supabase functions deploy mcp-consent --no-verify-jwt
+npx create-supabase-mcp setup --consent minimal
 ```
 
-Point the Supabase OAuth authorization path at the resulting function. Existing
-applications should normally integrate the three Supabase authorization calls
-into their own signed-in frontend instead. The fallback reads the hosted
-`SUPABASE_PUBLISHABLE_KEYS` environment automatically and also accepts the
-single-key local CLI environment.
+Existing applications should normally integrate Supabase's authorization
+details, approve, and deny calls into their own signed-in frontend. The
+fallback is a runnable bridge, not a replacement for the app's eventual UX.
 
-### Bearer
+### Existing bearer tokens
 
-`--auth bearer` accepts an existing Supabase user access token without
-advertising an interactive OAuth flow. It is useful for tests, internal client
-configuration, and incremental adoption. RLS behavior is identical to OAuth.
+```sh
+npx create-supabase-mcp setup --auth bearer
+```
 
-### Public
+Bearer mode accepts an existing Supabase user access token without advertising
+an interactive OAuth flow. RLS behavior is the same as OAuth.
 
-`--auth public` must be selected explicitly. The context uses an anonymous
-Supabase client, so only capabilities and rows intentionally available to the
-`anon` role can be reached. New public scaffolds also include a private,
-Postgres-backed limit of 60 requests per minute per caller. Apply the generated
-migration with `supabase db push` before serving or deploying the function.
+### Intentionally public MCP
 
-## Access control (optional)
+```sh
+npx create-supabase-mcp setup --auth public
+```
+
+Public mode uses the Supabase anonymous client, so only capabilities and rows
+available to the `anon` role can be reached. It generates a private,
+Postgres-backed fixed-window limiter with a default of 60 requests per minute
+per caller. The endpoint fails closed until that migration is applied.
+
+## Deploy and verify
+
+Setup can perform deployment when explicitly requested:
+
+```sh
+npx create-supabase-mcp setup \
+  --resume \
+  --project-ref PROJECT_REF \
+  --deploy \
+  --yes
+```
+
+Or run the underlying commands yourself:
+
+```sh
+supabase functions deploy mcp --no-verify-jwt
+
+npx create-supabase-mcp doctor \
+  --function mcp \
+  --url https://PROJECT_REF.supabase.co/functions/v1/mcp
+```
+
+`doctor` detects the generated auth mode. It checks OAuth discovery, bearer
+gating, or public tools and rate-limit headers as appropriate. Add
+`--token "$USER_JWT"` to OAuth or bearer mode for an authenticated
+`tools/list` probe. Use `doctor --json` in automation.
+
+The remote MCP URL is:
+
+```text
+https://PROJECT_REF.supabase.co/functions/v1/mcp
+```
+
+## Optional capability scopes
 
 The starter does not require scopes. Add them only when one MCP connection
 should expose fewer capabilities than another:
 
 ```ts
-export function registerCapabilities(
-  server: SupabaseMcpServer,
-  ctx: SupabaseMcpContext,
-) {
-  server
-    .withScopes(["projects:read"])
-    .registerTool("list_projects", { inputSchema: z.object({}) }, async () =>
-      jsonResult({ projects: [] }),
-    );
-
-  server
-    .withScopes(["projects:write"])
-    .registerTool(
-      "create_project",
-      { inputSchema: z.object({ name: z.string() }) },
-      async ({ name }) => jsonResult({ name }),
-    );
-}
+server
+  .withScopes(["projects:read"])
+  .registerTool("list_projects", { inputSchema: z.object({}) }, async () =>
+    jsonResult({ projects: [] }),
+  );
 ```
 
-Capabilities registered normally remain available normally. Scoped tools,
-resources, prompts, and resource templates are omitted from discovery unless
-the request has every required scope. `ctx.hasScope()` and `ctx.hasScopes()`
-are available for finer application decisions.
+Scoped tools, resources, prompts, and resource templates are omitted from
+discovery unless the request has every required scope. `ctx.hasScope()` and
+`ctx.hasScopes()` support finer application decisions.
 
-OAuth and bearer modes begin with scopes carried by the verified token. Public
-mode can declare deliberately narrow scopes with `auth.scopes`. Applications
-that keep grants in their own tables can resolve the authoritative scope list
-through the request's existing RLS-aware client:
+Applications that store grants in their own tables can resolve scopes through
+the existing request-scoped client:
 
 ```ts
 createSupabaseMcp({
-  // ordinary server, resourceUrl, auth, and register options
+  // server, resourceUrl, auth, and register options
   access: {
     async resolveScopes(ctx) {
       const { data, error } = await ctx.supabase.rpc("my_mcp_scopes");
@@ -205,41 +307,17 @@ createSupabaseMcp({
 });
 ```
 
-Scope names and storage belong to the application. The package does not add an
-organization, role, or entitlement model, and RLS remains the row-level
-authority.
-
-## Deploy and diagnose
-
-```sh
-supabase functions deploy mcp --no-verify-jwt
-
-npx create-supabase-mcp doctor \
-  --function mcp \
-  --url https://PROJECT_REF.supabase.co/functions/v1/mcp
-```
-
-`doctor` verifies generated files, dependency pins, the gateway setting, the
-OAuth challenge, and protected-resource metadata. Add `--token "$USER_JWT"`
-to make an authenticated `tools/list` request.
-
-The MCP endpoint is:
-
-```text
-https://PROJECT_REF.supabase.co/functions/v1/mcp
-```
-
-Connect that URL from an MCP client. The client follows the 401 challenge to
-the function-local metadata document, discovers Supabase Auth, completes PKCE,
-and retries with the user's access token.
+Scope names and storage remain application-owned. The package does not add an
+organization, membership, role, or entitlement model. RLS remains the
+row-level authority.
 
 ## RLS and multi-tenancy
 
 Edge compute is shared; authorization state is not. The runtime creates a new
-MCP server, context object, and Supabase client for every request. It stores no
+MCP server, context, and Supabase client for every request. It stores no
 current user, organization, token, or tenant result in mutable module state.
 
-RLS still needs to express your application's actual ownership model. A simple
+RLS must still express the application's real ownership model. A simple
 user-owned table might use:
 
 ```sql
@@ -250,86 +328,61 @@ to authenticated
 using ((select auth.uid()) = user_id);
 ```
 
-That is only an example: teams, organizations, grants, and ownership columns
-remain application-defined.
+That is only an example. Do not add a service-role client to end-user handlers.
+The [multi-tenant example](./examples/multi-tenant) includes explicit grants,
+RLS policies, and a two-user negative isolation test.
 
-Do not introduce a service-role client into end-user handlers. Cached rows are
-outside RLS after they enter memory, so any application cache must use a
-verified tenant and version in its key.
+## Command reference
 
-The [multi-tenant example](./examples/multi-tenant) includes namespaced tables,
-explicit Data API grants, RLS policies, and a two-user negative isolation test.
+| Command  | Purpose                                                           |
+| -------- | ----------------------------------------------------------------- |
+| `setup`  | Guide or automate the complete installation ladder                |
+| `status` | Inspect local setup and optionally probe the remote endpoint      |
+| `init`   | Generate files only; useful as a low-level primitive              |
+| `doctor` | Diagnose generated files, gateway config, auth, and MCP discovery |
+| `dev`    | Delegate to `supabase functions serve`                            |
 
-## Public API
-
-```ts
-createSupabaseMcp(options): SupabaseMcpApp
-jsonResult(value, text?)
-textResult(text)
-errorResult(message)
-```
-
-`CreateSupabaseMcpOptions` accepts:
-
-- `server`: official MCP implementation name and version;
-- `resourceUrl`: the deployed MCP URL;
-- `auth`: `oauth`, `bearer`, or `public`;
-- `access.resolveScopes`: optional application-owned scope resolution;
-- `register(server, ctx)`: per-request capability registration;
-- `supabase.env`: optional environment overrides for non-Supabase runtimes;
-- `protocol`: legacy compatibility and response-mode controls;
-- `onError`: a narrow redacted logging hook.
-
-The returned object has `fetch`, `close`, and MCP notification methods and can
-be exported directly from a Supabase Edge Function.
-
-## Compatibility
-
-Version 0.2.0 pins:
-
-- MCP TypeScript SDK `2.0.0` and protocol `2026-07-28`;
-- stateless compatibility for 2025-era Streamable HTTP clients;
-- `@supabase/server` `1.4.1`;
-- Supabase JS `2.105.4`;
-- Zod `4.2.0`.
-
-The automated suite covers modern discovery, scoped tools/resources/prompts,
-public rate limiting, multi-round-trip input, OAuth challenges, Deno-generated
-output, concurrent request isolation, and real two-user Postgres RLS.
+Use `npx create-supabase-mcp --help` for all flags.
 
 ## Troubleshooting
 
-**The endpoint returns `Missing authorization header` without
-`resource_metadata`.** The gateway is intercepting requests. Ensure
-`[functions.mcp] verify_jwt = false` and deploy with `--no-verify-jwt`.
+**Setup is waiting for approval in automation.** Add `--yes --json`. JSON mode
+never opens an interactive prompt; without `--yes`, it returns a plan with
+`needs_confirmation`.
 
-**OAuth discovery returns 502.** Confirm Supabase OAuth Server is enabled and
-that `https://PROJECT_REF.supabase.co/.well-known/oauth-authorization-server/auth/v1`
-returns JSON whose issuer ends in `/auth/v1`.
+**The endpoint says `Missing authorization header` without MCP metadata.** The
+Supabase gateway is intercepting the request. Ensure the function has
+`verify_jwt = false` and deploy it with `--no-verify-jwt`.
 
-**Authentication succeeds but tools return no rows.** The runtime is working;
-inspect table grants and RLS policies. RLS can correctly return an empty result
-without producing an authorization error.
+**OAuth discovery returns 502.** Enable Supabase OAuth Server and verify the
+project's authorization-server metadata endpoint is available.
+
+**Authentication works but tools return no rows.** Inspect table grants and
+RLS policies. Correct RLS can return an empty result without an authorization
+error.
 
 **Public mode returns `rate_limit_unavailable`.** Apply the generated migration
-with `supabase db push` and confirm the Edge Function has access to the
-project's managed secret key environment.
+with `supabase db push` and confirm the function has its managed Supabase secret
+environment.
 
-**Dynamic registration fails.** Enable it in Supabase OAuth Server settings,
-and verify the client's redirect URI is complete and exact.
-
-**`init` reports a conflict.** It found an existing target file with different
-contents and refused to replace it. Move or merge that file explicitly, then
-run the initializer again.
+**Setup reports a file conflict.** An existing target differs from the
+generated template. Merge or move it explicitly. Once a generated scaffold is
+recognized, `setup --resume` leaves application-authored capabilities alone.
 
 ## Development
+
+Version 0.3.0 pins the runtime dependencies in each generated Deno project.
+The package test suite covers MCP discovery, scopes, public rate limiting,
+concurrent request isolation, generated OAuth/public projects, structured CLI
+output, and real two-user Postgres RLS when integration credentials are
+available.
 
 ```sh
 pnpm install
 pnpm check
-pnpm run test:rls # requires the documented integration environment variables
+pnpm run test:rls
 npm pack --dry-run
 ```
 
-The detailed product contract and architectural decisions remain in
-[SPEC.md](./SPEC.md). Released under the [MIT License](./LICENSE).
+See [SPEC.md](./SPEC.md) for the detailed protocol and architecture contract.
+Released under the [MIT License](./LICENSE).

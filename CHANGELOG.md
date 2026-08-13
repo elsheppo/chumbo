@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 — 2026-08-13
+
+- Add a guided, resumable `setup` command over the existing initializer.
+- Add read-only `status`, auth-aware remote diagnostics, and versioned JSON
+  reports with stable setup step IDs for agents and CI.
+- Add explicit opt-in migration and deployment execution without hiding
+  dashboard actions or pending application migrations.
+- Rewrite onboarding around a progressive human and agent installation ladder.
+
 ## 0.2.0 — 2026-08-13
 
 - Add optional application-resolved scopes and scoped capability discovery.
