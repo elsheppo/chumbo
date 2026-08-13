@@ -1,6 +1,6 @@
 {
   "name": "create-supabase-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Add an end-user MCP server to a Supabase app, with OAuth and RLS already wired.",
   "type": "module",
   "license": "MIT",

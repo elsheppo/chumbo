@@ -34,7 +34,7 @@ function modernRequest(method: string): string {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientInfo": {
           name: "create-supabase-mcp-doctor",
-          version: "0.1.0",
+          version: "0.1.1",
         },
         "io.modelcontextprotocol/clientCapabilities": {},
       },

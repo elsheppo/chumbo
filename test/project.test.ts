@@ -70,6 +70,14 @@ describe("initializer", () => {
     expect(consent).toContain('Deno.env.get("SUPABASE_PUBLISHABLE_KEYS")');
     expect(consent).toContain('Deno.env.get("SUPABASE_PUBLISHABLE_KEY")');
     expect(consent).toContain('Deno.env.get("SUPABASE_ANON_KEY")');
+
+    const generatedTest = await readFile(
+      join(root, "supabase", "functions", "mcp", "index_test.ts"),
+      "utf8",
+    );
+    expect(generatedTest).toContain("Deno.env.set(");
+    expect(generatedTest).toContain('"SUPABASE_URL"');
+    expect(generatedTest).toContain('await import("./index.ts")');
   });
 
   it("applies idempotently and refuses a conflicting capability file", async () => {

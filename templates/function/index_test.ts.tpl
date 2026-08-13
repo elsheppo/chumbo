@@ -1,4 +1,8 @@
-import app from "./index.ts";
+Deno.env.set(
+  "SUPABASE_URL",
+  Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321",
+);
+const { default: app } = await import("./index.ts");
 
 Deno.test("unauthenticated MCP calls receive an OAuth challenge", async () => {
   const response = await app.fetch(
