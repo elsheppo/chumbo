@@ -112,3 +112,20 @@
 - Commit the standalone release candidate.
 - Complete the live OAuth authorization-code flow through an independent MCP client.
 - Publish GitHub and npm releases and verify the public quickstart.
+
+---
+
+## Iteration 7: Public repository
+
+**Changes**:
+
+- Created the public `elsheppo/create-supabase-mcp` repository using the existing macOS Git credential.
+- Pushed the release-candidate commit to `main` with plain Git.
+- Observed the first public GitHub Actions run against the exact pushed SHA.
+
+**Result**: `main` is public at `https://github.com/elsheppo/create-supabase-mcp`, tracks `origin/main`, and CI passed on `501f541ef12a9812a0bfde1afecbe86e97e1c281`.
+**Diagnosis**: Source publication is complete. Supabase OAuth configuration still requires an authenticated Dashboard or Management API session, and npm publication requires an authenticated npm publisher session.
+**Next**:
+
+- Enable cloud OAuth and complete the independent-client authorization flow.
+- Publish `create-supabase-mcp@0.1.0`, tag the matching Git commit, and run the public-package Deno quickstart.
