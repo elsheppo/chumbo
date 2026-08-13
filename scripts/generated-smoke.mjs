@@ -40,13 +40,22 @@ try {
   ]);
   run("node", [
     join(repository, "dist", "cli.js"),
+    "init",
+    "--yes",
+    "--function",
+    "public-mcp",
+    "--server-name",
+    "Generated public smoke",
+    "--auth",
+    "public",
+  ]);
+  run("node", [
+    join(repository, "dist", "cli.js"),
     "doctor",
     "--function",
     "mcp",
   ]);
 
-  const functionDirectory = join(fixture, "supabase", "functions", "mcp");
-  const denoPath = join(functionDirectory, "deno.json");
   const runtimeWrapper = join(fixture, "local-runtime.ts");
   const entryTypes = await readFile(
     join(repository, "dist", "index.d.ts"),
@@ -67,13 +76,21 @@ try {
     runtimeWrapper,
     `// @deno-types="${pathToFileURL(localTypes).href}"\nexport * from "${pathToFileURL(join(repository, "dist", "index.js")).href}";\n`,
   );
-  const denoConfig = JSON.parse(await readFile(denoPath, "utf8"));
-  denoConfig.imports["create-supabase-mcp"] =
-    pathToFileURL(runtimeWrapper).href;
-  await writeFile(denoPath, `${JSON.stringify(denoConfig, null, 2)}\n`);
-
-  run("deno", ["task", "check"], { cwd: functionDirectory });
-  run("deno", ["task", "test"], { cwd: functionDirectory });
+  for (const functionName of ["mcp", "public-mcp"]) {
+    const functionDirectory = join(
+      fixture,
+      "supabase",
+      "functions",
+      functionName,
+    );
+    const denoPath = join(functionDirectory, "deno.json");
+    const denoConfig = JSON.parse(await readFile(denoPath, "utf8"));
+    denoConfig.imports["create-supabase-mcp"] =
+      pathToFileURL(runtimeWrapper).href;
+    await writeFile(denoPath, `${JSON.stringify(denoConfig, null, 2)}\n`);
+    run("deno", ["task", "check"], { cwd: functionDirectory });
+    run("deno", ["task", "test"], { cwd: functionDirectory });
+  }
   run("deno", [
     "check",
     join(fixture, "supabase", "functions", "mcp-consent", "index.ts"),
