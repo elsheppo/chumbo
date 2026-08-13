@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runDoctor } from "../src/doctor.js";
 import { applyPlan, patchFunctionConfig, planInit } from "../src/project.js";
+import {
+  buildSetupReport,
+  detectGeneratedAuth,
+  endpointFor,
+} from "../src/setup.js";
 
 async function fixture(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "create-supabase-mcp-"));
@@ -229,5 +234,116 @@ describe("doctor", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("checks public discovery and the generated limiter contract", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "public-mcp",
+        serverName: "Public fixture",
+        auth: "public",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { jsonrpc: "2.0", id: "public", result: { tools: [] } },
+          { headers: { "x-ratelimit-limit": "60" } },
+        ),
+      ),
+    );
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "public-mcp",
+        url: "https://project.supabase.co/functions/v1/public-mcp",
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "public-tools-list", ok: true }),
+          expect.objectContaining({ name: "public-rate-limit", ok: true }),
+        ]),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("guided setup", () => {
+  it("detects an existing generated auth mode for idempotent resume", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "mcp",
+        serverName: "Fixture",
+        auth: "bearer",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    expect(await detectGeneratedAuth(root, "mcp")).toBe("bearer");
+    expect(await detectGeneratedAuth(root, "missing")).toBeUndefined();
+  });
+
+  it("gives public installs an ordered, machine-readable next-action ladder", () => {
+    const endpoint = endpointFor("project-ref", "mcp");
+    const report = buildSetupReport({
+      command: "setup",
+      projectRoot: "/tmp/project",
+      functionName: "mcp",
+      auth: "public",
+      consent: "none",
+      files: [{ path: "supabase/functions/mcp/index.ts", status: "create" }],
+      applied: true,
+      planned: false,
+      localChecks: "complete",
+      migrations: "ready",
+      endpoint,
+      projectRef: "project-ref",
+    });
+
+    expect(report.schemaVersion).toBe(1);
+    expect(report.status).toBe("ready");
+    expect(report.endpoint).toBe(endpoint);
+    expect(report.nextActions.map((step) => step.id)).toEqual([
+      "apply_rate_limit_migration",
+      "deploy",
+      "verify_remote",
+    ]);
+    expect(report.nextActions[0]?.command).toBe("supabase db push --yes");
+    expect(report.resumeCommand).toContain("--resume");
+  });
+
+  it("marks OAuth dashboard configuration as an explicit user action", () => {
+    const report = buildSetupReport({
+      command: "setup",
+      projectRoot: "/tmp/project",
+      functionName: "mcp",
+      auth: "oauth",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+      localChecks: "complete",
+      projectRef: "project-ref",
+    });
+
+    expect(report.status).toBe("needs_user_action");
+    expect(report.nextActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "configure_oauth",
+          status: "needs_user_action",
+        }),
+      ]),
+    );
   });
 });
