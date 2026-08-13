@@ -6,21 +6,39 @@ import {
   createMcpHandler,
   requireBearerAuth,
   type AuthInfo,
+  type McpServer as McpServerType,
   type OAuthMetadata,
 } from "@modelcontextprotocol/server";
-import { createContextClient, verifyCredentials } from "@supabase/server/core";
+import {
+  createAdminClient,
+  createContextClient,
+  verifyCredentials,
+} from "@supabase/server/core";
 import type { JWTClaims, UserClaims } from "@supabase/server";
 import type {
   CreateSupabaseMcpOptions,
   RuntimeDependencies,
   SupabaseMcpApp,
   SupabaseMcpContext,
+  SupabaseMcpPostgresRateLimit,
+  SupabaseMcpServer,
   VerifiedSupabaseIdentity,
 } from "./types.js";
 
 const IDENTITY_KEY = "createSupabaseMcpIdentity";
 const CONTEXT_KEY = "createSupabaseMcpContext";
 const DEFAULT_SCOPES = ["openid", "email", "profile", "phone"] as const;
+const DEFAULT_RATE_LIMIT = {
+  requests: 60,
+  windowSeconds: 60,
+  functionName: "create_supabase_mcp_rate_limit",
+} as const;
+const REGISTRATION_METHODS = new Set([
+  "registerPrompt",
+  "registerResource",
+  "registerResourceTemplate",
+  "registerTool",
+]);
 
 interface RequestIdentity<Database> extends VerifiedSupabaseIdentity {
   supabase: SupabaseMcpContext<Database>["supabase"];
@@ -63,13 +81,123 @@ function actualClientId(claims: JWTClaims): string | undefined {
   return typeof claims.client_id === "string" ? claims.client_id : undefined;
 }
 
-function jsonResponse(value: unknown, status = 200): Response {
+function normalizedScopes(scopes: readonly string[]): string[] {
+  return [...new Set(scopes.map((scope) => scope.trim()).filter(Boolean))];
+}
+
+function contextWithScopes<Database>(
+  value: Omit<
+    SupabaseMcpContext<Database>,
+    "scopes" | "hasScope" | "hasScopes"
+  >,
+  scopes: readonly string[],
+): SupabaseMcpContext<Database> {
+  const normalized = Object.freeze(normalizedScopes(scopes));
+  const set = new Set(normalized);
+  return Object.freeze({
+    ...value,
+    scopes: normalized,
+    hasScope(scope: string) {
+      return set.has(scope);
+    },
+    hasScopes(required: readonly string[]) {
+      return required.every((scope) => set.has(scope));
+    },
+  });
+}
+
+function scopedServer<Database>(
+  server: McpServerType,
+  context: SupabaseMcpContext<Database>,
+  requiredScopes: readonly string[] = [],
+): SupabaseMcpServer {
+  const required = normalizedScopes(requiredScopes);
+  return new Proxy(server, {
+    get(target, property) {
+      if (property === "withScopes") {
+        return (additional: readonly string[]) =>
+          scopedServer(target, context, [...required, ...additional]);
+      }
+      const value = Reflect.get(target, property, target);
+      if (typeof property !== "string" || typeof value !== "function") {
+        return value;
+      }
+      if (!REGISTRATION_METHODS.has(property)) return value.bind(target);
+      return (...args: unknown[]) => {
+        const registration = Reflect.apply(value, target, args) as {
+          disable?(): void;
+        };
+        if (!context.hasScopes(required)) registration.disable?.();
+        return registration;
+      };
+    },
+  }) as SupabaseMcpServer;
+}
+
+async function sha256(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function callerAddress(request: Request): string {
+  return (
+    request.headers.get("cf-connecting-ip") ??
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    request.headers.get("x-real-ip") ??
+    "unknown"
+  );
+}
+
+interface RateLimitRow {
+  allowed: boolean;
+  current_count: number;
+  reset_at: string;
+}
+
+function rateLimitConfig(
+  configured: true | SupabaseMcpPostgresRateLimit,
+): Required<SupabaseMcpPostgresRateLimit> {
+  const value = configured === true ? {} : configured;
+  const requests = value.requests ?? DEFAULT_RATE_LIMIT.requests;
+  const windowSeconds = value.windowSeconds ?? DEFAULT_RATE_LIMIT.windowSeconds;
+  if (!Number.isSafeInteger(requests) || requests < 1) {
+    throw new Error("Public rateLimit.requests must be a positive integer");
+  }
+  if (!Number.isSafeInteger(windowSeconds) || windowSeconds < 1) {
+    throw new Error(
+      "Public rateLimit.windowSeconds must be a positive integer",
+    );
+  }
+  return {
+    requests,
+    windowSeconds,
+    functionName: value.functionName ?? DEFAULT_RATE_LIMIT.functionName,
+  };
+}
+
+function jsonResponse(value: unknown, status = 200, cache = false): Response {
   return Response.json(value, {
     status,
     headers: {
       "access-control-allow-origin": "*",
-      "cache-control": "public, max-age=300",
+      "cache-control": cache ? "public, max-age=300" : "no-store",
     },
+  });
+}
+
+function responseWithHeaders(
+  response: Response,
+  values: Readonly<Record<string, string>>,
+): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(values)) headers.set(name, value);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
   });
 }
 
@@ -110,6 +238,9 @@ export const defaultRuntimeDependencies: RuntimeDependencies = {
   createClient(token, env) {
     return createContextClient({ auth: { token }, env });
   },
+  createAdminClient(env) {
+    return createAdminClient({ env });
+  },
   fetch: globalThis.fetch.bind(globalThis),
   randomUUID: () => crypto.randomUUID(),
 };
@@ -142,6 +273,24 @@ export function createSupabaseMcpInternal<Database = unknown>(
       : undefined;
   const advertisedScopes =
     auth.mode === "oauth" ? [...(auth.scopes ?? DEFAULT_SCOPES)] : [];
+  const publicRateLimit =
+    auth.mode === "public" && auth.rateLimit
+      ? rateLimitConfig(auth.rateLimit)
+      : undefined;
+
+  async function buildContext(
+    value: Omit<
+      SupabaseMcpContext<Database>,
+      "scopes" | "hasScope" | "hasScopes"
+    >,
+    initialScopes: readonly string[],
+  ): Promise<SupabaseMcpContext<Database>> {
+    const initial = contextWithScopes(value, initialScopes);
+    const resolved = options.access?.resolveScopes
+      ? await options.access.resolveScopes(initial)
+      : initialScopes;
+    return contextWithScopes(value, resolved);
+  }
 
   let oauthMetadataPromise: Promise<OAuthMetadata> | undefined;
   const loadOAuthMetadata = (): Promise<OAuthMetadata> => {
@@ -178,14 +327,16 @@ export function createSupabaseMcpInternal<Database = unknown>(
 
       let context: SupabaseMcpContext<Database>;
       if (auth.mode === "public") {
-        context = Object.freeze({
-          request,
-          supabase: dependencies.createClient(null, options.supabase?.env),
-          user: null,
-          jwtClaims: null,
-          scopes: Object.freeze([]),
-          traceId: dependencies.randomUUID(),
-        });
+        context = await buildContext(
+          {
+            request,
+            supabase: dependencies.createClient(null, options.supabase?.env),
+            user: null,
+            jwtClaims: null,
+            traceId: dependencies.randomUUID(),
+          },
+          auth.scopes ?? [],
+        );
       } else {
         const extra = mcpContext.authInfo?.extra;
         const stored = extra?.[CONTEXT_KEY] as
@@ -197,7 +348,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
       }
 
       const server = new McpServer(options.server);
-      await options.register(server, context);
+      await options.register(scopedServer(server, context), context);
       return server;
     },
     {
@@ -292,7 +443,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
     }
     try {
       const metadata = await loadOAuthMetadata();
-      if (authorizationRoute) return jsonResponse(metadata);
+      if (authorizationRoute) return jsonResponse(metadata, 200, true);
       return jsonResponse(
         buildOAuthProtectedResourceMetadata({
           oauthMetadata: metadata,
@@ -300,6 +451,8 @@ export function createSupabaseMcpInternal<Database = unknown>(
           resourceName: options.server.name,
           scopesSupported: advertisedScopes,
         }),
+        200,
+        true,
       );
     } catch (error) {
       options.onError?.({ error: normalizeError(error), phase: "metadata" });
@@ -315,7 +468,71 @@ export function createSupabaseMcpInternal<Database = unknown>(
       const metadata = await serveMetadata(request);
       if (metadata) return metadata;
 
-      if (!bearerGate) return mcpHandler.fetch(request);
+      let rateHeaders: Record<string, string> | undefined;
+      if (publicRateLimit && request.method === "POST") {
+        try {
+          const admin = dependencies.createAdminClient(options.supabase?.env);
+          const key = await sha256(
+            `${resourceUrl.href}|${callerAddress(request)}`,
+          );
+          const { data, error } = await admin.rpc(
+            publicRateLimit.functionName as never,
+            {
+              p_key: key,
+              p_limit: publicRateLimit.requests,
+              p_window_seconds: publicRateLimit.windowSeconds,
+            } as never,
+          );
+          if (error) throw error;
+          const row = (Array.isArray(data) ? data[0] : data) as
+            | RateLimitRow
+            | undefined;
+          if (!row || typeof row.allowed !== "boolean") {
+            throw new Error("Rate-limit RPC returned an invalid result");
+          }
+          const resetSeconds = Math.max(
+            1,
+            Math.ceil((Date.parse(row.reset_at) - Date.now()) / 1000),
+          );
+          const resetAt = String(Math.ceil(Date.parse(row.reset_at) / 1000));
+          if (!row.allowed) {
+            return Response.json(
+              { error: "rate_limit_exceeded" },
+              {
+                status: 429,
+                headers: {
+                  "access-control-allow-origin": "*",
+                  "cache-control": "no-store",
+                  "retry-after": String(resetSeconds),
+                  "x-ratelimit-limit": String(publicRateLimit.requests),
+                  "x-ratelimit-remaining": "0",
+                  "x-ratelimit-reset": resetAt,
+                },
+              },
+            );
+          }
+          rateHeaders = {
+            "x-ratelimit-limit": String(publicRateLimit.requests),
+            "x-ratelimit-remaining": String(
+              Math.max(0, publicRateLimit.requests - row.current_count),
+            ),
+            "x-ratelimit-reset": resetAt,
+          };
+        } catch (error) {
+          options.onError?.({
+            error: normalizeError(error),
+            phase: "rate-limit",
+          });
+          return jsonResponse({ error: "rate_limit_unavailable" }, 503);
+        }
+      }
+
+      if (!bearerGate) {
+        const response = await mcpHandler.fetch(request);
+        return rateHeaders
+          ? responseWithHeaders(response, rateHeaders)
+          : response;
+      }
       const authInfo = await bearerGate(request);
       if (authInfo instanceof Response) return authInfo;
 
@@ -330,15 +547,27 @@ export function createSupabaseMcpInternal<Database = unknown>(
         return jsonResponse({ error: "server_error" }, 500);
       }
       const traceId = dependencies.randomUUID();
-      const context: SupabaseMcpContext<Database> = Object.freeze({
-        request,
-        supabase: identity.supabase,
-        user: identity.userClaims,
-        jwtClaims: identity.jwtClaims,
-        clientId: identity.clientId,
-        scopes: Object.freeze([...identity.scopes]),
-        traceId,
-      });
+      let context: SupabaseMcpContext<Database>;
+      try {
+        context = await buildContext(
+          {
+            request,
+            supabase: identity.supabase,
+            user: identity.userClaims,
+            jwtClaims: identity.jwtClaims,
+            clientId: identity.clientId,
+            traceId,
+          },
+          identity.scopes,
+        );
+      } catch (error) {
+        options.onError?.({
+          error: normalizeError(error),
+          phase: "runtime",
+          traceId,
+        });
+        return jsonResponse({ error: "server_error", traceId }, 500);
+      }
       authInfo.extra = { ...authInfo.extra, [CONTEXT_KEY]: context };
       return mcpHandler.fetch(request, { authInfo });
     },

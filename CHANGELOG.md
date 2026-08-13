@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — 2026-08-13
+
+- Add optional application-resolved scopes and scoped capability discovery.
+- Add `ctx.hasScope()`, `ctx.hasScopes()`, and `server.withScopes()` without
+  changing unscoped registration.
+- Guard new public scaffolds with a Postgres-backed, per-caller rate limit.
+- Keep OAuth as the unchanged default and generate no access-control storage
+  for authenticated projects.
+
 ## 0.1.1 — 2026-08-13
 
 - Make the generated Deno test self-contained when run directly from a clean project.

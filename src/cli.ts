@@ -11,7 +11,7 @@ import {
   planInit,
 } from "./project.js";
 
-const HELP = `create-supabase-mcp 0.1.1
+const HELP = `create-supabase-mcp 0.2.0
 
 Usage:
   create-supabase-mcp init [options]
@@ -117,6 +117,14 @@ async function init(args: string[]): Promise<void> {
   }
   await applyPlan(files);
   console.log(`Created Supabase MCP function '${functionName}'.`);
+  if (auth === "public") {
+    console.log(
+      "\nPublic mode includes a 60 request/minute Postgres rate limit.",
+    );
+    console.log(
+      "Apply its migration before serving or deploying:\n  supabase db push",
+    );
+  }
   console.log(`\nNext:\n  supabase functions serve ${functionName}`);
   console.log(`  supabase functions deploy ${functionName} --no-verify-jwt`);
   console.log(`  create-supabase-mcp doctor --function ${functionName}`);

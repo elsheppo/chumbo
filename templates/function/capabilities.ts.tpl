@@ -1,16 +1,16 @@
 import {
-  McpServer,
   acceptedContent,
   inputRequired,
 } from "@modelcontextprotocol/server";
 import {
   jsonResult,
   type SupabaseMcpContext,
+  type SupabaseMcpServer,
 } from "create-supabase-mcp";
 import { z } from "zod";
 
 export function registerCapabilities(
-  server: McpServer,
+  server: SupabaseMcpServer,
   ctx: SupabaseMcpContext,
 ): void {
   server.registerTool(

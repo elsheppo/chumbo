@@ -1,8 +1,8 @@
 # {{SERVER_NAME}} MCP function
 
-This function exposes application capabilities to end users through MCP. A
-request's `ctx.supabase` client carries that user's Supabase access token, so
-your existing Row Level Security policies decide which rows are visible.
+This function exposes application capabilities to end users through MCP.
+{{ACCESS_DESCRIPTION}}
+{{PUBLIC_SETUP}}
 
 ## Develop
 

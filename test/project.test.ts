@@ -108,6 +108,50 @@ describe("initializer", () => {
     );
     await expect(applyPlan(conflict)).rejects.toThrow("Refusing to overwrite");
   });
+
+  it("guardrails an explicitly public scaffold without changing other modes", async () => {
+    const root = await fixture();
+    const publicPlan = await planInit({
+      cwd: root,
+      functionName: "public-mcp",
+      serverName: "Public fixture",
+      auth: "public",
+      consent: "none",
+      patchConfig: true,
+    });
+    await applyPlan(publicPlan);
+
+    const entrypoint = await readFile(
+      join(root, "supabase", "functions", "public-mcp", "index.ts"),
+      "utf8",
+    );
+    expect(entrypoint).toContain('auth: { mode: "public", rateLimit: true }');
+    const publicTest = await readFile(
+      join(root, "supabase", "functions", "public-mcp", "index_test.ts"),
+      "utf8",
+    );
+    expect(publicTest).toContain("rate-limit guardrail");
+    expect(publicTest).not.toContain("OAuth challenge");
+    const migration = publicPlan.find((file) =>
+      file.path.endsWith("create_supabase_mcp_rate_limits.sql"),
+    );
+    expect(migration?.status).toBe("create");
+    expect(migration?.content).toContain("security invoker");
+    expect(migration?.content).toContain("grant execute");
+
+    const oauthRoot = await fixture();
+    const oauthPlan = await planInit({
+      cwd: oauthRoot,
+      functionName: "mcp",
+      serverName: "OAuth fixture",
+      auth: "oauth",
+      consent: "none",
+      patchConfig: true,
+    });
+    expect(oauthPlan.some((file) => file.path.includes("migrations"))).toBe(
+      false,
+    );
+  });
 });
 
 describe("doctor", () => {

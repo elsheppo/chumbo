@@ -75,12 +75,15 @@ The package intentionally uses the official MCP SDK's registration API. There
 is no parallel tool framework to learn.
 
 ```ts
-import { McpServer } from "@modelcontextprotocol/server";
-import { jsonResult, type SupabaseMcpContext } from "create-supabase-mcp";
+import {
+  jsonResult,
+  type SupabaseMcpContext,
+  type SupabaseMcpServer,
+} from "create-supabase-mcp";
 import { z } from "zod";
 
 export function registerCapabilities(
-  server: McpServer,
+  server: SupabaseMcpServer,
   ctx: SupabaseMcpContext,
 ) {
   server.registerTool(
@@ -149,7 +152,62 @@ configuration, and incremental adoption. RLS behavior is identical to OAuth.
 
 `--auth public` must be selected explicitly. The context uses an anonymous
 Supabase client, so only capabilities and rows intentionally available to the
-`anon` role can be reached.
+`anon` role can be reached. New public scaffolds also include a private,
+Postgres-backed limit of 60 requests per minute per caller. Apply the generated
+migration with `supabase db push` before serving or deploying the function.
+
+## Access control (optional)
+
+The starter does not require scopes. Add them only when one MCP connection
+should expose fewer capabilities than another:
+
+```ts
+export function registerCapabilities(
+  server: SupabaseMcpServer,
+  ctx: SupabaseMcpContext,
+) {
+  server
+    .withScopes(["projects:read"])
+    .registerTool("list_projects", { inputSchema: z.object({}) }, async () =>
+      jsonResult({ projects: [] }),
+    );
+
+  server
+    .withScopes(["projects:write"])
+    .registerTool(
+      "create_project",
+      { inputSchema: z.object({ name: z.string() }) },
+      async ({ name }) => jsonResult({ name }),
+    );
+}
+```
+
+Capabilities registered normally remain available normally. Scoped tools,
+resources, prompts, and resource templates are omitted from discovery unless
+the request has every required scope. `ctx.hasScope()` and `ctx.hasScopes()`
+are available for finer application decisions.
+
+OAuth and bearer modes begin with scopes carried by the verified token. Public
+mode can declare deliberately narrow scopes with `auth.scopes`. Applications
+that keep grants in their own tables can resolve the authoritative scope list
+through the request's existing RLS-aware client:
+
+```ts
+createSupabaseMcp({
+  // ordinary server, resourceUrl, auth, and register options
+  access: {
+    async resolveScopes(ctx) {
+      const { data, error } = await ctx.supabase.rpc("my_mcp_scopes");
+      if (error) throw error;
+      return data;
+    },
+  },
+});
+```
+
+Scope names and storage belong to the application. The package does not add an
+organization, role, or entitlement model, and RLS remains the row-level
+authority.
 
 ## Deploy and diagnose
 
@@ -181,21 +239,19 @@ Edge compute is shared; authorization state is not. The runtime creates a new
 MCP server, context object, and Supabase client for every request. It stores no
 current user, organization, token, or tenant result in mutable module state.
 
-RLS still needs to express your application's actual ownership model:
+RLS still needs to express your application's actual ownership model. A simple
+user-owned table might use:
 
 ```sql
-create policy "Members read organization projects"
-on public.projects
+create policy "Users read their own items"
+on public.items
 for select
 to authenticated
-using (
-  exists (
-    select 1 from public.memberships
-    where memberships.organization_id = projects.organization_id
-      and memberships.user_id = (select auth.uid())
-  )
-);
+using ((select auth.uid()) = user_id);
 ```
+
+That is only an example: teams, organizations, grants, and ownership columns
+remain application-defined.
 
 Do not introduce a service-role client into end-user handlers. Cached rows are
 outside RLS after they enter memory, so any application cache must use a
@@ -218,6 +274,7 @@ errorResult(message)
 - `server`: official MCP implementation name and version;
 - `resourceUrl`: the deployed MCP URL;
 - `auth`: `oauth`, `bearer`, or `public`;
+- `access.resolveScopes`: optional application-owned scope resolution;
 - `register(server, ctx)`: per-request capability registration;
 - `supabase.env`: optional environment overrides for non-Supabase runtimes;
 - `protocol`: legacy compatibility and response-mode controls;
@@ -228,7 +285,7 @@ be exported directly from a Supabase Edge Function.
 
 ## Compatibility
 
-Version 0.1.1 pins:
+Version 0.2.0 pins:
 
 - MCP TypeScript SDK `2.0.0` and protocol `2026-07-28`;
 - stateless compatibility for 2025-era Streamable HTTP clients;
@@ -236,9 +293,9 @@ Version 0.1.1 pins:
 - Supabase JS `2.105.4`;
 - Zod `4.2.0`.
 
-The automated suite covers modern discovery, tools, resources, prompts,
-multi-round-trip input, OAuth challenges, Deno-generated output, concurrent
-request isolation, and real two-user Postgres RLS.
+The automated suite covers modern discovery, scoped tools/resources/prompts,
+public rate limiting, multi-round-trip input, OAuth challenges, Deno-generated
+output, concurrent request isolation, and real two-user Postgres RLS.
 
 ## Troubleshooting
 
@@ -253,6 +310,10 @@ returns JSON whose issuer ends in `/auth/v1`.
 **Authentication succeeds but tools return no rows.** The runtime is working;
 inspect table grants and RLS policies. RLS can correctly return an empty result
 without producing an authorization error.
+
+**Public mode returns `rate_limit_unavailable`.** Apply the generated migration
+with `supabase db push` and confirm the Edge Function has access to the
+project's managed secret key environment.
 
 **Dynamic registration fails.** Enable it in Supabase OAuth Server settings,
 and verify the client's redirect URI is complete and exact.
