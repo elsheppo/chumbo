@@ -14,7 +14,28 @@ export type SupabaseMcpAuth =
       scopes?: readonly string[];
     }
   | { mode: "bearer" }
-  | { mode: "public" };
+  | {
+      mode: "public";
+      scopes?: readonly string[];
+      rateLimit?: true | SupabaseMcpPostgresRateLimit;
+    };
+
+export interface SupabaseMcpPostgresRateLimit {
+  /** Maximum requests accepted from one caller during each window. */
+  requests?: number;
+  /** Fixed-window duration in seconds. */
+  windowSeconds?: number;
+  /** Override the generated Postgres RPC name. */
+  functionName?: string;
+}
+
+export type SupabaseMcpServer = McpServer & {
+  /**
+   * Register capabilities only when the current request has every scope.
+   * Unscoped registration remains the default and needs no extra ceremony.
+   */
+  withScopes(requiredScopes: readonly string[]): SupabaseMcpServer;
+};
 
 export interface SupabaseMcpContext<Database = unknown> {
   readonly request: Request;
@@ -23,21 +44,34 @@ export interface SupabaseMcpContext<Database = unknown> {
   readonly jwtClaims: JWTClaims | null;
   readonly clientId?: string;
   readonly scopes: readonly string[];
+  hasScope(scope: string): boolean;
+  hasScopes(scopes: readonly string[]): boolean;
   readonly traceId: string;
 }
 
 export interface SupabaseMcpErrorEvent {
   readonly error: Error;
-  readonly phase: "auth" | "metadata" | "mcp" | "runtime";
+  readonly phase: "auth" | "metadata" | "mcp" | "rate-limit" | "runtime";
   readonly traceId?: string;
+}
+
+export interface SupabaseMcpAccessOptions<Database = unknown> {
+  /**
+   * Resolve application scopes for this request. When omitted, OAuth/Bearer
+   * token scopes (or public scopes) are used unchanged.
+   */
+  resolveScopes?(
+    context: SupabaseMcpContext<Database>,
+  ): readonly string[] | Promise<readonly string[]>;
 }
 
 export interface CreateSupabaseMcpOptions<Database = unknown> {
   server: Implementation;
   resourceUrl: string | URL;
   auth?: SupabaseMcpAuth;
+  access?: SupabaseMcpAccessOptions<Database>;
   register(
-    server: McpServer,
+    server: SupabaseMcpServer,
     context: SupabaseMcpContext<Database>,
   ): void | Promise<void>;
   supabase?: {
@@ -71,6 +105,7 @@ export interface RuntimeDependencies<Database = unknown> {
     token: string | null,
     env?: Partial<SupabaseEnv>,
   ): SupabaseClient<Database>;
+  createAdminClient(env?: Partial<SupabaseEnv>): SupabaseClient<Database>;
   fetch: typeof globalThis.fetch;
   randomUUID(): string;
 }
