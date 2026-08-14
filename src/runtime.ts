@@ -40,8 +40,12 @@ const REGISTRATION_METHODS = new Set([
   "registerTool",
 ]);
 
-interface RequestIdentity<Database> extends VerifiedSupabaseIdentity {
+interface RequestIdentity<Database> {
+  token: string;
+  userClaims: UserClaims | null;
+  jwtClaims: JWTClaims | null;
   supabase: SupabaseMcpContext<Database>["supabase"];
+  subject: string;
   clientId?: string;
   scopes: string[];
 }
@@ -277,6 +281,13 @@ export function createSupabaseMcpInternal<Database = unknown>(
     auth.mode === "public" && auth.rateLimit
       ? rateLimitConfig(auth.rateLimit)
       : undefined;
+  if (
+    auth.mode === "api-key" &&
+    typeof auth.key === "string" &&
+    auth.key.length === 0
+  ) {
+    throw new Error("API-key mode requires a non-empty key");
+  }
 
   async function buildContext(
     value: Omit<
@@ -369,6 +380,58 @@ export function createSupabaseMcpInternal<Database = unknown>(
           verifier: {
             async verifyAccessToken(token: string): Promise<AuthInfo> {
               try {
+                if (auth.mode === "api-key") {
+                  const verified =
+                    typeof auth.key === "string"
+                      ? (await sha256(token)) === (await sha256(auth.key))
+                        ? {
+                            subject: auth.subject ?? "api-key",
+                            scopes: auth.scopes,
+                          }
+                        : null
+                      : await auth.verify({
+                          token,
+                          supabaseAdmin: dependencies.createAdminClient(
+                            options.supabase?.env,
+                          ),
+                        });
+                  if (!verified) {
+                    throw new OAuthError(
+                      OAuthErrorCode.InvalidToken,
+                      "Invalid API key",
+                    );
+                  }
+                  const subject = verified.subject.trim();
+                  if (!subject) {
+                    throw new Error(
+                      "API-key verifier returned an empty subject",
+                    );
+                  }
+                  const requestIdentity: RequestIdentity<Database> = {
+                    token,
+                    userClaims: null,
+                    jwtClaims: null,
+                    supabase: dependencies.createClient(
+                      null,
+                      options.supabase?.env,
+                    ),
+                    subject,
+                    clientId: verified.clientId,
+                    scopes: normalizedScopes(
+                      verified.scopes ?? auth.scopes ?? [],
+                    ),
+                  };
+                  return {
+                    token,
+                    clientId: requestIdentity.clientId ?? subject,
+                    scopes: requestIdentity.scopes,
+                    // The MCP bearer middleware requires an expiry timestamp.
+                    // Application keys are non-expiring unless their verifier
+                    // rejects them, so represent that contract explicitly.
+                    expiresAt: Number.MAX_SAFE_INTEGER,
+                    extra: { [IDENTITY_KEY]: requestIdentity },
+                  };
+                }
                 const identity = await dependencies.verifyToken(
                   token,
                   options.supabase?.env,
@@ -386,6 +449,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
                     token,
                     options.supabase?.env,
                   ),
+                  subject: identity.userClaims.id,
                   clientId: actualClientId(identity.jwtClaims),
                   scopes: scopesFromClaims(identity.jwtClaims),
                 };
@@ -555,6 +619,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
             supabase: identity.supabase,
             user: identity.userClaims,
             jwtClaims: identity.jwtClaims,
+            subject: identity.subject,
             clientId: identity.clientId,
             traceId,
           },

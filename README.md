@@ -27,13 +27,15 @@ use, previews every file it will write, generates the Edge Function, and runs
 its local checks when Deno is available. It then gives you an ordered list of
 the remaining migration, deployment, OAuth, routing, and verification actions.
 
-The three access choices are:
+The four access choices are:
 
 1. **Supabase OAuth** — recommended when your app's users will connect their
    accounts from an MCP client.
-2. **Bearer token** — useful when your platform already gives clients a
+2. **Application API key** — the short path when your app already gives trusted
+   clients a key, or just needs one shared secret to start.
+3. **Bearer token** — useful when your platform already gives clients a
    Supabase user access token.
-3. **Public** — anonymous access through the Supabase `anon` role, with a
+4. **Public** — anonymous access through the Supabase `anon` role, with a
    generated Postgres rate limiter.
 
 Setup is resumable without a hidden state file:
@@ -191,9 +193,11 @@ export function registerCapabilities(
 }
 ```
 
-Every request receives a new `ctx.supabase` client carrying the connected
-user's access token. Queries therefore use the same grants and RLS policies as
-the rest of the application.
+In OAuth and bearer modes, every request receives a new `ctx.supabase` client
+carrying the connected user's access token. Queries therefore use the same
+grants and RLS policies as the rest of the application. API-key and public
+modes receive an anonymous client instead; their capability code owns the
+application authorization decision.
 
 The generated example also demonstrates a resource, a prompt, and an MCP
 multi-round-trip confirmation flow. Advanced MCP features remain available
@@ -234,6 +238,47 @@ npx supa-mcp setup --auth bearer
 Bearer mode accepts an existing Supabase user access token without advertising
 an interactive OAuth flow. RLS behavior is the same as OAuth.
 
+### Application API keys
+
+For the shortest authenticated path:
+
+```sh
+npx supa-mcp setup --auth api-key
+supabase secrets set MCP_API_KEY="replace-with-a-long-random-key"
+supabase functions deploy mcp --no-verify-jwt
+npx supa-mcp doctor --url https://PROJECT_REF.supabase.co/functions/v1/mcp \
+  --token "$MCP_API_KEY"
+```
+
+Clients send the key as `Authorization: Bearer <key>`. The generated function
+loads it only from the `MCP_API_KEY` Edge secret. Capability handlers receive
+`ctx.subject === "api-key"`, `ctx.user === null`, and an anonymous Supabase
+client. That distinction is deliberate: an application key is not a Supabase
+user JWT, so the library does not invent an RLS user for it.
+
+Applications with their own key table can replace the static key with a
+verifier. The service-role client exists only inside this callback and is never
+exposed to tools:
+
+```ts
+auth: {
+  mode: "api-key",
+  async verify({ token, supabaseAdmin }) {
+    const { data } = await supabaseAdmin.rpc("resolve_api_key", {
+      presented_key: token,
+    });
+
+    return data
+      ? { subject: data.owner_id, scopes: data.scopes ?? [] }
+      : null;
+  },
+},
+```
+
+Use `ctx.subject`, resolved scopes, and ordinary application queries or RPCs to
+implement the authorization model your app already has. Supa MCP does not
+prescribe an organization or API-key table schema.
+
 ### Intentionally public MCP
 
 ```sh
@@ -267,9 +312,10 @@ npx supa-mcp doctor \
   --url https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
 
-`doctor` detects the generated auth mode. It checks OAuth discovery, bearer
-gating, or public tools and rate-limit headers as appropriate. Add
-`--token "$USER_JWT"` to OAuth or bearer mode for an authenticated
+`doctor` detects the generated auth mode. It checks OAuth discovery, API-key or
+bearer gating, or public tools and rate-limit headers as appropriate. Add
+`--token "$MCP_API_KEY"` for API-key mode or `--token "$USER_JWT"` to OAuth
+or bearer mode for an authenticated
 `tools/list` probe. Use `doctor --json` in automation.
 
 The remote MCP URL is:
@@ -449,11 +495,11 @@ recognized, `setup --resume` leaves application-authored capabilities alone.
 
 ## Development
 
-Version 0.1.0 pins the runtime dependencies in each generated Deno project.
+Version 0.2.0 pins the runtime dependencies in each generated Deno project.
 The package test suite covers MCP discovery, scopes, public rate limiting,
-concurrent request isolation, generated OAuth/public projects, structured CLI
-output, and real two-user Postgres RLS when integration credentials are
-available.
+API-key authentication, concurrent request isolation, generated
+OAuth/API-key/public projects, structured CLI output, and real two-user
+Postgres RLS when integration credentials are available.
 
 ```sh
 pnpm install
