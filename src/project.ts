@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, parse, relative, resolve } from "node:path";
 
-export const PACKAGE_VERSION = "0.1.0";
+export const PACKAGE_VERSION = "0.2.0";
 
 export interface PlannedFile {
   path: string;
@@ -13,7 +13,7 @@ export interface InitOptions {
   cwd: string;
   functionName: string;
   serverName: string;
-  auth: "oauth" | "bearer" | "public";
+  auth: "oauth" | "api-key" | "bearer" | "public";
   consent: "none" | "minimal";
   patchConfig: boolean;
 }
@@ -122,16 +122,28 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
     options.functionName,
   );
   const replacements = {
+    AUTH_SETUP:
+      options.auth === "api-key"
+        ? 'const mcpApiKey = Deno.env.get("MCP_API_KEY");\nif (!mcpApiKey) throw new Error("MCP_API_KEY is not configured");\n'
+        : "",
     AUTH_CONFIG:
       options.auth === "public"
         ? '{ mode: "public", rateLimit: true }'
         : options.auth === "oauth"
           ? '{ mode: "oauth", issuer: new URL(`${projectUrl}/auth/v1`) }'
-          : '{ mode: "bearer" }',
+          : options.auth === "api-key"
+            ? '{ mode: "api-key", key: mcpApiKey }'
+            : '{ mode: "bearer" }',
     ACCESS_DESCRIPTION:
       options.auth === "public"
         ? "Requests use Supabase's anonymous RLS role. The generated Postgres migration adds a 60 request/minute, per-caller guardrail."
-        : "A request's `ctx.supabase` client carries that user's Supabase access token, so your existing Row Level Security policies decide which rows are visible.",
+        : options.auth === "api-key"
+          ? "Requests use your application's API key. Tools receive `ctx.subject` and an anonymous Supabase client; your capability code decides what the key may do."
+          : "A request's `ctx.supabase` client carries that user's Supabase access token, so your existing Row Level Security policies decide which rows are visible.",
+    API_KEY_SETUP:
+      options.auth === "api-key"
+        ? '\nSet one Edge Function secret before local development or deployment:\n\n```sh\nsupabase secrets set MCP_API_KEY="replace-with-a-long-random-key"\n```\n\nPass that value as `Authorization: Bearer <key>` from MCP clients.\n'
+        : "",
     FUNCTION_NAME: options.functionName,
     PACKAGE_VERSION,
     PUBLIC_SETUP:

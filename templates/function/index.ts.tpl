@@ -3,6 +3,7 @@ import { registerCapabilities } from "./capabilities.ts";
 
 const projectUrl = Deno.env.get("SUPABASE_URL");
 if (!projectUrl) throw new Error("SUPABASE_URL is not configured");
+{{AUTH_SETUP}}
 const internalUrl = new URL(`${projectUrl}/functions/v1/{{FUNCTION_NAME}}`);
 const publicUrl = new URL(Deno.env.get("MCP_PUBLIC_URL") ?? internalUrl);
 

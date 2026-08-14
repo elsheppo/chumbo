@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — 2026-08-14
+
+- Add a first-class `api-key` auth mode with a one-secret generated default.
+- Add application-owned API-key verification with isolated admin lookup,
+  stable subjects, and optional scopes.
+- Teach guided setup, generated tests, status, and doctor to understand the
+  API-key path without mistaking it for public access or Supabase user auth.
+- Include `ctx.subject` in the request context and generated identity examples.
+
 ## 0.1.0 — 2026-08-13
 
 - Launch Supa MCP as an end-user MCP runtime and guided setup experience for

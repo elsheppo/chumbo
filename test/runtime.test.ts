@@ -248,6 +248,87 @@ describe("OAuth resource server", () => {
 });
 
 describe("request context", () => {
+  it("authenticates a simple application API key without pretending it is a Supabase user", async () => {
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "api-key", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: {
+          mode: "api-key",
+          key: "mjx-secret",
+          subject: "mjx-owner",
+          scopes: ["blocks:read"],
+        },
+        register(server, context) {
+          server.registerTool(
+            "identity",
+            { inputSchema: z.object({}) },
+            async () =>
+              jsonResult({
+                subject: context.subject,
+                user: context.user,
+                scopes: context.scopes,
+                clientToken: (
+                  context.supabase as unknown as { token: string | null }
+                ).token,
+              }),
+          );
+        },
+      },
+      dependencies(),
+    );
+
+    expect((await app.fetch(request("tools/list"))).status).toBe(401);
+    expect((await app.fetch(request("tools/list", "wrong"))).status).toBe(401);
+    const response = await app.fetch(
+      request("tools/call", "mjx-secret", {
+        name: "identity",
+        arguments: {},
+      }),
+    );
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect((await response.json()).result.structuredContent).toEqual({
+      subject: "mjx-owner",
+      user: null,
+      scopes: ["blocks:read"],
+      clientToken: null,
+    });
+  });
+
+  it("lets an application verifier resolve API-key subjects and scopes", async () => {
+    let sawAdmin = false;
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "api-key-table", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: {
+          mode: "api-key",
+          async verify({ token, supabaseAdmin }) {
+            sawAdmin = Boolean(supabaseAdmin);
+            return token === "member-key"
+              ? { subject: "user-42", scopes: ["blocks:write"] }
+              : null;
+          },
+        },
+        register(server, context) {
+          server
+            .withScopes(["blocks:write"])
+            .registerTool("write", { inputSchema: z.object({}) }, async () =>
+              jsonResult({ subject: context.subject }),
+            );
+        },
+      },
+      dependencies(),
+    );
+
+    const response = await app.fetch(request("tools/list", "member-key"));
+    expect(sawAdmin).toBe(true);
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect((await response.json()).result.tools).toMatchObject([
+      { name: "write" },
+    ]);
+  });
+
   it("keeps concurrent user contexts isolated", async () => {
     const app = createSupabaseMcpInternal(
       {

@@ -6,7 +6,50 @@ import type {
 import type { JWTClaims, SupabaseEnv, UserClaims } from "@supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type SupabaseMcpAuth =
+export interface SupabaseMcpApiKeyIdentity {
+  /** Stable application-owned identity for audit logs and scope resolution. */
+  readonly subject: string;
+  /** Optional MCP client identifier associated with this key. */
+  readonly clientId?: string;
+  /** Application capability scopes granted to this key. */
+  readonly scopes?: readonly string[];
+}
+
+export interface SupabaseMcpApiKeyVerifyContext<Database = unknown> {
+  readonly token: string;
+  /**
+   * Privileged client available only while verifying the key. It is never
+   * exposed to tools through SupabaseMcpContext.
+   */
+  readonly supabaseAdmin: SupabaseClient<Database>;
+}
+
+export type SupabaseMcpApiKeyAuth<Database = unknown> = {
+  mode: "api-key";
+  /** Default scopes for a static key or a verifier result that omits scopes. */
+  scopes?: readonly string[];
+} & (
+  | {
+      /** Simple single-key mode, normally loaded from an Edge Function secret. */
+      key: string;
+      /** Stable subject exposed as ctx.subject. Defaults to "api-key". */
+      subject?: string;
+      verify?: never;
+    }
+  | {
+      key?: never;
+      subject?: never;
+      /** Resolve an application-owned key table or existing key service. */
+      verify(
+        context: SupabaseMcpApiKeyVerifyContext<Database>,
+      ):
+        | SupabaseMcpApiKeyIdentity
+        | null
+        | Promise<SupabaseMcpApiKeyIdentity | null>;
+    }
+);
+
+export type SupabaseMcpAuth<Database = unknown> =
   | {
       mode: "oauth";
       issuer?: string | URL;
@@ -14,6 +57,7 @@ export type SupabaseMcpAuth =
       scopes?: readonly string[];
     }
   | { mode: "bearer" }
+  | SupabaseMcpApiKeyAuth<Database>
   | {
       mode: "public";
       scopes?: readonly string[];
@@ -42,6 +86,8 @@ export interface SupabaseMcpContext<Database = unknown> {
   readonly supabase: SupabaseClient<Database>;
   readonly user: UserClaims | null;
   readonly jwtClaims: JWTClaims | null;
+  /** Authenticated application principal, including non-Supabase API keys. */
+  readonly subject?: string;
   readonly clientId?: string;
   readonly scopes: readonly string[];
   hasScope(scope: string): boolean;
@@ -68,7 +114,7 @@ export interface SupabaseMcpAccessOptions<Database = unknown> {
 export interface CreateSupabaseMcpOptions<Database = unknown> {
   server: Implementation;
   resourceUrl: string | URL;
-  auth?: SupabaseMcpAuth;
+  auth?: SupabaseMcpAuth<Database>;
   access?: SupabaseMcpAccessOptions<Database>;
   register(
     server: SupabaseMcpServer,

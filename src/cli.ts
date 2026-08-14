@@ -23,7 +23,7 @@ import {
   type SetupReport,
 } from "./setup.js";
 
-const HELP = `supa-mcp 0.1.0
+const HELP = `supa-mcp 0.2.0
 
 Usage:
   supa-mcp setup [options]   Guided, resumable installation
@@ -35,7 +35,7 @@ Usage:
 Setup options:
   --function <name>       Edge Function name (default: mcp)
   --server-name <name>    MCP display name (default: repository name)
-  --auth <mode>           oauth, bearer, or public (guided when interactive)
+  --auth <mode>           oauth, api-key, bearer, or public (guided interactively)
   --consent <mode>        none or minimal (default: none)
   --project-ref <ref>     Supabase project ref for deploy and endpoint discovery
   --public-url <url>      Clean URL clients will use, such as https://app.com/mcp
@@ -47,7 +47,7 @@ Setup options:
 
 Shared options:
   --url <url>             Deployed MCP URL for status or doctor
-  --token <jwt>           User access token for doctor's tools/list probe
+  --token <token>         User token or API key for doctor's tools/list probe
   --dry-run               Print init's file plan without writing
   --yes                   Never prompt; accept the selected/default choices
   --json                  Stable machine-readable output; never prompts
@@ -123,14 +123,16 @@ async function guidedAuth(): Promise<SetupAuthMode> {
   });
   console.log("\nWho should be able to connect?");
   console.log("  1. App users sign in with Supabase (recommended)");
-  console.log("  2. Clients bring an existing Supabase user token");
-  console.log("  3. Anyone can call it (public, rate limited)");
+  console.log("  2. Trusted clients use an application API key");
+  console.log("  3. Clients bring an existing Supabase user token");
+  console.log("  4. Anyone can call it (public, rate limited)");
   const answer = (await reader.question("Choose access [1]: ")).trim();
   reader.close();
   if (answer === "" || answer === "1") return "oauth";
-  if (answer === "2") return "bearer";
-  if (answer === "3") return "public";
-  throw new Error("Choose 1, 2, or 3 for MCP access.");
+  if (answer === "2") return "api-key";
+  if (answer === "3") return "bearer";
+  if (answer === "4") return "public";
+  throw new Error("Choose 1, 2, 3, or 4 for MCP access.");
 }
 
 async function guidedConsent(): Promise<"none" | "minimal"> {
@@ -242,7 +244,7 @@ async function init(args: string[]): Promise<void> {
   const functionName = parsed.values.function ?? "mcp";
   const auth = choice(
     parsed.values.auth,
-    ["oauth", "bearer", "public"] as const,
+    ["oauth", "api-key", "bearer", "public"] as const,
     "oauth",
     "--auth",
   );
@@ -337,7 +339,7 @@ async function setup(args: string[]): Promise<void> {
     : parsed.values.auth
       ? choice(
           parsed.values.auth,
-          ["oauth", "bearer", "public"] as const,
+          ["oauth", "api-key", "bearer", "public"] as const,
           "oauth",
           "--auth",
         )
@@ -640,7 +642,7 @@ async function status(args: string[]): Promise<void> {
   const detectedAuth = await detectGeneratedAuth(root, functionName);
   const auth = choice(
     parsed.values.auth ?? detectedAuth,
-    ["oauth", "bearer", "public"] as const,
+    ["oauth", "api-key", "bearer", "public"] as const,
     "oauth",
     "--auth",
   );
@@ -735,7 +737,7 @@ async function doctor(args: string[]): Promise<void> {
     auth: parsed.values.auth
       ? choice(
           parsed.values.auth,
-          ["oauth", "bearer", "public"] as const,
+          ["oauth", "api-key", "bearer", "public"] as const,
           "oauth",
           "--auth",
         )

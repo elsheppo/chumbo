@@ -165,6 +165,34 @@ describe("initializer", () => {
       false,
     );
   });
+
+  it("generates the simple application API-key happy path", async () => {
+    const root = await fixture();
+    const plan = await planInit({
+      cwd: root,
+      functionName: "app-mcp",
+      serverName: "Application fixture",
+      auth: "api-key",
+      consent: "none",
+      patchConfig: true,
+    });
+    await applyPlan(plan);
+
+    const entrypoint = await readFile(
+      join(root, "supabase", "functions", "app-mcp", "index.ts"),
+      "utf8",
+    );
+    expect(entrypoint).toContain('Deno.env.get("MCP_API_KEY")');
+    expect(entrypoint).toContain('auth: { mode: "api-key", key: mcpApiKey }');
+    expect(plan.some((file) => file.path.includes("migrations"))).toBe(false);
+
+    const generatedTest = await readFile(
+      join(root, "supabase", "functions", "app-mcp", "index_test.ts"),
+      "utf8",
+    );
+    expect(generatedTest).toContain("accepts the configured key");
+    expect(await detectGeneratedAuth(root, "app-mcp")).toBe("api-key");
+  });
 });
 
 describe("doctor", () => {
@@ -281,6 +309,53 @@ describe("doctor", () => {
         expect.arrayContaining([
           expect.objectContaining({ name: "public-tools-list", ok: true }),
           expect.objectContaining({ name: "public-rate-limit", ok: true }),
+        ]),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("checks an application API-key gate and authenticated discovery", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "app-mcp",
+        serverName: "Application fixture",
+        auth: "api-key",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        return headers.get("authorization") === "Bearer app-secret"
+          ? Response.json({
+              jsonrpc: "2.0",
+              id: "authenticated",
+              result: { tools: [{ name: "whoami" }] },
+            })
+          : Response.json({ error: "invalid_token" }, { status: 401 });
+      }),
+    );
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "app-mcp",
+        url: "https://project.supabase.co/functions/v1/app-mcp",
+        token: "app-secret",
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "api-key-gate", ok: true }),
+          expect.objectContaining({
+            name: "authenticated-tools-list",
+            ok: true,
+          }),
         ]),
       );
     } finally {

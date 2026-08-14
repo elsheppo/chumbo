@@ -2,7 +2,7 @@
 
 Status: Published; guided setup implemented, hosted OAuth proof still pending\
 Date: 2026-08-13\
-Current release: `0.1.0`\
+Current release: `0.2.0`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the
@@ -195,18 +195,19 @@ The setup flow must:
 
 Interactive prompts:
 
-- authentication mode in plain builder language: `oauth`, `bearer`, or
-  `public`;
+- authentication mode in plain builder language: `oauth`, `api-key`, `bearer`,
+  or `public`;
 - confirmation of the complete file plan.
 
 Function name, display name, consent fallback, config patching, migration
 application, project ref, and deployment remain explicit flags. This keeps the
 human path short and the agent path deterministic.
 
-`oauth` is the recommended production choice. `bearer` is useful for automated
-tests and developer clients that can inject an existing Supabase JWT. `public`
-must require explicit confirmation and should be presented as a demo/webhook
-mode, not the normal end-user configuration.
+`oauth` is the recommended end-user choice. `api-key` is the shortest
+authenticated application path. `bearer` is useful for automated tests and
+developer clients that can inject an existing Supabase JWT. `public` must
+require explicit confirmation and should be presented as a demo/webhook mode,
+not the normal end-user configuration.
 
 ### 8.2 Author capabilities
 
@@ -496,7 +497,21 @@ already supplies them.
 - Preserves RLS exactly like OAuth access tokens.
 - Does not pretend to provide interactive MCP authorization discovery.
 
-### 13.3 `public`
+### 13.3 `api-key`
+
+- Accepts `Authorization: Bearer <application-key>` without advertising OAuth.
+- The generated default loads one static key from the `MCP_API_KEY` Edge
+  Function secret.
+- The request context exposes a stable application principal as `ctx.subject`,
+  while `ctx.user` and `ctx.jwtClaims` remain null.
+- The default Supabase client remains anonymous. The library must not fabricate
+  a Supabase user or imply user-RLS semantics for an application key.
+- An advanced verifier may use a service-role client to resolve an existing
+  application-owned key table and return subject, client ID, and scopes. The
+  privileged client is confined to verification and never exposed to tools.
+- The package prescribes neither a key-table schema nor organization roles.
+
+### 13.4 `public`
 
 - No user identity.
 - Only appropriate for genuinely public capabilities.
@@ -508,7 +523,7 @@ already supplies them.
   enable it in generated configuration. Existing authenticated scaffolds do
   not receive a migration or additional setup.
 
-### 13.4 Progressive capability scopes
+### 13.5 Progressive capability scopes
 
 Scopes are an optional capability boundary above authentication and below RLS.
 Unscoped registration remains unchanged. Advanced builders can register a
@@ -522,7 +537,7 @@ RLS-aware client. The package does not prescribe scope names, roles,
 organizations, or a grant-table schema. Supabase OAuth's standard identity
 scopes must not be presented as arbitrary application permissions.
 
-### 13.5 Privileged access
+### 13.6 Privileged access
 
 The default handler context does not expose `supabaseAdmin`. A builder who needs
 an internal operation must opt into a separately named privileged capability and

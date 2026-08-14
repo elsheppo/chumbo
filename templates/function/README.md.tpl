@@ -2,6 +2,7 @@
 
 This function exposes application capabilities to end users through MCP.
 {{ACCESS_DESCRIPTION}}
+{{API_KEY_SETUP}}
 {{PUBLIC_SETUP}}
 
 Edit `capabilities.ts` to expose your app, then let the setup command re-check
@@ -20,9 +21,9 @@ deno task --config supabase/functions/{{FUNCTION_NAME}}/deno.json test
 
 ## Deploy
 
-The gateway JWT check must remain disabled so the function can serve OAuth
-discovery and standards-shaped challenges. The function still verifies every
-user JWT itself.
+The gateway JWT check must remain disabled because the function owns its MCP
+authentication contract. Authenticated modes still verify every credential
+before registering or calling tools.
 
 ```sh
 supabase functions deploy {{FUNCTION_NAME}} --no-verify-jwt
