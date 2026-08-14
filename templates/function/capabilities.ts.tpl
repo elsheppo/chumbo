@@ -20,6 +20,7 @@ export function registerCapabilities(
       inputSchema: z.object({}),
     },
     async () => jsonResult({
+      subject: ctx.subject,
       user: ctx.user,
       oauthClientId: ctx.clientId,
       traceId: ctx.traceId,
@@ -66,7 +67,11 @@ export function registerCapabilities(
       contents: [{
         uri: uri.href,
         mimeType: "application/json",
-        text: JSON.stringify({ user: ctx.user, clientId: ctx.clientId }),
+        text: JSON.stringify({
+          subject: ctx.subject,
+          user: ctx.user,
+          clientId: ctx.clientId,
+        }),
       }],
     }),
   );

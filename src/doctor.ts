@@ -36,7 +36,7 @@ function modernRequest(method: string): string {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientInfo": {
           name: "supa-mcp-doctor",
-          version: "0.1.0",
+          version: "0.2.0",
         },
         "io.modelcontextprotocol/clientCapabilities": {},
       },
@@ -130,9 +130,9 @@ export async function runDoctor(
     return checks;
   }
 
-  if (auth === "bearer") {
+  if (auth === "bearer" || auth === "api-key") {
     checks.push({
-      name: "bearer-gate",
+      name: auth === "api-key" ? "api-key-gate" : "bearer-gate",
       ok: response.status === 401,
       detail: `HTTP ${response.status}`,
     });

@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export type SetupAuthMode = "oauth" | "bearer" | "public";
+export type SetupAuthMode = "oauth" | "api-key" | "bearer" | "public";
 export type SetupStepStatus =
   | "complete"
   | "ready"
@@ -85,11 +85,13 @@ export async function detectGeneratedAuth(
   const source = await readFile(path, "utf8");
   return /mode:\s*["']public["']/.test(source)
     ? "public"
-    : /mode:\s*["']bearer["']/.test(source)
-      ? "bearer"
-      : /mode:\s*["']oauth["']/.test(source)
-        ? "oauth"
-        : undefined;
+    : /mode:\s*["']api-key["']/.test(source)
+      ? "api-key"
+      : /mode:\s*["']bearer["']/.test(source)
+        ? "bearer"
+        : /mode:\s*["']oauth["']/.test(source)
+          ? "oauth"
+          : undefined;
 }
 
 export async function detectLinkedProjectRef(
@@ -194,6 +196,17 @@ export function buildSetupReport(
     });
   }
 
+  if (options.auth === "api-key") {
+    steps.push({
+      id: "set_api_key_secret",
+      title: "Set the MCP API key secret",
+      status: options.remoteVerified ? "complete" : "needs_user_action",
+      detail:
+        "Set MCP_API_KEY as an Edge Function secret, then give that same key to trusted MCP clients.",
+      command: `supabase secrets set ${shellQuote("MCP_API_KEY=replace-with-a-long-random-key")} --yes${options.projectRef ? ` --project-ref ${options.projectRef}` : ""}`,
+    });
+  }
+
   if (publicUrl && publicUrl !== upstreamEndpoint) {
     steps.push({
       id: "configure_public_url",
@@ -268,7 +281,7 @@ export function buildSetupReport(
         ? "Probe the deployed endpoint and its authentication contract."
         : "Pass --url or --project-ref so doctor can probe the deployed endpoint."),
     command: endpoint
-      ? `npx supa-mcp doctor --function ${options.functionName} --url ${endpoint} --json`
+      ? `npx supa-mcp doctor --function ${options.functionName} --url ${endpoint}${options.auth === "api-key" ? " --token <MCP_API_KEY>" : ""} --json`
       : `npx supa-mcp doctor --function ${options.functionName} --url <MCP_URL> --json`,
   });
 
