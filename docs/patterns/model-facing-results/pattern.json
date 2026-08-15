@@ -1,0 +1,8 @@
+{
+  "slug": "model-facing-results",
+  "kind": "pattern",
+  "title": "Model-facing tool results",
+  "summary": "Return complete, legible text for the model while retaining the raw value as structured content.",
+  "example": "model-facing-results",
+  "officialDocs": []
+}

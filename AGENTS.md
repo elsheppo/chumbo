@@ -12,27 +12,34 @@ implements application capabilities in the generated `capabilities.ts`,
 deploys one Edge Function, and lets existing Supabase or application auth
 govern access.
 
-## Keep the core pure
+## Keep the value clear
 
-The core package owns the reusable boundary between an existing Supabase app
-and MCP: protocol/runtime wiring, request-scoped identity, simple auth modes,
-guided setup, diagnostics, and result helpers. Its default product story is
-one builder's app exposing builder-authored capabilities to that app's users.
+Supa MCP makes one Supabase-native MCP easy and supports increasingly advanced
+patterns—including many MCPs from one function—through the same library. The
+default path stays small: one builder's app exposes builder-authored
+capabilities to that app's users. Advanced patterns must remain optional and
+must not burden that setup.
 
-Do not move adjacent product ideas into the core merely because they can use
-the runtime. In particular, Supa MCP core does not own:
+The package owns the reusable boundary between an existing Supabase app and
+MCP: protocol/runtime wiring, request-scoped identity, simple auth modes,
+guided setup, diagnostics, and result helpers. The repository also owns a
+living Supabase reference project whose tested patterns show how to compose
+that same API with Supabase-native capabilities.
 
-- Fleet or control-plane tables that define many hosted MCP servers;
+Do not impose application architecture merely because an advanced pattern can
+use it. In particular, Supa MCP does not prescribe:
+
 - downstream API proxying, credential storage, or credential brokerage;
 - database introspection that guesses and generates an application's tools;
 - application schemas, organization models, or entitlement conventions;
 - domain-specific tool behavior or purpose-written renderers.
 
-Those may become separate products or examples that consume Supa MCP's public
-API. Promote an abstraction into core only when it simplifies the ordinary
-one-app setup without imposing a new architecture on the builder. Keep
-application intelligence in generated `capabilities.ts`; keep the library
-small, unsurprising, and Supabase-native.
+Row-defined servers, path-based resolution, queued work, Storage resources,
+Cron, Realtime, and search are valid Supa MCP patterns when they use the same
+public library and come with executable evidence. Keep application intelligence
+in generated `capabilities.ts` or pattern code. Promote an abstraction into the
+package API only when it simplifies real adopters without imposing a new
+architecture on the ordinary one-MCP path.
 
 ## Product contracts
 
@@ -65,6 +72,11 @@ small, unsurprising, and Supabase-native.
 - `test/`: unit, protocol, generated-project, and optional RLS integration
   coverage.
 - `scripts/generated-smoke.mjs`: clean generated-project contract check.
+- `supabase/`: living reference project, migrations, functions, and protocol
+  integration tests.
+- `docs/` and `examples/`: Git-authoritative instructions and runnable pattern
+  metadata synced into the reference project's searchable database.
+- `scripts/sync-reference-content.mjs`: one-way Git → Supabase content sync.
 - `SPEC.md`: detailed product and architecture decisions.
 
 ## Working in the repository
@@ -75,12 +87,15 @@ Use Node 22 and pnpm 10.11.0.
 pnpm install --frozen-lockfile
 pnpm check
 pnpm format:check
+pnpm reference:check
 ```
 
 `pnpm check` is the ordinary release gate: typecheck, unit/protocol tests,
 build, and generated-project smoke. Run `pnpm run test:rls` only when its local
 Supabase integration credentials are available; it is intentionally optional
-in ordinary CI. Use `npm pack --dry-run` to inspect the public artifact.
+in ordinary CI. `pnpm reference:check` rebuilds the living Supabase project,
+syncs the Git corpus, and executes every published pattern against the actual
+MCP boundary. Use `npm pack --dry-run` to inspect the public artifact.
 
 When changing public behavior:
 

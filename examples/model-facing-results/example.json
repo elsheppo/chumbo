@@ -1,0 +1,9 @@
+{
+  "slug": "model-facing-results-example",
+  "kind": "example",
+  "title": "Legible result surfaces",
+  "summary": "A public MCP demonstrating populated, empty, and recoverable-error responses.",
+  "pattern": "model-facing-results",
+  "endpointPath": "/functions/v1/model-facing-results",
+  "officialDocs": []
+}
