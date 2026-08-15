@@ -2,9 +2,10 @@
 
 ## 0.3.0 — 2026-08-15
 
-- Make the model-facing text lane first-class. Consuming models read only
-  `content[].text` and ignore `structuredContent`; the result helpers now
-  treat that text as the primary payload.
+- Make the model-facing text lane first-class. `content[].text` is the portable
+  model-facing channel; because some clients do not surface
+  `structuredContent` to the model, the result helpers now treat text as a
+  complete standalone payload.
 - Add `renderResult(value, render)`: the recommended helper. A required
   renderer composes the complete model-facing markdown; the raw value rides
   along as structured content for typed clients.
