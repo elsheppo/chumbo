@@ -89,6 +89,10 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+const expected = await expectedDocuments();
+const verifiedFunctions = new Set(["docs-mcp"]);
+const verifiedSurfaces = new Set(["docs-mcp"]);
+
 const tools = await mcp("docs-mcp", "tools/list");
 assert(
   JSON.stringify(tools.tools.map((tool) => tool.name).sort()) ===
@@ -101,23 +105,32 @@ assert(
   "The hosted documentation tool surface drifted.",
 );
 
-for (const expected of await expectedDocuments()) {
+const search = await mcp("docs-mcp", "tools/call", {
+  name: "search_docs",
+  arguments: { query: "many MCPs one function" },
+});
+assert(
+  search.structuredContent.matches.length > 0,
+  "Hosted documentation search returned no results.",
+);
+
+for (const expectedDocument of expected) {
   let document;
-  if (expected.kind === "pattern") {
+  if (expectedDocument.kind === "pattern") {
     document = (
       await mcp("docs-mcp", "tools/call", {
         name: "get_pattern",
-        arguments: { slug: expected.slug },
+        arguments: { slug: expectedDocument.slug },
       })
     ).structuredContent;
-  } else if (expected.kind === "example") {
+  } else if (expectedDocument.kind === "example") {
     document = (
       await mcp("docs-mcp", "tools/call", {
         name: "get_example",
-        arguments: { slug: expected.slug },
+        arguments: { slug: expectedDocument.slug },
       })
     ).structuredContent;
-  } else if (expected.slug === "getting-started") {
+  } else if (expectedDocument.slug === "getting-started") {
     document = (
       await mcp("docs-mcp", "tools/call", {
         name: "get_setup_steps",
@@ -125,12 +138,37 @@ for (const expected of await expectedDocuments()) {
       })
     ).structuredContent.gettingStarted;
   }
-  assert(document, `Hosted document ${expected.slug} is missing.`);
+  assert(document, `Hosted document ${expectedDocument.slug} is missing.`);
   assert(
-    document.content_hash === expected.contentHash,
-    `Hosted document ${expected.slug} does not match Git.`,
+    document.content_hash === expectedDocument.contentHash,
+    `Hosted document ${expectedDocument.slug} does not match Git.`,
   );
 }
+
+const unauthenticated = await fetch(`${functionsUrl}/authenticated-tools`, {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "mcp-method": "tools/list",
+    "mcp-protocol-version": "2026-07-28",
+  },
+  body: JSON.stringify({
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "tools/list",
+    params: {},
+  }),
+});
+assert(
+  unauthenticated.status === 401,
+  `Hosted authenticated-tools returned HTTP ${unauthenticated.status} without a bearer token.`,
+);
+assert(
+  unauthenticated.headers.get("www-authenticate")?.startsWith("Bearer "),
+  "Hosted authenticated-tools did not return a Bearer challenge.",
+);
+verifiedFunctions.add("authenticated-tools");
+verifiedSurfaces.add("authenticated-tools");
 
 const modelResult = await mcp("model-facing-results", "tools/call", {
   name: "list_examples",
@@ -140,6 +178,8 @@ assert(
   modelResult.content[0].text.includes("→ Next:"),
   "Hosted result text has no next step.",
 );
+verifiedFunctions.add("model-facing-results");
+verifiedSurfaces.add("model-facing-results");
 
 const directory = await mcp("many-mcps/directory", "tools/list");
 const invoices = await mcp("many-mcps/invoices", "tools/list");
@@ -148,15 +188,20 @@ assert(
   "Directory MCP drifted.",
 );
 assert(invoices.tools[0]?.name === "list_invoices", "Invoices MCP drifted.");
+verifiedFunctions.add("many-mcps");
+verifiedSurfaces.add("many-mcps/directory");
+verifiedSurfaces.add("many-mcps/invoices");
 
 console.log(
   JSON.stringify(
     {
       status: "ok",
       projectUrl,
-      documents: 7,
-      patterns: 3,
-      endpoints: 4,
+      documents: expected.length,
+      patterns: expected.filter((document) => document.kind === "pattern")
+        .length,
+      functions: verifiedFunctions.size,
+      surfaces: verifiedSurfaces.size,
     },
     null,
     2,
