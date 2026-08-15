@@ -3,7 +3,7 @@
   "kind": "pattern",
   "title": "Many MCPs from one Edge Function",
   "summary": "Resolve an MCP definition from the request path and register its row-defined tools without redeploying the function.",
-  "example": "many-mcps-one-function",
+  "example": "many-mcps-one-function-example",
   "officialDocs": [
     "https://supabase.com/docs/guides/functions",
     "https://supabase.com/docs/guides/database/postgres/row-level-security"

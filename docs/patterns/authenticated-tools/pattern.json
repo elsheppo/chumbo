@@ -3,7 +3,7 @@
   "kind": "pattern",
   "title": "Authenticated tools with RLS",
   "summary": "Expose application operations through a request-scoped Supabase client so every caller sees only their own rows.",
-  "example": "authenticated-tools",
+  "example": "authenticated-tools-example",
   "officialDocs": [
     "https://supabase.com/docs/guides/auth",
     "https://supabase.com/docs/guides/database/postgres/row-level-security"
