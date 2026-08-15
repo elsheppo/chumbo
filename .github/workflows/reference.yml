@@ -25,3 +25,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm reference:check
+
+  hosted:
+    if: github.event_name == 'push'
+    needs: reference
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.11.0
+      - run: pnpm install --frozen-lockfile
+      - name: Sync Git content to the hosted reference project
+        run: pnpm reference:content
+        env:
+          SUPA_MCP_REFERENCE_URL: https://dxrpeagddrpbezbkgvdv.supabase.co
+          SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY: ${{ secrets.SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY }}
+      - name: Verify the public reference MCPs
+        run: pnpm reference:hosted

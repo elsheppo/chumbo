@@ -18,6 +18,7 @@ interface ReferenceDocument {
   source_path: string;
   source_url: string;
   package_version: string;
+  content_hash: string;
   metadata: Record<string, unknown>;
 }
 
@@ -68,7 +69,7 @@ async function getDocument(
   const { data, error } = await ctx.supabase
     .from("reference_documents")
     .select(
-      "slug, kind, title, summary, body_markdown, source_path, source_url, package_version, metadata",
+      "slug, kind, title, summary, body_markdown, source_path, source_url, package_version, content_hash, metadata",
     )
     .eq("kind", kind)
     .eq("slug", slug)
@@ -119,6 +120,7 @@ function register(
           | "source_path"
           | "source_url"
           | "package_version"
+          | "content_hash"
         >
       >;
       return renderResult({ query, matches }, ({ query, matches }) =>

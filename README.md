@@ -254,6 +254,14 @@ The public documentation MCP exposes `search_docs`, `get_pattern`,
 and links out to official Supabase documentation for the platform underneath;
 it does not attempt to duplicate Supabase's docs.
 
+Connect an MCP client or coding agent directly to:
+
+```text
+https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp
+```
+
+Then ask: `Inspect this project and implement the authenticated-tools pattern.`
+
 Git is authoritative. `pnpm reference:content` syncs the Markdown and metadata
 under `docs/` and `examples/` into searchable Postgres rows. The database is a
 deployed representation, never a second editorial source.
@@ -269,6 +277,13 @@ That command starts local Supabase when needed, resets only this reference
 project, applies migrations and seed data, syncs the corpus, type-checks every
 Edge Function against the published npm package, and runs the protocol-level
 integration suite.
+
+The public reference deployment also exposes:
+
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/authenticated-tools`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/model-facing-results`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/directory`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/invoices`
 
 ## Finish each access mode
 
