@@ -1,0 +1,54 @@
+project_id = "supa-mcp-reference"
+
+[api]
+enabled = true
+port = 57321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 57322
+shadow_port = 57320
+major_version = 17
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 57323
+api_url = "http://127.0.0.1"
+
+[local_smtp]
+enabled = true
+port = 57324
+
+[analytics]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000"]
+jwt_expiry = 3600
+enable_signup = true
+
+[edge_runtime]
+enabled = true
+policy = "per_worker"
+inspector_port = 57383
+deno_version = 2
+
+[functions.docs-mcp]
+verify_jwt = false
+
+[functions.authenticated-tools]
+verify_jwt = false
+
+[functions.model-facing-results]
+verify_jwt = false
+
+[functions.many-mcps]
+verify_jwt = false

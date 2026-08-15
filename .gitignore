@@ -9,4 +9,6 @@ coverage/
 !.env.example
 .supabase/
 .supabase-home/
+supabase/.branches/
+supabase/.temp/
 .private/

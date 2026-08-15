@@ -31,6 +31,16 @@ The package will compose, not replace:
 The project is not another MCP SDK, not a Supabase management MCP, and not a
 database-to-tools generator.
 
+The stable expansion model is one library, not product-tier architecture:
+
+> Supa MCP makes one Supabase-native MCP easy and supports increasingly
+> advanced patterns—including many MCPs from one function—through the same
+> library.
+
+Advanced patterns live in the open-source reference project first. They become
+reusable package API only when doing so reduces adopter work without adding
+conceptual weight to the ordinary one-server path.
+
 ## 2. Problem
 
 Supabase documents how to run a simple MCP server in an Edge Function, but the
