@@ -40,7 +40,14 @@ export interface SetupReport {
   steps: SetupStep[];
   nextActions: SetupStep[];
   resumeCommand: string;
+  agentHandoff: {
+    documentationServerUrl: string;
+    prompt: string;
+  };
 }
+
+export const SUPA_MCP_DOCUMENTATION_SERVER_URL =
+  "https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp";
 
 export interface BuildSetupReportOptions {
   command: "setup" | "status";
@@ -312,6 +319,11 @@ export function buildSetupReport(
     steps,
     nextActions,
     resumeCommand: `npx supa-mcp setup --resume --function ${options.functionName} --auth ${options.auth} --yes --json`,
+    agentHandoff: {
+      documentationServerUrl: SUPA_MCP_DOCUMENTATION_SERVER_URL,
+      prompt:
+        "Inspect this project and implement the authenticated-tools pattern.",
+    },
   };
 }
 
@@ -346,6 +358,12 @@ export function formatSetupReport(report: SetupReport): string {
   lines.push("", `Resume anytime: ${humanCommand(report.resumeCommand)}`);
   lines.push(
     "Agent mode: add --json for stable machine-readable steps and next actions.",
+  );
+  lines.push(
+    "",
+    "Build with an agent:",
+    `  MCP docs: ${report.agentHandoff.documentationServerUrl}`,
+    `  Ask: “${report.agentHandoff.prompt}”`,
   );
   return lines.join("\n");
 }

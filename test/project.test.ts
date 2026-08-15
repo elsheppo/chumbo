@@ -8,7 +8,9 @@ import {
   buildSetupReport,
   detectGeneratedAuth,
   endpointFor,
+  formatSetupReport,
   normalizePublicUrl,
+  SUPA_MCP_DOCUMENTATION_SERVER_URL,
 } from "../src/setup.js";
 
 async function fixture(): Promise<string> {
@@ -420,6 +422,14 @@ describe("guided setup", () => {
     ]);
     expect(report.nextActions[0]?.command).toBe("supabase db push --yes");
     expect(report.resumeCommand).toContain("--resume");
+    expect(report.agentHandoff).toEqual({
+      documentationServerUrl: SUPA_MCP_DOCUMENTATION_SERVER_URL,
+      prompt:
+        "Inspect this project and implement the authenticated-tools pattern.",
+    });
+    expect(formatSetupReport(report)).toContain(
+      `MCP docs: ${SUPA_MCP_DOCUMENTATION_SERVER_URL}`,
+    );
   });
 
   it("marks OAuth dashboard configuration as an explicit user action", () => {

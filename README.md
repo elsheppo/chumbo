@@ -9,6 +9,10 @@ and Row Level Security instead of introducing another backend.
 This package exposes your application's capabilities to its users. It is not
 the official Supabase management MCP used to administer Supabase projects.
 
+Start with one server. The same library also supports advanced Supabase-native
+patterns—including many MCPs from one Edge Function—without introducing a
+second framework or making the basic setup more complicated.
+
 ## Guided setup
 
 From a repository that already contains `supabase/config.toml`:
@@ -231,6 +235,55 @@ application authorization decision.
 The generated example also demonstrates a resource, a prompt, and an MCP
 multi-round-trip confirmation flow. Advanced MCP features remain available
 through the underlying official `McpServer`.
+
+## Living patterns and documentation MCP
+
+This repository is also a runnable Supabase reference project. Its database is
+designed around the cases the project teaches, and each pattern is exercised
+through a real MCP request:
+
+- [Authenticated tools with RLS](./docs/patterns/authenticated-tools) proves
+  two connected users receive only their own rows.
+- [Model-facing results](./docs/patterns/model-facing-results) proves populated,
+  empty, and error responses remain useful in `content[].text`.
+- [Many MCPs from one function](./docs/patterns/many-mcps-one-function) proves
+  one deployment can resolve distinct row-defined tool surfaces per request.
+
+The public documentation MCP exposes `search_docs`, `get_pattern`,
+`get_example`, and `get_setup_steps`. It contains Supa MCP-owned instructions
+and links out to official Supabase documentation for the platform underneath;
+it does not attempt to duplicate Supabase's docs.
+
+Connect an MCP client or coding agent directly to:
+
+```text
+https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp
+```
+
+Then ask: `Inspect this project and implement the authenticated-tools pattern.`
+
+Git is authoritative. `pnpm reference:content` syncs the Markdown and metadata
+under `docs/` and `examples/` into searchable Postgres rows. The database is a
+deployed representation, never a second editorial source.
+
+To rebuild the complete project from a clean clone:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm reference:check
+```
+
+That command starts local Supabase when needed, resets only this reference
+project, applies migrations and seed data, syncs the corpus, type-checks every
+Edge Function against the published npm package, and runs the protocol-level
+integration suite.
+
+The public reference deployment also exposes:
+
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/authenticated-tools`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/model-facing-results`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/directory`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/invoices`
 
 ## Finish each access mode
 
@@ -533,6 +586,7 @@ Postgres RLS when integration credentials are available.
 ```sh
 pnpm install
 pnpm check
+pnpm reference:check
 pnpm run test:rls
 npm pack --dry-run
 ```
