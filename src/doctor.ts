@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { findSupabaseProject } from "./project.js";
+import { findSupabaseProject, PACKAGE_VERSION } from "./project.js";
 import { detectGeneratedAuth, type SetupAuthMode } from "./setup.js";
 
 export interface DoctorOptions {
@@ -36,7 +36,7 @@ function modernRequest(method: string): string {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientInfo": {
           name: "supa-mcp-doctor",
-          version: "0.2.0",
+          version: PACKAGE_VERSION,
         },
         "io.modelcontextprotocol/clientCapabilities": {},
       },
