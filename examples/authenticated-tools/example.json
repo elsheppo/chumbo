@@ -1,0 +1,9 @@
+{
+  "slug": "authenticated-tools-example",
+  "kind": "example",
+  "title": "Authenticated project tools",
+  "summary": "A bearer-authenticated MCP whose project tools are isolated by Postgres RLS.",
+  "pattern": "authenticated-tools",
+  "endpointPath": "/functions/v1/authenticated-tools",
+  "officialDocs": []
+}

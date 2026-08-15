@@ -1,0 +1,9 @@
+{
+  "slug": "many-mcps-one-function-example",
+  "kind": "example",
+  "title": "Two row-defined MCPs from one function",
+  "summary": "Directory and invoice MCP surfaces resolved from Postgres rows by request path.",
+  "pattern": "many-mcps-one-function",
+  "endpointPath": "/functions/v1/many-mcps/{server}",
+  "officialDocs": []
+}
