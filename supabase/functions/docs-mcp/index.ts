@@ -221,7 +221,7 @@ function register(
 const app = createSupabaseMcp<ReferenceDatabase>({
   server: {
     name: "Supa MCP documentation",
-    version: "0.3.0",
+    version: "0.3.1",
   },
   resourceUrl,
   auth: { mode: "public", rateLimit: true },
