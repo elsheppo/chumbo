@@ -672,9 +672,9 @@ describe("progressive access controls", () => {
 });
 
 describe("result helpers", () => {
-  it("returns model-readable and structured JSON", () => {
+  it("returns model-readable markdown and structured JSON", () => {
     expect(jsonResult([1, 2])).toEqual({
-      content: [{ type: "text", text: "[\n  1,\n  2\n]" }],
+      content: [{ type: "text", text: "- 1\n- 2" }],
       structuredContent: { value: [1, 2] },
     });
   });

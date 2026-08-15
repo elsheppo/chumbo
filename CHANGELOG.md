@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 — 2026-08-15
+
+- Make the model-facing text lane first-class. Consuming models read only
+  `content[].text` and ignore `structuredContent`; the result helpers now
+  treat that text as the primary payload.
+- Add `renderResult(value, render)`: the recommended helper. A required
+  renderer composes the complete model-facing markdown; the raw value rides
+  along as structured content for typed clients.
+- Add `toMarkdown(value)`: a generic legible renderer (bolded keys, list
+  rows, one-line rows for flat objects, explicit `(none)` empties).
+- `jsonResult(value)` with no text now emits `toMarkdown(value)` instead of
+  a raw JSON dump. Passing `text` still replaces the rendering verbatim, but
+  is discouraged: it hides the payload from the model — use `renderResult`.
+- `errorResult(message, nextStep?)` can append a `→ Next:` recovery line so
+  errors never leave the model at a dead end.
+
 ## 0.2.0 — 2026-08-14
 
 - Add a first-class `api-key` auth mode with a one-secret generated default.
