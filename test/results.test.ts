@@ -33,11 +33,25 @@ describe("toMarkdown", () => {
   it("renders scalar arrays as list rows and empties explicitly", () => {
     expect(toMarkdown(["a", "b"])).toBe("- a\n- b");
     expect(toMarkdown({ matches: [] })).toBe("**matches**:\n  - (none)");
+    expect(toMarkdown({})).toBe("(none)");
+    expect(toMarkdown({ filters: {} })).toBe("**filters**:\n  (none)");
+    expect(toMarkdown([{}])).toBe("- (none)");
+    expect(toMarkdown("")).toBe("(empty)");
   });
 
   it("renders null and undefined as an em dash and skips undefined keys", () => {
     expect(toMarkdown({ a: null, b: undefined, c: 1 })).toBe(
       "**a**: —\n**c**: 1",
+    );
+  });
+
+  it("keeps multiline values attached to their key or list item", () => {
+    expect(toMarkdown({ note: "line one\nline two" })).toBe(
+      "**note**:\n  line one\n  line two",
+    );
+    expect(toMarkdown(["line one\nline two"])).toBe("- line one\n  line two");
+    expect(toMarkdown([{ note: "line one\nline two" }])).toBe(
+      "-\n  **note**:\n    line one\n    line two",
     );
   });
 });
@@ -61,7 +75,10 @@ describe("jsonResult", () => {
 
 describe("renderResult", () => {
   it("uses the renderer for text and the value for structured content", () => {
-    const result = renderResult({ name: "Lens" }, (value) => `## ${value.name}`);
+    const result = renderResult(
+      { name: "Lens" },
+      (value) => `## ${value.name}`,
+    );
     expect(textOf(result)).toBe("## Lens");
     expect(result.structuredContent).toEqual({ name: "Lens" });
   });

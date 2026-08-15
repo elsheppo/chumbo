@@ -195,9 +195,9 @@ export function registerCapabilities(
 
 ### Write the text the model actually reads
 
-Consuming models read only `content[].text`; `structuredContent` is a side
-channel for typed clients. Whatever that text says is your entire tool
-response as far as the model is concerned, so compose it deliberately:
+`content[].text` is the portable model-facing lane. Some clients do not surface
+`structuredContent` to the model, so the text must work as the complete tool
+response on its own. Compose it deliberately:
 
 ```ts
 import { renderResult } from "supa-mcp";
@@ -210,15 +210,17 @@ return renderResult({ projects: data }, ({ projects }) =>
         ...projects.map((p) => `- **${p.name}** — ${p.status}`),
         "",
         "→ Next: get_project reads one in full.",
-      ].join("\n"));
+      ].join("\n"),
+);
 ```
 
 `jsonResult(value)` without a text falls back to `toMarkdown(value)` — a
 legible generic rendering, fine for prototyping. Passing an explicit `text`
-to `jsonResult` replaces the rendering entirely and hides the payload from
-the model; if you want a message *and* the data, use `renderResult` and put
-both in the text. `errorResult(message, nextStep)` appends a `→ Next:` line
-so errors route the model to recovery instead of a dead end.
+to `jsonResult` replaces the rendering entirely, so clients that do not expose
+`structuredContent` will hide the payload from the model. If you want a message
+_and_ the data, use `renderResult` and put both in the text.
+`errorResult(message, nextStep)` appends a `→ Next:` line so errors route the
+model to recovery instead of a dead end.
 
 In OAuth and bearer modes, every request receives a new `ctx.supabase` client
 carrying the connected user's access token. Queries therefore use the same
@@ -522,7 +524,7 @@ recognized, `setup --resume` leaves application-authored capabilities alone.
 
 ## Development
 
-Version 0.2.0 pins the runtime dependencies in each generated Deno project.
+Version 0.3.0 pins the runtime dependencies in each generated Deno project.
 The package test suite covers MCP discovery, scopes, public rate limiting,
 API-key authentication, concurrent request isolation, generated
 OAuth/API-key/public projects, structured CLI output, and real two-user

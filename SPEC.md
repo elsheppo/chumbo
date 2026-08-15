@@ -2,7 +2,7 @@
 
 Status: Published; guided setup implemented, hosted OAuth proof still pending\
 Date: 2026-08-13\
-Current release: `0.2.0`\
+Current release: `0.3.0`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the

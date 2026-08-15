@@ -21,13 +21,39 @@ function isScalar(value: unknown): boolean {
 
 function scalarText(value: unknown): string {
   if (value === null || value === undefined) return "—";
-  return String(value);
+  const text = String(value);
+  return text.length === 0 ? "(empty)" : text;
+}
+
+function scalarLines(value: unknown): string[] {
+  return scalarText(value).split(/\r?\n/);
+}
+
+function renderScalar(
+  lines: string[],
+  value: unknown,
+  firstPrefix: string,
+  continuationPrefix: string,
+): void {
+  const [first = "", ...rest] = scalarLines(value);
+  lines.push(`${firstPrefix}${first}`);
+  for (const line of rest) lines.push(`${continuationPrefix}${line}`);
+}
+
+function visibleEntries(value: object): Array<[string, unknown]> {
+  return Object.entries(value).filter(
+    ([, entryValue]) => entryValue !== undefined,
+  );
+}
+
+function isSingleLineScalar(value: unknown): boolean {
+  return isScalar(value) && scalarLines(value).length === 1;
 }
 
 function renderInto(lines: string[], value: unknown, depth: number): void {
   const pad = INDENT.repeat(depth);
   if (isScalar(value)) {
-    lines.push(`${pad}${scalarText(value)}`);
+    renderScalar(lines, value, pad, pad);
     return;
   }
   if (Array.isArray(value)) {
@@ -37,17 +63,19 @@ function renderInto(lines: string[], value: unknown, depth: number): void {
     }
     for (const item of value) {
       if (isScalar(item)) {
-        lines.push(`${pad}- ${scalarText(item)}`);
+        renderScalar(lines, item, `${pad}- `, `${pad}${INDENT}`);
         continue;
       }
       const entries = Array.isArray(item)
         ? undefined
-        : Object.entries(item as Record<string, unknown>).filter(
-            ([, entryValue]) => entryValue !== undefined,
-          );
+        : visibleEntries(item as Record<string, unknown>);
+      if (entries?.length === 0) {
+        lines.push(`${pad}- (none)`);
+        continue;
+      }
       if (
         entries !== undefined &&
-        entries.every(([, entryValue]) => isScalar(entryValue))
+        entries.every(([, entryValue]) => isSingleLineScalar(entryValue))
       ) {
         lines.push(
           `${pad}- ${entries
@@ -61,12 +89,19 @@ function renderInto(lines: string[], value: unknown, depth: number): void {
     }
     return;
   }
-  for (const [key, entryValue] of Object.entries(
-    value as Record<string, unknown>,
-  )) {
-    if (entryValue === undefined) continue;
+  const entries = visibleEntries(value as Record<string, unknown>);
+  if (entries.length === 0) {
+    lines.push(`${pad}(none)`);
+    return;
+  }
+  for (const [key, entryValue] of entries) {
     if (isScalar(entryValue)) {
-      lines.push(`${pad}**${key}**: ${scalarText(entryValue)}`);
+      if (isSingleLineScalar(entryValue)) {
+        lines.push(`${pad}**${key}**: ${scalarText(entryValue)}`);
+      } else {
+        lines.push(`${pad}**${key}**:`);
+        renderScalar(lines, entryValue, `${pad}${INDENT}`, `${pad}${INDENT}`);
+      }
     } else {
       lines.push(`${pad}**${key}**:`);
       renderInto(lines, entryValue, depth + 1);
@@ -86,11 +121,11 @@ export function toMarkdown(value: unknown): string {
 }
 
 /**
- * The primary result helper. Consuming models read only `content[].text`;
- * `structuredContent` is a side channel for typed clients. `render` is
- * therefore required: it produces the complete model-facing markdown for the
- * value, and the raw value rides along as structured content. End the text
- * with a next step; never leave the model at a dead end.
+ * The primary result helper. `content[].text` is the portable model-facing
+ * lane; some clients do not surface `structuredContent` to the model. `render`
+ * is therefore required: it produces complete standalone markdown for the
+ * value, and the raw value rides along as structured content. End the text with
+ * a next step; never leave the model at a dead end.
  */
 export function renderResult<T>(
   value: T,
@@ -140,7 +175,9 @@ export function errorResult(
       {
         type: "text",
         text:
-          nextStep === undefined ? message : `${message}\n\n→ Next: ${nextStep}`,
+          nextStep === undefined
+            ? message
+            : `${message}\n\n→ Next: ${nextStep}`,
       },
     ],
     isError: true,
