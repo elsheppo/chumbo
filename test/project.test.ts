@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runDoctor } from "../src/doctor.js";
-import { applyPlan, patchFunctionConfig, planInit } from "../src/project.js";
+import {
+  applyPlan,
+  PACKAGE_VERSION,
+  patchFunctionConfig,
+  planInit,
+} from "../src/project.js";
 import {
   buildSetupReport,
   detectGeneratedAuth,
@@ -22,6 +27,15 @@ async function fixture(): Promise<string> {
   );
   return root;
 }
+
+describe("release version", () => {
+  it("keeps the manifest and generated runtime pin aligned", async () => {
+    const manifest = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    expect(PACKAGE_VERSION).toBe(manifest.version);
+  });
+});
 
 describe("config patching", () => {
   it("adds a function section without changing existing content", () => {
@@ -54,6 +68,9 @@ describe("initializer", () => {
     });
     expect(plan.filter((file) => file.status === "create")).toHaveLength(6);
     expect(plan.some((file) => file.status === "update")).toBe(true);
+    expect(
+      plan.find((file) => file.path.endsWith("deno.json"))?.content,
+    ).toContain(`npm:supa-mcp@${PACKAGE_VERSION}`);
     await expect(
       readFile(join(root, "supabase", "functions", "mcp", "index.ts")),
     ).rejects.toThrow();
