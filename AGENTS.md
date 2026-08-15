@@ -12,6 +12,28 @@ implements application capabilities in the generated `capabilities.ts`,
 deploys one Edge Function, and lets existing Supabase or application auth
 govern access.
 
+## Keep the core pure
+
+The core package owns the reusable boundary between an existing Supabase app
+and MCP: protocol/runtime wiring, request-scoped identity, simple auth modes,
+guided setup, diagnostics, and result helpers. Its default product story is
+one builder's app exposing builder-authored capabilities to that app's users.
+
+Do not move adjacent product ideas into the core merely because they can use
+the runtime. In particular, Supa MCP core does not own:
+
+- Fleet or control-plane tables that define many hosted MCP servers;
+- downstream API proxying, credential storage, or credential brokerage;
+- database introspection that guesses and generates an application's tools;
+- application schemas, organization models, or entitlement conventions;
+- domain-specific tool behavior or purpose-written renderers.
+
+Those may become separate products or examples that consume Supa MCP's public
+API. Promote an abstraction into core only when it simplifies the ordinary
+one-app setup without imposing a new architecture on the builder. Keep
+application intelligence in generated `capabilities.ts`; keep the library
+small, unsurprising, and Supabase-native.
+
 ## Product contracts
 
 - Supabase Auth, Postgres grants, RLS, or the builder's application-owned API
