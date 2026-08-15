@@ -9,6 +9,7 @@ import {
   applyPlan,
   displayPlan,
   findSupabaseProject,
+  PACKAGE_VERSION,
   planInit,
   type PlannedFile,
 } from "./project.js";
@@ -23,7 +24,7 @@ import {
   type SetupReport,
 } from "./setup.js";
 
-const HELP = `supa-mcp 0.2.0
+const HELP = `supa-mcp ${PACKAGE_VERSION}
 
 Usage:
   supa-mcp setup [options]   Guided, resumable installation

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — 2026-08-15
+
+- Connect guided setup to the live Supa MCP documentation server with an
+  agent-ready handoff and a concrete authenticated-tools implementation prompt.
+- Add the open-source living Supabase reference project, including executable
+  authenticated, model-facing-result, documentation, and many-MCP patterns.
+- Add deterministic Git-to-Supabase content synchronization plus clean-clone
+  and hosted deployment verification in CI.
+- Align the CLI banner, doctor identity, and generated Deno runtime pin with
+  the published package version, with a regression test preventing drift.
+
 ## 0.3.0 — 2026-08-15
 
 - Make the model-facing text lane first-class. `content[].text` is the portable
