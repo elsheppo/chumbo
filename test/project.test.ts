@@ -14,6 +14,7 @@ import {
   detectGeneratedAuth,
   endpointFor,
   formatSetupReport,
+  inspectGeneratedAuth,
   normalizePublicUrl,
   SUPA_MCP_DOCUMENTATION_SERVER_URL,
 } from "../src/setup.js";
@@ -211,6 +212,10 @@ describe("initializer", () => {
     );
     expect(generatedTest).toContain("accepts the configured key");
     expect(await detectGeneratedAuth(root, "app-mcp")).toBe("api-key");
+    expect(await inspectGeneratedAuth(root, "app-mcp")).toEqual({
+      mode: "api-key",
+      apiKeyStrategy: "static",
+    });
   });
 });
 
@@ -352,12 +357,31 @@ describe("doctor", () => {
       vi.fn(async (_input, init?: RequestInit) => {
         const headers = new Headers(init?.headers);
         return headers.get("authorization") === "Bearer app-secret"
-          ? Response.json({
-              jsonrpc: "2.0",
-              id: "authenticated",
-              result: { tools: [{ name: "whoami" }] },
-            })
-          : Response.json({ error: "invalid_token" }, { status: 401 });
+          ? Response.json(
+              {
+                jsonrpc: "2.0",
+                id: "authenticated",
+                result: { tools: [{ name: "whoami" }] },
+              },
+              {
+                headers: {
+                  "x-supa-mcp-version": PACKAGE_VERSION,
+                  "x-supa-mcp-auth-mode": "api-key",
+                  "x-supa-mcp-auth-strategy": "static",
+                },
+              },
+            )
+          : Response.json(
+              { error: "invalid_token" },
+              {
+                status: 401,
+                headers: {
+                  "x-supa-mcp-version": PACKAGE_VERSION,
+                  "x-supa-mcp-auth-mode": "api-key",
+                  "x-supa-mcp-auth-strategy": "static",
+                },
+              },
+            );
       }),
     );
 
@@ -371,6 +395,12 @@ describe("doctor", () => {
       expect(checks).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: "api-key-gate", ok: true }),
+          expect.objectContaining({ name: "runtime-reached", ok: true }),
+          expect.objectContaining({
+            name: "runtime-auth-strategy",
+            ok: true,
+            detail: "static",
+          }),
           expect.objectContaining({
             name: "authenticated-tools-list",
             ok: true,
@@ -379,6 +409,129 @@ describe("doctor", () => {
       );
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+
+  it("distinguishes a gateway 401 from a response proven to come from Supa MCP", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "app-mcp",
+        serverName: "Application fixture",
+        auth: "api-key",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ error: "gateway_rejected" }, { status: 401 }),
+      ),
+    );
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "app-mcp",
+        url: "https://project.supabase.co/functions/v1/app-mcp",
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "endpoint-reachable", ok: true }),
+          expect.objectContaining({
+            name: "runtime-reached",
+            ok: false,
+            blocking: false,
+          }),
+          expect.objectContaining({ name: "api-key-gate", ok: true }),
+        ]),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("uses the runtime fingerprint when auth configuration is imported", async () => {
+    const root = await fixture();
+    const functionDir = join(root, "supabase", "functions", "composed-mcp");
+    await mkdir(functionDir, { recursive: true });
+    await writeFile(
+      join(root, "supabase", "config.toml"),
+      "[functions.composed-mcp]\nverify_jwt = false\n",
+    );
+    await writeFile(
+      join(functionDir, "index.ts"),
+      `import { createSupabaseMcp } from "npm:supa-mcp@${PACKAGE_VERSION}";\nimport { auth } from "./auth.ts";\n`,
+    );
+    expect(await inspectGeneratedAuth(root, "composed-mcp")).toBeUndefined();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: "invalid_token" },
+          {
+            status: 401,
+            headers: {
+              "x-supa-mcp-version": PACKAGE_VERSION,
+              "x-supa-mcp-auth-mode": "api-key",
+              "x-supa-mcp-auth-strategy": "verifier",
+            },
+          },
+        ),
+      ),
+    );
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "composed-mcp",
+        url: "https://example.com/mcp",
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "runtime-auth-mode",
+            ok: true,
+            detail: "api-key",
+          }),
+          expect.objectContaining({ name: "api-key-gate", ok: true }),
+        ]),
+      );
+      expect(checks.some((check) => check.name === "oauth-challenge")).toBe(
+        false,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("treats the generated layout as guidance for a valid composed function", async () => {
+    const root = await fixture();
+    const functionDir = join(root, "supabase", "functions", "composed-mcp");
+    await mkdir(functionDir, { recursive: true });
+    await writeFile(
+      join(root, "supabase", "config.toml"),
+      "[functions.composed-mcp]\nverify_jwt = false\n",
+    );
+    await writeFile(
+      join(functionDir, "index.ts"),
+      `import { createSupabaseMcp } from "npm:supa-mcp@${PACKAGE_VERSION}";\n` +
+        'createSupabaseMcp({ resourceUrl: "https://example.com/mcp", auth: { mode: "bearer" } });\n',
+    );
+
+    const checks = await runDoctor({
+      cwd: root,
+      functionName: "composed-mcp",
+    });
+    expect(checks.find((check) => check.name === "dependencies")).toMatchObject(
+      { ok: true },
+    );
+    for (const name of ["capabilities.ts", "deno.json", "index_test.ts"]) {
+      expect(
+        checks.find((check) => check.name === `file:${name}`),
+      ).toMatchObject({ ok: false, blocking: false });
     }
   });
 });
@@ -410,6 +563,141 @@ describe("guided setup", () => {
     );
     expect(await detectGeneratedAuth(root, "mcp")).toBe("bearer");
     expect(await detectGeneratedAuth(root, "missing")).toBeUndefined();
+  });
+
+  it("recognizes verifier-backed application keys without prescribing a shared secret", async () => {
+    const root = await fixture();
+    const functionDir = join(root, "supabase", "functions", "app-mcp");
+    await mkdir(functionDir, { recursive: true });
+    await writeFile(
+      join(functionDir, "index.ts"),
+      `const auth = { mode: "api-key", async verify({ token }: { token: string }) { return token ? { subject: token } : null; } };\n`,
+    );
+
+    expect(await inspectGeneratedAuth(root, "app-mcp")).toEqual({
+      mode: "api-key",
+      apiKeyStrategy: "verifier",
+    });
+
+    const report = buildSetupReport({
+      command: "status",
+      projectRoot: root,
+      functionName: "app-mcp",
+      auth: "api-key",
+      apiKeyStrategy: "verifier",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+      localChecks: "complete",
+      endpoint: "https://example.com/mcp",
+    });
+    expect(report.authStrategy).toBe("verifier");
+    expect(report.steps.some((step) => step.id === "set_api_key_secret")).toBe(
+      false,
+    );
+    expect(
+      report.steps.find((step) => step.id === "verify_remote")?.command,
+    ).toContain("--token <APPLICATION_API_KEY>");
+  });
+
+  it("does not guess the secret name for a custom static application key", async () => {
+    const root = await fixture();
+    const functionDir = join(root, "supabase", "functions", "app-mcp");
+    await mkdir(functionDir, { recursive: true });
+    await writeFile(
+      join(functionDir, "index.ts"),
+      'const customKey = Deno.env.get("FILES_API_KEY");\nconst auth = { mode: "api-key", key: customKey };\n',
+    );
+    expect(await inspectGeneratedAuth(root, "app-mcp")).toEqual({
+      mode: "api-key",
+      apiKeyStrategy: "unknown",
+    });
+    const report = buildSetupReport({
+      command: "status",
+      projectRoot: root,
+      functionName: "app-mcp",
+      auth: "api-key",
+      apiKeyStrategy: "unknown",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+      localChecks: "complete",
+    });
+    expect(report.steps.some((step) => step.id === "set_api_key_secret")).toBe(
+      false,
+    );
+  });
+
+  it("keeps an uncredentialed but protected endpoint ready rather than blocked", () => {
+    const report = buildSetupReport({
+      command: "status",
+      projectRoot: "/tmp/project",
+      functionName: "mcp",
+      auth: "api-key",
+      apiKeyStrategy: "verifier",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+      localChecks: "complete",
+      remoteAttempted: true,
+      remoteReady: true,
+      remoteVerified: false,
+      endpoint: "https://example.com/mcp",
+      verification: {
+        attempted: true,
+        reachable: true,
+        runtimeReached: true,
+        authGateObserved: true,
+        credentialSupplied: false,
+        mcpDiscoveryVerified: false,
+      },
+    });
+    expect(report.steps.find((step) => step.id === "deploy")?.status).toBe(
+      "complete",
+    );
+    expect(
+      report.steps.find((step) => step.id === "verify_remote")?.status,
+    ).toBe("ready");
+    expect(report.status).toBe("ready");
+  });
+
+  it("hands a discovery-verified OAuth endpoint to the client for sign-in", () => {
+    const report = buildSetupReport({
+      command: "status",
+      projectRoot: "/tmp/project",
+      functionName: "mcp",
+      auth: "oauth",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+      localChecks: "complete",
+      remoteAttempted: true,
+      remoteReady: true,
+      remoteVerified: false,
+      endpoint: "https://example.com/mcp",
+      verification: {
+        attempted: true,
+        reachable: true,
+        runtimeReached: true,
+        authGateObserved: true,
+        credentialSupplied: false,
+        mcpDiscoveryVerified: false,
+        resourceUrlVerified: true,
+      },
+    });
+    expect(
+      report.steps.find((step) => step.id === "verify_remote")?.status,
+    ).toBe("complete");
+    expect(
+      report.steps.find((step) => step.id === "connect_client")?.status,
+    ).toBe("ready");
+    expect(formatSetupReport(report)).toContain(
+      "Your Supa MCP is deployed and responding.",
+    );
   });
 
   it("gives public installs an ordered, machine-readable next-action ladder", () => {

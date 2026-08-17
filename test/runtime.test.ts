@@ -3,6 +3,7 @@ import { z } from "zod";
 import { acceptedContent, inputRequired } from "@modelcontextprotocol/server";
 import { jsonResult } from "../src/results.js";
 import { createSupabaseMcpInternal, runtimeUrls } from "../src/runtime.js";
+import { PACKAGE_VERSION } from "../src/version.js";
 import type {
   RuntimeDependencies,
   VerifiedSupabaseIdentity,
@@ -157,6 +158,10 @@ describe("OAuth resource server", () => {
     expect(response.headers.get("www-authenticate")).toContain(
       `${RESOURCE_URL}/.well-known/oauth-protected-resource`,
     );
+    expect(response.headers.get("x-supa-mcp-version")).toBe(PACKAGE_VERSION);
+    expect(response.headers.get("x-supa-mcp-auth-mode")).toBe("oauth");
+    expect(response.headers.get("x-supa-mcp-resource-url")).toBe(RESOURCE_URL);
+    expect(response.headers.get("x-supa-mcp-auth-strategy")).toBeNull();
   });
 
   it("serves protected-resource and authorization-server metadata", async () => {
@@ -279,7 +284,10 @@ describe("request context", () => {
     );
 
     expect((await app.fetch(request("tools/list"))).status).toBe(401);
-    expect((await app.fetch(request("tools/list", "wrong"))).status).toBe(401);
+    const rejected = await app.fetch(request("tools/list", "wrong"));
+    expect(rejected.status).toBe(401);
+    expect(rejected.headers.get("x-supa-mcp-auth-mode")).toBe("api-key");
+    expect(rejected.headers.get("x-supa-mcp-auth-strategy")).toBe("static");
     const response = await app.fetch(
       request("tools/call", "mjx-secret", {
         name: "identity",
@@ -324,6 +332,7 @@ describe("request context", () => {
     const response = await app.fetch(request("tools/list", "member-key"));
     expect(sawAdmin).toBe(true);
     expect(response.status, await response.clone().text()).toBe(200);
+    expect(response.headers.get("x-supa-mcp-auth-strategy")).toBe("verifier");
     expect((await response.json()).result.tools).toMatchObject([
       { name: "write" },
     ]);

@@ -24,6 +24,7 @@ import type {
   SupabaseMcpServer,
   VerifiedSupabaseIdentity,
 } from "./types.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 const IDENTITY_KEY = "createSupabaseMcpIdentity";
 const CONTEXT_KEY = "createSupabaseMcpContext";
@@ -281,6 +282,19 @@ export function createSupabaseMcpInternal<Database = unknown>(
     auth.mode === "public" && auth.rateLimit
       ? rateLimitConfig(auth.rateLimit)
       : undefined;
+  const runtimeHeaders = {
+    "access-control-expose-headers":
+      "x-supa-mcp-version, x-supa-mcp-auth-mode, x-supa-mcp-auth-strategy, x-supa-mcp-resource-url",
+    "x-supa-mcp-version": PACKAGE_VERSION,
+    "x-supa-mcp-auth-mode": auth.mode,
+    "x-supa-mcp-resource-url": resourceUrl.href,
+    ...(auth.mode === "api-key"
+      ? {
+          "x-supa-mcp-auth-strategy":
+            typeof auth.key === "string" ? "static" : "verifier",
+        }
+      : {}),
+  };
   if (
     auth.mode === "api-key" &&
     typeof auth.key === "string" &&
@@ -527,114 +541,118 @@ export function createSupabaseMcpInternal<Database = unknown>(
     }
   }
 
-  return {
-    async fetch(request) {
-      const metadata = await serveMetadata(request);
-      if (metadata) return metadata;
+  async function fetchRequest(request: Request): Promise<Response> {
+    const metadata = await serveMetadata(request);
+    if (metadata) return metadata;
 
-      let rateHeaders: Record<string, string> | undefined;
-      if (publicRateLimit && request.method === "POST") {
-        try {
-          const admin = dependencies.createAdminClient(options.supabase?.env);
-          const key = await sha256(
-            `${resourceUrl.href}|${callerAddress(request)}`,
-          );
-          const { data, error } = await admin.rpc(
-            publicRateLimit.functionName as never,
-            {
-              p_key: key,
-              p_limit: publicRateLimit.requests,
-              p_window_seconds: publicRateLimit.windowSeconds,
-            } as never,
-          );
-          if (error) throw error;
-          const row = (Array.isArray(data) ? data[0] : data) as
-            | RateLimitRow
-            | undefined;
-          if (!row || typeof row.allowed !== "boolean") {
-            throw new Error("Rate-limit RPC returned an invalid result");
-          }
-          const resetSeconds = Math.max(
-            1,
-            Math.ceil((Date.parse(row.reset_at) - Date.now()) / 1000),
-          );
-          const resetAt = String(Math.ceil(Date.parse(row.reset_at) / 1000));
-          if (!row.allowed) {
-            return Response.json(
-              { error: "rate_limit_exceeded" },
-              {
-                status: 429,
-                headers: {
-                  "access-control-allow-origin": "*",
-                  "cache-control": "no-store",
-                  "retry-after": String(resetSeconds),
-                  "x-ratelimit-limit": String(publicRateLimit.requests),
-                  "x-ratelimit-remaining": "0",
-                  "x-ratelimit-reset": resetAt,
-                },
-              },
-            );
-          }
-          rateHeaders = {
-            "x-ratelimit-limit": String(publicRateLimit.requests),
-            "x-ratelimit-remaining": String(
-              Math.max(0, publicRateLimit.requests - row.current_count),
-            ),
-            "x-ratelimit-reset": resetAt,
-          };
-        } catch (error) {
-          options.onError?.({
-            error: normalizeError(error),
-            phase: "rate-limit",
-          });
-          return jsonResponse({ error: "rate_limit_unavailable" }, 503);
-        }
-      }
-
-      if (!bearerGate) {
-        const response = await mcpHandler.fetch(request);
-        return rateHeaders
-          ? responseWithHeaders(response, rateHeaders)
-          : response;
-      }
-      const authInfo = await bearerGate(request);
-      if (authInfo instanceof Response) return authInfo;
-
-      const identity = authInfo.extra?.[IDENTITY_KEY] as
-        | RequestIdentity<Database>
-        | undefined;
-      if (!identity) {
-        options.onError?.({
-          error: new Error("Verified identity was not attached"),
-          phase: "runtime",
-        });
-        return jsonResponse({ error: "server_error" }, 500);
-      }
-      const traceId = dependencies.randomUUID();
-      let context: SupabaseMcpContext<Database>;
+    let rateHeaders: Record<string, string> | undefined;
+    if (publicRateLimit && request.method === "POST") {
       try {
-        context = await buildContext(
-          {
-            request,
-            supabase: identity.supabase,
-            user: identity.userClaims,
-            jwtClaims: identity.jwtClaims,
-            subject: identity.subject,
-            clientId: identity.clientId,
-            traceId,
-          },
-          identity.scopes,
+        const admin = dependencies.createAdminClient(options.supabase?.env);
+        const key = await sha256(
+          `${resourceUrl.href}|${callerAddress(request)}`,
         );
+        const { data, error } = await admin.rpc(
+          publicRateLimit.functionName as never,
+          {
+            p_key: key,
+            p_limit: publicRateLimit.requests,
+            p_window_seconds: publicRateLimit.windowSeconds,
+          } as never,
+        );
+        if (error) throw error;
+        const row = (Array.isArray(data) ? data[0] : data) as
+          | RateLimitRow
+          | undefined;
+        if (!row || typeof row.allowed !== "boolean") {
+          throw new Error("Rate-limit RPC returned an invalid result");
+        }
+        const resetSeconds = Math.max(
+          1,
+          Math.ceil((Date.parse(row.reset_at) - Date.now()) / 1000),
+        );
+        const resetAt = String(Math.ceil(Date.parse(row.reset_at) / 1000));
+        if (!row.allowed) {
+          return Response.json(
+            { error: "rate_limit_exceeded" },
+            {
+              status: 429,
+              headers: {
+                "access-control-allow-origin": "*",
+                "cache-control": "no-store",
+                "retry-after": String(resetSeconds),
+                "x-ratelimit-limit": String(publicRateLimit.requests),
+                "x-ratelimit-remaining": "0",
+                "x-ratelimit-reset": resetAt,
+              },
+            },
+          );
+        }
+        rateHeaders = {
+          "x-ratelimit-limit": String(publicRateLimit.requests),
+          "x-ratelimit-remaining": String(
+            Math.max(0, publicRateLimit.requests - row.current_count),
+          ),
+          "x-ratelimit-reset": resetAt,
+        };
       } catch (error) {
         options.onError?.({
           error: normalizeError(error),
-          phase: "runtime",
-          traceId,
+          phase: "rate-limit",
         });
-        return jsonResponse({ error: "server_error", traceId }, 500);
+        return jsonResponse({ error: "rate_limit_unavailable" }, 503);
       }
-      authInfo.extra = { ...authInfo.extra, [CONTEXT_KEY]: context };
-      return mcpHandler.fetch(request, { authInfo });
+    }
+
+    if (!bearerGate) {
+      const response = await mcpHandler.fetch(request);
+      return rateHeaders
+        ? responseWithHeaders(response, rateHeaders)
+        : response;
+    }
+    const authInfo = await bearerGate(request);
+    if (authInfo instanceof Response) return authInfo;
+
+    const identity = authInfo.extra?.[IDENTITY_KEY] as
+      | RequestIdentity<Database>
+      | undefined;
+    if (!identity) {
+      options.onError?.({
+        error: new Error("Verified identity was not attached"),
+        phase: "runtime",
+      });
+      return jsonResponse({ error: "server_error" }, 500);
+    }
+    const traceId = dependencies.randomUUID();
+    let context: SupabaseMcpContext<Database>;
+    try {
+      context = await buildContext(
+        {
+          request,
+          supabase: identity.supabase,
+          user: identity.userClaims,
+          jwtClaims: identity.jwtClaims,
+          subject: identity.subject,
+          clientId: identity.clientId,
+          traceId,
+        },
+        identity.scopes,
+      );
+    } catch (error) {
+      options.onError?.({
+        error: normalizeError(error),
+        phase: "runtime",
+        traceId,
+      });
+      return jsonResponse({ error: "server_error", traceId }, 500);
+    }
+    authInfo.extra = { ...authInfo.extra, [CONTEXT_KEY]: context };
+    return mcpHandler.fetch(request, { authInfo });
+  }
+
+  return {
+    async fetch(request) {
+      return responseWithHeaders(await fetchRequest(request), runtimeHeaders);
     },
     close: mcpHandler.close,
     notify: mcpHandler.notify,

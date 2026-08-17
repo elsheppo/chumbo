@@ -1,7 +1,11 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { findSupabaseProject, PACKAGE_VERSION } from "./project.js";
-import { detectGeneratedAuth, type SetupAuthMode } from "./setup.js";
+import {
+  inspectGeneratedAuth,
+  type ApiKeyStrategy,
+  type SetupAuthMode,
+} from "./setup.js";
 
 export interface DoctorOptions {
   cwd: string;
@@ -9,12 +13,15 @@ export interface DoctorOptions {
   url?: string;
   token?: string;
   auth?: SetupAuthMode;
+  apiKeyStrategy?: ApiKeyStrategy;
 }
 
 export interface DoctorCheck {
   name: string;
   ok: boolean;
   detail: string;
+  /** Advisory checks inform without blocking setup or doctor completion. */
+  blocking?: boolean;
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -56,22 +63,28 @@ export async function runDoctor(
   options: DoctorOptions,
 ): Promise<DoctorCheck[]> {
   const root = await findSupabaseProject(options.cwd);
-  const auth =
-    options.auth ??
-    (await detectGeneratedAuth(root, options.functionName)) ??
-    "oauth";
+  const inspection = await inspectGeneratedAuth(root, options.functionName);
+  const configuredAuth = options.auth ?? inspection?.mode;
+  let auth = configuredAuth ?? "oauth";
+  let apiKeyStrategy =
+    options.apiKeyStrategy ?? inspection?.apiKeyStrategy ?? "unknown";
   const checks: DoctorCheck[] = [];
   const config = await readFile(join(root, "supabase", "config.toml"), "utf8");
   const escaped = options.functionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const section = new RegExp(
     `\\[functions\\.${escaped}\\][\\s\\S]*?(?=\\n\\[|$)`,
   ).exec(config)?.[0];
+  const gatewayConfigured = Boolean(
+    section && /verify_jwt\s*=\s*false/.test(section),
+  );
   checks.push({
     name: "gateway",
-    ok: Boolean(section && /verify_jwt\s*=\s*false/.test(section)),
-    detail: section
-      ? "function handles JWT verification and OAuth challenges"
-      : `missing [functions.${options.functionName}] configuration`,
+    ok: gatewayConfigured,
+    detail: gatewayConfigured
+      ? "function handles authentication and MCP challenges"
+      : section
+        ? `set verify_jwt = false in [functions.${options.functionName}] so requests reach Supa MCP`
+        : `missing [functions.${options.functionName}] configuration`,
   });
 
   const functionDir = join(root, "supabase", "functions", options.functionName);
@@ -86,18 +99,30 @@ export async function runDoctor(
       name: `file:${name}`,
       ok,
       detail: ok ? "present" : "missing",
+      ...(name === "index.ts" ? {} : { blocking: false }),
     });
   }
 
+  const indexPath = join(functionDir, "index.ts");
   const denoPath = join(functionDir, "deno.json");
-  if (await fileExists(denoPath)) {
-    const deno = await readFile(denoPath, "utf8");
-    checks.push({
-      name: "dependencies",
-      ok: /supa-mcp@\d+\.\d+\.\d+/.test(deno),
-      detail: "generated runtime import is pinned",
-    });
-  }
+  const packagePath = join(root, "package.json");
+  const dependencySources = await Promise.all(
+    [indexPath, denoPath, packagePath].map(async (path) =>
+      (await fileExists(path)) ? readFile(path, "utf8") : "",
+    ),
+  );
+  const pinnedRuntime = dependencySources.some(
+    (source) =>
+      /supa-mcp@\d+\.\d+\.\d+/.test(source) ||
+      /["']supa-mcp["']\s*:\s*["'](?:npm:)?\d+\.\d+\.\d+["']/.test(source),
+  );
+  checks.push({
+    name: "dependencies",
+    ok: pinnedRuntime,
+    detail: pinnedRuntime
+      ? "runtime import is pinned"
+      : "pin supa-mcp to an exact version in index.ts, deno.json, or package.json",
+  });
 
   if (!options.url) return checks;
   const headers = new Headers({
@@ -110,6 +135,81 @@ export async function runDoctor(
     headers,
     body: modernRequest("tools/list"),
   });
+  const runtimeVersion = response.headers.get("x-supa-mcp-version");
+  const runtimeAuth = response.headers.get("x-supa-mcp-auth-mode");
+  const runtimeStrategy = response.headers.get("x-supa-mcp-auth-strategy");
+  const runtimeResourceUrl = response.headers.get("x-supa-mcp-resource-url");
+  const observedAuth = ["oauth", "api-key", "bearer", "public"].includes(
+    runtimeAuth ?? "",
+  )
+    ? (runtimeAuth as SetupAuthMode)
+    : undefined;
+  if (!configuredAuth && observedAuth) auth = observedAuth;
+  if (
+    auth === "api-key" &&
+    apiKeyStrategy === "unknown" &&
+    ["static", "verifier"].includes(runtimeStrategy ?? "")
+  ) {
+    apiKeyStrategy = runtimeStrategy as ApiKeyStrategy;
+  }
+  checks.push({
+    name: "endpoint-reachable",
+    ok: true,
+    detail: `HTTP ${response.status}`,
+  });
+  checks.push({
+    name: "runtime-reached",
+    ok: Boolean(runtimeVersion),
+    detail: runtimeVersion
+      ? `supa-mcp ${runtimeVersion}`
+      : "response did not identify the Supa MCP runtime",
+    blocking: false,
+  });
+  if (runtimeVersion) {
+    checks.push({
+      name: "runtime-version",
+      ok: runtimeVersion === PACKAGE_VERSION,
+      detail:
+        runtimeVersion === PACKAGE_VERSION
+          ? `matches CLI ${PACKAGE_VERSION}`
+          : `deployed ${runtimeVersion}; CLI ${PACKAGE_VERSION}`,
+      blocking: false,
+    });
+  }
+  if (observedAuth) {
+    checks.push({
+      name: "runtime-auth-mode",
+      ok: observedAuth === auth,
+      detail:
+        observedAuth === auth
+          ? observedAuth
+          : `deployed ${observedAuth}; expected ${auth}`,
+    });
+  }
+  if (runtimeStrategy && auth === "api-key") {
+    checks.push({
+      name: "runtime-auth-strategy",
+      ok: apiKeyStrategy === "unknown" || runtimeStrategy === apiKeyStrategy,
+      detail:
+        apiKeyStrategy === "unknown" || runtimeStrategy === apiKeyStrategy
+          ? runtimeStrategy
+          : `deployed ${runtimeStrategy}; expected ${apiKeyStrategy}`,
+    });
+  }
+  if (runtimeResourceUrl) {
+    const requested = new URL(options.url);
+    requested.hash = "";
+    requested.search = "";
+    requested.pathname = requested.pathname.replace(/\/+$/, "");
+    checks.push({
+      name: "runtime-resource-url",
+      ok:
+        runtimeResourceUrl.replace(/\/+$/, "") ===
+        requested.href.replace(/\/+$/, ""),
+      detail: runtimeResourceUrl,
+      blocking: false,
+    });
+  }
 
   if (auth === "public") {
     const body = (await response.json().catch(() => null)) as {
@@ -134,7 +234,9 @@ export async function runDoctor(
     checks.push({
       name: auth === "api-key" ? "api-key-gate" : "bearer-gate",
       ok: response.status === 401,
-      detail: `HTTP ${response.status}`,
+      detail: runtimeVersion
+        ? `HTTP ${response.status} from Supa MCP`
+        : `HTTP ${response.status}; responding layer is unconfirmed`,
     });
     if (!options.token) return checks;
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
@@ -15,11 +15,13 @@ import {
 } from "./project.js";
 import {
   buildSetupReport,
-  detectGeneratedAuth,
   detectLinkedProjectRef,
   endpointFor,
   formatSetupReport,
+  inspectGeneratedAuth,
   normalizePublicUrl,
+  type ApiKeyStrategy,
+  type RemoteVerificationEvidence,
   type SetupAuthMode,
   type SetupReport,
 } from "./setup.js";
@@ -48,7 +50,7 @@ Setup options:
 
 Shared options:
   --url <url>             Deployed MCP URL for status or doctor
-  --token <token>         User token or API key for doctor's tools/list probe
+  --token <token>         User token or application API key for an MCP probe
   --dry-run               Print init's file plan without writing
   --yes                   Never prompt; accept the selected/default choices
   --json                  Stable machine-readable output; never prompts
@@ -181,6 +183,27 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function localCheckCommand(
+  root: string,
+  functionName: string,
+): Promise<string> {
+  const denoConfigPath = join(
+    root,
+    "supabase",
+    "functions",
+    functionName,
+    "deno.json",
+  );
+  const denoConfig = (await pathExists(denoConfigPath))
+    ? await readFile(denoConfigPath, "utf8")
+    : "";
+  const hasCheckTask = /["']check["']\s*:/.test(denoConfig);
+  const hasTestTask = /["']test["']\s*:/.test(denoConfig);
+  return hasCheckTask && hasTestTask
+    ? `deno task --config supabase/functions/${functionName}/deno.json check && deno task --config supabase/functions/${functionName}/deno.json test`
+    : `deno check supabase/functions/${functionName}/index.ts`;
 }
 
 function compactOutput(value: string): string {
@@ -317,7 +340,91 @@ async function init(args: string[]): Promise<void> {
 }
 
 function allChecksPass(checks: readonly DoctorCheck[]): boolean {
-  return checks.length > 0 && checks.every((check) => check.ok);
+  return (
+    checks.length > 0 &&
+    checks.every((check) => check.ok || check.blocking === false)
+  );
+}
+
+function remoteEvidence(
+  checks: readonly DoctorCheck[],
+  auth: SetupAuthMode,
+  credentialSupplied: boolean,
+  attempted: boolean,
+): RemoteVerificationEvidence {
+  const passed = (name: string) =>
+    checks.some((check) => check.name === name && check.ok);
+  const runtimeReached =
+    passed("runtime-reached") ||
+    passed("authenticated-tools-list") ||
+    passed("public-tools-list") ||
+    passed("protected-resource-metadata");
+  const gateName =
+    auth === "oauth"
+      ? "oauth-challenge"
+      : auth === "api-key"
+        ? "api-key-gate"
+        : auth === "bearer"
+          ? "bearer-gate"
+          : undefined;
+  const credentialAccepted = credentialSupplied
+    ? passed("authenticated-tools-list")
+    : undefined;
+  const runtimeCheck = checks.find(
+    (check) => check.name === "runtime-reached" && check.ok,
+  );
+  const strategyCheck = checks.find(
+    (check) => check.name === "runtime-auth-strategy" && check.ok,
+  );
+  const observedStrategy = ["static", "verifier", "unknown"].includes(
+    strategyCheck?.detail ?? "",
+  )
+    ? (strategyCheck?.detail as ApiKeyStrategy)
+    : undefined;
+  return {
+    attempted,
+    reachable: passed("endpoint-reachable"),
+    runtimeReached,
+    authGateObserved: gateName ? runtimeReached && passed(gateName) : false,
+    credentialSupplied,
+    ...(credentialAccepted === undefined ? {} : { credentialAccepted }),
+    mcpDiscoveryVerified:
+      passed("public-tools-list") || passed("authenticated-tools-list"),
+    resourceUrlVerified:
+      passed("runtime-resource-url") || passed("advertised-resource-url"),
+    ...(runtimeCheck
+      ? { runtimeVersion: runtimeCheck.detail.replace(/^supa-mcp\s+/, "") }
+      : {}),
+    ...(runtimeReached ? { authMode: auth } : {}),
+    ...(observedStrategy ? { apiKeyStrategy: observedStrategy } : {}),
+  };
+}
+
+function verificationDetail(
+  evidence: RemoteVerificationEvidence,
+  auth: SetupAuthMode,
+  remoteVerified: boolean,
+  failedChecks: readonly DoctorCheck[],
+): string {
+  if (remoteVerified) {
+    return "The deployed endpoint accepted a credential and returned MCP capabilities.";
+  }
+  if (!evidence.runtimeReached) {
+    return "The endpoint answered, but the Supa MCP runtime was not confirmed. Check the deployed function and verify_jwt setting, then retry.";
+  }
+  if (
+    auth !== "public" &&
+    evidence.authGateObserved &&
+    !evidence.credentialSupplied
+  ) {
+    if (auth === "oauth") {
+      return "OAuth discovery and access protection are ready. Sign in from an MCP client to test authenticated tool access.";
+    }
+    return "The endpoint is responding and access protection is active. Supply a credential to test a complete MCP connection.";
+  }
+  return failedChecks.length > 0
+    ? failedChecks.map((check) => `${check.name}: ${check.detail}`).join("; ")
+    : "The endpoint responded, but MCP capability discovery was not completed.";
 }
 
 async function setup(args: string[]): Promise<void> {
@@ -325,7 +432,8 @@ async function setup(args: string[]): Promise<void> {
   const machine = parsed.values.json ?? false;
   const root = await findSupabaseProject(process.cwd());
   const functionName = parsed.values.function ?? "mcp";
-  const existingAuth = await detectGeneratedAuth(root, functionName);
+  const existingInspection = await inspectGeneratedAuth(root, functionName);
+  const existingAuth = existingInspection?.mode;
   if (
     existingAuth &&
     parsed.values.auth &&
@@ -347,6 +455,10 @@ async function setup(args: string[]): Promise<void> {
       : process.stdin.isTTY && !machine && !parsed.values.yes
         ? await guidedAuth()
         : "oauth";
+  const apiKeyStrategy: ApiKeyStrategy | undefined =
+    auth === "api-key"
+      ? (existingInspection?.apiKeyStrategy ?? "static")
+      : undefined;
   const detectedConsent = await pathExists(
     join(root, "supabase", "functions", `${functionName}-consent`, "index.ts"),
   );
@@ -375,6 +487,9 @@ async function setup(args: string[]): Promise<void> {
       : undefined;
   const endpoint =
     parsed.values.url ?? publicUrl ?? endpointFor(projectRef, functionName);
+  const existingLocalCheckCommand = existingAuth
+    ? await localCheckCommand(root, functionName)
+    : undefined;
   const planOnly = Boolean(parsed.values.plan);
   let files: PlannedFile[] = [];
   const addConsent = Boolean(
@@ -431,6 +546,8 @@ async function setup(args: string[]): Promise<void> {
       publicUrl,
       localChecks: "ready",
       migrations: auth === "public" ? "ready" : "skipped",
+      apiKeyStrategy,
+      localCheckCommand: existingLocalCheckCommand,
     });
     if (machine) printJson(report);
     else {
@@ -464,19 +581,30 @@ async function setup(args: string[]): Promise<void> {
   if (!parsed.values["skip-checks"] && (await commandAvailable("deno"))) {
     if (!machine) console.log("\nChecking the generated Edge Function...");
     const functionDir = join(root, "supabase", "functions", functionName);
+    const denoConfigPath = join(functionDir, "deno.json");
+    const denoConfig = (await pathExists(denoConfigPath))
+      ? await readFile(denoConfigPath, "utf8")
+      : "";
+    const hasCheckTask = /["']check["']\s*:/.test(denoConfig);
+    const hasTestTask = /["']test["']\s*:/.test(denoConfig);
     const check = await runCommand(
       "deno",
-      ["task", "check"],
+      hasCheckTask ? ["task", "check"] : ["check", "index.ts"],
       functionDir,
       machine,
     );
-    const test = check.ok
-      ? await runCommand("deno", ["task", "test"], functionDir, machine)
-      : { ok: false, detail: "tests skipped because type-check failed" };
+    const test =
+      check.ok && hasTestTask
+        ? await runCommand("deno", ["task", "test"], functionDir, machine)
+        : check.ok
+          ? { ok: true, detail: "no standard test task was found" }
+          : { ok: false, detail: "tests skipped because type-check failed" };
     localChecks = check.ok && test.ok ? "complete" : "blocked";
     checkDetail =
       localChecks === "complete"
-        ? "Type-check and generated test passed."
+        ? hasTestTask
+          ? "Type-check and contract test passed."
+          : "Type-check passed; no standard test task was found."
         : `${check.detail}; ${test.detail}`;
   } else if (!parsed.values["skip-checks"]) {
     checkDetail =
@@ -573,6 +701,8 @@ async function setup(args: string[]): Promise<void> {
     (deployed && endpoint),
   );
   let remoteVerified = false;
+  let remoteReady = !shouldVerify;
+  let verification: RemoteVerificationEvidence | undefined;
   let verifyDetail: string | undefined;
   if (shouldVerify && endpoint) {
     try {
@@ -580,6 +710,7 @@ async function setup(args: string[]): Promise<void> {
         cwd: root,
         functionName,
         auth,
+        apiKeyStrategy,
         url: endpoint,
         token: parsed.values.token,
       });
@@ -589,19 +720,34 @@ async function setup(args: string[]): Promise<void> {
           "protected-resource-metadata",
           "advertised-resource-url",
           "bearer-gate",
+          "api-key-gate",
           "authenticated-tools-list",
           "public-tools-list",
           "public-rate-limit",
+          "endpoint-reachable",
+          "runtime-reached",
+          "runtime-version",
+          "runtime-auth-mode",
+          "runtime-auth-strategy",
+          "runtime-resource-url",
         ].includes(check.name),
       );
-      remoteVerified = allChecksPass(networkChecks);
-      verifyDetail = remoteVerified
-        ? "Remote authentication and MCP discovery checks passed."
-        : networkChecks
-            .filter((check) => !check.ok)
-            .map((check) => `${check.name}: ${check.detail}`)
-            .join("; ");
+      verification = remoteEvidence(
+        networkChecks,
+        auth,
+        Boolean(parsed.values.token),
+        true,
+      );
+      remoteReady = allChecksPass(networkChecks);
+      remoteVerified = remoteReady && verification.mcpDiscoveryVerified;
+      verifyDetail = verificationDetail(
+        verification,
+        auth,
+        remoteVerified,
+        networkChecks.filter((check) => !check.ok && check.blocking !== false),
+      );
     } catch (error) {
+      remoteReady = false;
       verifyDetail =
         error instanceof Error ? error.message : "Remote verification failed.";
     }
@@ -621,6 +767,8 @@ async function setup(args: string[]): Promise<void> {
     deployed,
     remoteVerified,
     remoteAttempted: shouldVerify,
+    remoteReady,
+    verification,
     endpoint,
     publicUrl,
     publicUrlConfigured,
@@ -629,6 +777,8 @@ async function setup(args: string[]): Promise<void> {
     migrationDetail,
     deployDetail,
     verifyDetail,
+    apiKeyStrategy,
+    localCheckCommand: existingLocalCheckCommand,
   });
   if (machine) printJson(report);
   else console.log(formatSetupReport(report));
@@ -640,13 +790,18 @@ async function status(args: string[]): Promise<void> {
   const machine = parsed.values.json ?? false;
   const root = await findSupabaseProject(process.cwd());
   const functionName = parsed.values.function ?? "mcp";
-  const detectedAuth = await detectGeneratedAuth(root, functionName);
-  const auth = choice(
-    parsed.values.auth ?? detectedAuth,
-    ["oauth", "api-key", "bearer", "public"] as const,
-    "oauth",
-    "--auth",
-  );
+  const inspection = await inspectGeneratedAuth(root, functionName);
+  const configuredAuth = parsed.values.auth
+    ? choice(
+        parsed.values.auth,
+        ["oauth", "api-key", "bearer", "public"] as const,
+        "oauth",
+        "--auth",
+      )
+    : inspection?.mode;
+  let auth = configuredAuth ?? "oauth";
+  let apiKeyStrategy: ApiKeyStrategy | undefined =
+    auth === "api-key" ? (inspection?.apiKeyStrategy ?? "unknown") : undefined;
   const consent = (await pathExists(
     join(root, "supabase", "functions", `${functionName}-consent`, "index.ts"),
   ))
@@ -659,11 +814,16 @@ async function status(args: string[]): Promise<void> {
     : undefined;
   const endpoint =
     parsed.values.url ?? publicUrl ?? endpointFor(projectRef, functionName);
+  const statusLocalCheckCommand = await localCheckCommand(root, functionName);
   const localChecks = await runDoctor({
     cwd: root,
     functionName,
-    auth,
+    auth: configuredAuth,
   });
+  const localReady = allChecksPass(localChecks);
+  const localAdvisories = localChecks.filter(
+    (check) => !check.ok && check.blocking === false,
+  );
   let remote: DoctorCheck[] = [];
   let remoteError: string | undefined;
   if (endpoint) {
@@ -671,7 +831,8 @@ async function status(args: string[]): Promise<void> {
       const checks = await runDoctor({
         cwd: root,
         functionName,
-        auth,
+        auth: configuredAuth,
+        apiKeyStrategy,
         url: endpoint,
         token: parsed.values.token,
       });
@@ -680,14 +841,33 @@ async function status(args: string[]): Promise<void> {
           !["gateway", "dependencies"].includes(check.name) &&
           !check.name.startsWith("file:"),
       );
+      if (!configuredAuth) {
+        const observedAuth = remote.find(
+          (check) => check.name === "runtime-auth-mode" && check.ok,
+        )?.detail;
+        if (
+          ["oauth", "api-key", "bearer", "public"].includes(observedAuth ?? "")
+        ) {
+          auth = observedAuth as SetupAuthMode;
+          if (auth === "api-key" && apiKeyStrategy === undefined) {
+            apiKeyStrategy = "unknown";
+          }
+        }
+      }
     } catch (error) {
       remoteError =
         error instanceof Error ? error.message : "Remote verification failed.";
     }
   }
   const remoteAttempted = Boolean(endpoint);
-  const remoteVerified =
-    remoteAttempted && !remoteError && allChecksPass(remote);
+  const evidence = remoteEvidence(
+    remote,
+    auth,
+    Boolean(parsed.values.token),
+    remoteAttempted,
+  );
+  const remoteReady = remoteAttempted && !remoteError && allChecksPass(remote);
+  const remoteVerified = remoteReady && evidence.mcpDiscoveryVerified;
   const report = buildSetupReport({
     command: "status",
     projectRoot: root,
@@ -695,9 +875,9 @@ async function status(args: string[]): Promise<void> {
     auth,
     consent,
     files: [],
-    applied: allChecksPass(localChecks),
+    applied: localReady,
     planned: false,
-    localChecks: allChecksPass(localChecks) ? "complete" : "blocked",
+    localChecks: localReady ? "complete" : "blocked",
     migrations:
       auth === "public" && remoteVerified
         ? "complete"
@@ -706,22 +886,30 @@ async function status(args: string[]): Promise<void> {
           : "skipped",
     remoteVerified,
     remoteAttempted,
+    remoteReady,
+    verification: evidence,
     endpoint,
     publicUrl,
     projectRef,
-    checkDetail: allChecksPass(localChecks)
-      ? "Generated files and gateway configuration are present."
+    checkDetail: localReady
+      ? localAdvisories.length > 0
+        ? `The function can run. Optional scaffold checks: ${localAdvisories.map((check) => `${check.name} ${check.detail}`).join("; ")}.`
+        : "The function, pinned runtime, and gateway configuration are present."
       : localChecks
-          .filter((check) => !check.ok)
+          .filter((check) => !check.ok && check.blocking !== false)
           .map((check) => check.detail)
           .join("; "),
-    verifyDetail: remoteVerified
-      ? "Remote authentication and MCP discovery checks passed."
-      : (remoteError ??
-        remote
-          .filter((check) => !check.ok)
-          .map((check) => `${check.name}: ${check.detail}`)
-          .join("; ")),
+    verifyDetail: remoteAttempted
+      ? (remoteError ??
+        verificationDetail(
+          evidence,
+          auth,
+          remoteVerified,
+          remote.filter((check) => !check.ok && check.blocking !== false),
+        ))
+      : undefined,
+    apiKeyStrategy,
+    localCheckCommand: statusLocalCheckCommand,
   });
   if (machine) printJson(report);
   else console.log(formatSetupReport(report));
@@ -748,15 +936,18 @@ async function doctor(args: string[]): Promise<void> {
     printJson({
       schemaVersion: 1,
       command: "doctor",
-      status: checks.every((check) => check.ok) ? "complete" : "blocked",
+      status: allChecksPass(checks) ? "complete" : "blocked",
       checks,
     });
   } else {
     for (const check of checks) {
-      console.log(`${check.ok ? "✓" : "✗"} ${check.name}: ${check.detail}`);
+      const marker = check.ok ? "✓" : check.blocking === false ? "!" : "✗";
+      console.log(`${marker} ${check.name}: ${check.detail}`);
     }
   }
-  if (checks.some((check) => !check.ok)) process.exitCode = 1;
+  if (checks.some((check) => !check.ok && check.blocking !== false)) {
+    process.exitCode = 1;
+  }
 }
 
 async function dev(args: string[]): Promise<void> {
