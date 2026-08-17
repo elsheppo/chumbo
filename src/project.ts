@@ -1,7 +1,8 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, parse, relative, resolve } from "node:path";
+import { PACKAGE_VERSION } from "./version.js";
 
-export const PACKAGE_VERSION = "0.3.1";
+export { PACKAGE_VERSION } from "./version.js";
 
 export interface PlannedFile {
   path: string;

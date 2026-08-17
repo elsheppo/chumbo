@@ -394,11 +394,20 @@ npx supa-mcp doctor \
   --url https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
 
-`doctor` detects the generated auth mode. It checks OAuth discovery, API-key or
-bearer gating, or public tools and rate-limit headers as appropriate. Add
-`--token "$MCP_API_KEY"` for API-key mode or `--token "$USER_JWT"` to OAuth
-or bearer mode for an authenticated
-`tools/list` probe. Use `doctor --json` in automation.
+`doctor` detects generated and inline auth configuration, and a deployed Supa
+MCP identifies its runtime version, auth mode, API-key strategy, and advertised
+resource URL through non-secret response headers. This lets diagnostics
+distinguish the Edge Function from a 401 returned earlier by the Supabase
+gateway. Add `--token "$MCP_API_KEY"` for the generated static-key mode,
+`--token "$APPLICATION_API_KEY"` for a custom verifier, or
+`--token "$USER_JWT"` for OAuth or bearer mode to complete an authenticated
+`tools/list` probe.
+
+Without a token, a healthy protected endpoint is reported as ready to test—not
+blocked and not fully connection-tested. Generated layout files remain the
+recommended happy path; composed functions can organize capability and test
+code differently, and missing optional scaffold files are advisory. Use
+`doctor --json` for the complete evidence record in automation.
 
 The remote MCP URL is:
 
@@ -540,13 +549,13 @@ RLS policies, and a two-user negative isolation test.
 
 ## Command reference
 
-| Command  | Purpose                                                           |
-| -------- | ----------------------------------------------------------------- |
-| `setup`  | Guide or automate the complete installation ladder                |
-| `status` | Inspect local setup and optionally probe the remote endpoint      |
-| `init`   | Generate files only; useful as a low-level primitive              |
-| `doctor` | Diagnose generated files, gateway config, auth, and MCP discovery |
-| `dev`    | Delegate to `supabase functions serve`                            |
+| Command  | Purpose                                                          |
+| -------- | ---------------------------------------------------------------- |
+| `setup`  | Guide or automate the complete installation ladder               |
+| `status` | Inspect local setup and optionally probe the remote endpoint     |
+| `init`   | Generate files only; useful as a low-level primitive             |
+| `doctor` | Diagnose local config, runtime identity, auth, and MCP discovery |
+| `dev`    | Delegate to `supabase functions serve`                           |
 
 Use `npx supa-mcp --help` for all flags.
 
@@ -577,7 +586,7 @@ recognized, `setup --resume` leaves application-authored capabilities alone.
 
 ## Development
 
-Version 0.3.1 pins the runtime dependencies in each generated Deno project.
+Version 0.3.2 pins the runtime dependencies in each generated Deno project.
 The package test suite covers MCP discovery, scopes, public rate limiting,
 API-key authentication, concurrent request isolation, generated
 OAuth/API-key/public projects, structured CLI output, and real two-user
