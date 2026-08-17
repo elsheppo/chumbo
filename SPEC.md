@@ -2,7 +2,7 @@
 
 Status: Published; guided setup implemented, hosted OAuth proof still pending\
 Date: 2026-08-13\
-Current release: `0.3.1`\
+Current release: `0.3.2`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the
@@ -302,10 +302,22 @@ npx supa-mcp doctor
 - `WWW-Authenticate` challenge shape;
 - whether the endpoint advertises the expected protocol version;
 - optional live `tools/list` call when credentials are supplied;
+- whether a remote response was produced by Supa MCP or by an upstream gateway;
+- deployed runtime version, auth mode, API-key strategy, and advertised resource
+  URL through non-secret response metadata;
 - common RLS symptom: authenticated call succeeds but returns no rows;
 - accidental service-role configuration in a user-facing template.
 
-Each failure must name an immediate recovery command or documentation section.
+Diagnostics distinguish required runtime conditions from recommended generated
+project hygiene. A missing entrypoint, unpinned runtime, or incorrect gateway
+configuration blocks readiness. Alternate capability-file or test-task layouts
+are advisory when the function can otherwise run. Remote verification is
+graded as reachable, runtime-confirmed, access-protected, credential-accepted,
+and MCP-discovered; omitting an optional test credential must not become a
+failure or a false claim of authenticated completion.
+
+Each blocking failure must name an immediate recovery command or documentation
+section.
 
 ## 9. Generated project shape
 

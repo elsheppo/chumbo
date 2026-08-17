@@ -2,6 +2,26 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export type SetupAuthMode = "oauth" | "api-key" | "bearer" | "public";
+export type ApiKeyStrategy = "static" | "verifier" | "unknown";
+
+export interface GeneratedAuthInspection {
+  mode: SetupAuthMode;
+  apiKeyStrategy?: ApiKeyStrategy;
+}
+
+export interface RemoteVerificationEvidence {
+  attempted: boolean;
+  reachable: boolean;
+  runtimeReached: boolean;
+  authGateObserved: boolean;
+  credentialSupplied: boolean;
+  credentialAccepted?: boolean;
+  mcpDiscoveryVerified: boolean;
+  resourceUrlVerified?: boolean;
+  runtimeVersion?: string;
+  authMode?: SetupAuthMode;
+  apiKeyStrategy?: ApiKeyStrategy;
+}
 export type SetupStepStatus =
   | "complete"
   | "ready"
@@ -31,6 +51,7 @@ export interface SetupReport {
   projectRoot: string;
   functionName: string;
   auth: SetupAuthMode;
+  authStrategy?: ApiKeyStrategy;
   endpoint?: string;
   upstreamEndpoint?: string;
   files: Array<{
@@ -44,6 +65,7 @@ export interface SetupReport {
     documentationServerUrl: string;
     prompt: string;
   };
+  verification?: RemoteVerificationEvidence;
 }
 
 export const SUPA_MCP_DOCUMENTATION_SERVER_URL =
@@ -64,11 +86,15 @@ export interface BuildSetupReportOptions {
   deployed?: boolean;
   remoteVerified?: boolean;
   remoteAttempted?: boolean;
+  remoteReady?: boolean;
+  verification?: RemoteVerificationEvidence;
+  apiKeyStrategy?: ApiKeyStrategy;
   endpoint?: string;
   publicUrl?: string;
   publicUrlConfigured?: boolean;
   projectRef?: string;
   checkDetail?: string;
+  localCheckCommand?: string;
   migrationDetail?: string;
   deployDetail?: string;
   verifyDetail?: string;
@@ -83,22 +109,32 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+export async function inspectGeneratedAuth(
+  root: string,
+  functionName: string,
+): Promise<GeneratedAuthInspection | undefined> {
+  const path = join(root, "supabase", "functions", functionName, "index.ts");
+  if (!(await exists(path))) return undefined;
+  const source = await readFile(path, "utf8");
+  if (/mode:\s*["']public["']/.test(source)) return { mode: "public" };
+  if (/mode:\s*["']api-key["']/.test(source)) {
+    const apiKeyStrategy: ApiKeyStrategy = /\bverify\s*(?:\(|:)/.test(source)
+      ? "verifier"
+      : /MCP_API_KEY/.test(source)
+        ? "static"
+        : "unknown";
+    return { mode: "api-key", apiKeyStrategy };
+  }
+  if (/mode:\s*["']bearer["']/.test(source)) return { mode: "bearer" };
+  if (/mode:\s*["']oauth["']/.test(source)) return { mode: "oauth" };
+  return undefined;
+}
+
 export async function detectGeneratedAuth(
   root: string,
   functionName: string,
 ): Promise<SetupAuthMode | undefined> {
-  const path = join(root, "supabase", "functions", functionName, "index.ts");
-  if (!(await exists(path))) return undefined;
-  const source = await readFile(path, "utf8");
-  return /mode:\s*["']public["']/.test(source)
-    ? "public"
-    : /mode:\s*["']api-key["']/.test(source)
-      ? "api-key"
-      : /mode:\s*["']bearer["']/.test(source)
-        ? "bearer"
-        : /mode:\s*["']oauth["']/.test(source)
-          ? "oauth"
-          : undefined;
+  return (await inspectGeneratedAuth(root, functionName))?.mode;
 }
 
 export async function detectLinkedProjectRef(
@@ -168,13 +204,18 @@ export function buildSetupReport(
     ? normalizePublicUrl(options.publicUrl)
     : undefined;
   const endpoint = options.endpoint ?? publicUrl ?? upstreamEndpoint;
+  const endpointVerified =
+    options.remoteVerified ||
+    (options.auth === "oauth" &&
+      Boolean(options.verification?.authGateObserved) &&
+      Boolean(options.verification?.resourceUrlVerified));
   const steps: SetupStep[] = [
     {
       id: "scaffold",
       title: "Generate the MCP Edge Function",
       status: options.applied ? "complete" : "ready",
       detail: options.applied
-        ? "Generated files and Supabase gateway configuration are in place."
+        ? "The function entrypoint and Supabase gateway configuration are in place."
         : "Review and apply the generated file plan.",
       command: options.applied
         ? undefined
@@ -182,12 +223,14 @@ export function buildSetupReport(
     },
     {
       id: "local_checks",
-      title: "Check the generated function",
+      title: "Check the MCP function",
       status: options.localChecks ?? "ready",
       detail:
         options.checkDetail ??
-        "Type-check and run the generated contract test.",
-      command: `deno task --config supabase/functions/${options.functionName}/deno.json check && deno task --config supabase/functions/${options.functionName}/deno.json test`,
+        "Type-check the function and run its contract test when configured.",
+      command:
+        options.localCheckCommand ??
+        `deno task --config supabase/functions/${options.functionName}/deno.json check && deno task --config supabase/functions/${options.functionName}/deno.json test`,
     },
   ];
 
@@ -203,7 +246,8 @@ export function buildSetupReport(
     });
   }
 
-  if (options.auth === "api-key") {
+  const apiKeyStrategy = options.apiKeyStrategy ?? "static";
+  if (options.auth === "api-key" && apiKeyStrategy === "static") {
     steps.push({
       id: "set_api_key_secret",
       title: "Set the MCP API key secret",
@@ -219,7 +263,9 @@ export function buildSetupReport(
       id: "configure_public_url",
       title: "Set the public MCP URL",
       status:
-        options.publicUrlConfigured || options.remoteVerified
+        options.publicUrlConfigured ||
+        options.verification?.resourceUrlVerified ||
+        options.remoteVerified
           ? "complete"
           : "ready",
       detail:
@@ -230,7 +276,11 @@ export function buildSetupReport(
     steps.push({
       id: "publish_public_route",
       title: "Publish the clean MCP route",
-      status: options.remoteVerified ? "complete" : "needs_user_action",
+      status:
+        options.verification?.runtimeReached &&
+        options.verification.resourceUrlVerified
+          ? "complete"
+          : "needs_user_action",
       detail: upstreamEndpoint
         ? `Proxy ${publicUrl} and every path below it to ${upstreamEndpoint}. The suffix routes provide OAuth discovery.`
         : `Proxy ${publicUrl} and every path below it to the deployed Supabase Edge Function. The suffix routes provide OAuth discovery.`,
@@ -241,7 +291,10 @@ export function buildSetupReport(
   steps.push({
     id: "deploy",
     title: "Deploy the Edge Function",
-    status: options.deployed || options.remoteVerified ? "complete" : "ready",
+    status:
+      options.deployed || options.verification?.runtimeReached
+        ? "complete"
+        : "ready",
     detail:
       options.deployDetail ??
       (options.projectRef
@@ -265,7 +318,11 @@ export function buildSetupReport(
     steps.push({
       id: "configure_oauth",
       title: "Enable Supabase OAuth Server",
-      status: options.remoteVerified ? "complete" : "needs_user_action",
+      status:
+        options.verification?.authGateObserved &&
+        options.verification.resourceUrlVerified
+          ? "complete"
+          : "needs_user_action",
       detail:
         "Enable OAuth Server, set the authorization path to your application consent UI, and enable dynamic client registration when your MCP clients require it.",
       url: options.projectRef
@@ -277,22 +334,26 @@ export function buildSetupReport(
   steps.push({
     id: "verify_remote",
     title: "Verify the deployed MCP endpoint",
-    status: options.remoteVerified
+    status: endpointVerified
       ? "complete"
-      : options.remoteAttempted
+      : options.remoteAttempted && !options.remoteReady
         ? "blocked"
         : "ready",
     detail:
       options.verifyDetail ??
-      (endpoint
-        ? "Probe the deployed endpoint and its authentication contract."
-        : "Pass --url or --project-ref so doctor can probe the deployed endpoint."),
+      (options.remoteReady && options.remoteAttempted
+        ? options.auth === "oauth" && endpointVerified
+          ? "OAuth discovery and access protection are ready. Sign in from an MCP client to test authenticated tool access."
+          : "The endpoint is responding. Supply a credential to test a complete MCP connection."
+        : endpoint
+          ? "Probe the deployed endpoint and its authentication contract."
+          : "Pass --url or --project-ref so doctor can probe the deployed endpoint."),
     command: endpoint
-      ? `npx supa-mcp doctor --function ${options.functionName} --url ${endpoint}${options.auth === "api-key" ? " --token <MCP_API_KEY>" : ""} --json`
+      ? `npx supa-mcp doctor --function ${options.functionName} --url ${endpoint}${options.auth === "api-key" ? ` --token <${apiKeyStrategy === "static" ? "MCP_API_KEY" : "APPLICATION_API_KEY"}>` : options.auth === "bearer" ? " --token <USER_JWT>" : ""} --json`
       : `npx supa-mcp doctor --function ${options.functionName} --url <MCP_URL> --json`,
   });
 
-  if (options.remoteVerified) {
+  if (endpointVerified) {
     steps.push({
       id: "connect_client",
       title: "Connect an MCP client",
@@ -313,6 +374,7 @@ export function buildSetupReport(
     projectRoot: options.projectRoot,
     functionName: options.functionName,
     auth: options.auth,
+    ...(options.auth === "api-key" ? { authStrategy: apiKeyStrategy } : {}),
     ...(endpoint ? { endpoint } : {}),
     ...(upstreamEndpoint ? { upstreamEndpoint } : {}),
     files: options.files,
@@ -324,6 +386,7 @@ export function buildSetupReport(
       prompt:
         "Inspect this project and implement the authenticated-tools pattern.",
     },
+    ...(options.verification ? { verification: options.verification } : {}),
   };
 }
 
@@ -337,9 +400,11 @@ export function formatSetupReport(report: SetupReport): string {
     "",
     report.status === "complete"
       ? "Your Supa MCP is live and verified."
-      : report.status === "planned" || report.status === "needs_confirmation"
-        ? "Setup plan ready."
-        : "Your Supa MCP scaffold is ready.",
+      : report.verification?.runtimeReached
+        ? "Your Supa MCP is deployed and responding."
+        : report.status === "planned" || report.status === "needs_confirmation"
+          ? "Setup plan ready."
+          : "Your Supa MCP scaffold is ready.",
   ];
   if (completed.length > 0) {
     lines.push("", "Done:");
