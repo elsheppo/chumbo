@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+## 0.3.2 — 2026-08-17
+
+- Make `status` and `doctor` distinguish endpoint reachability, responses proven
+  to come from Supa MCP, access-gate behavior, and authenticated MCP discovery.
+- Add non-secret runtime fingerprint headers for deployed version, auth mode,
+  API-key strategy, and advertised resource URL.
+- Recognize verifier-backed and custom application-key setups without
+  prescribing the generated `MCP_API_KEY` secret.
+- Treat the generated capabilities, Deno task, and contract-test layout as
+  recommended diagnostics rather than runtime requirements for composed
+  functions.
+- Keep an uncredentialed but protected endpoint in a ready-to-test state instead
+  of reporting a blocking failure or claiming authenticated verification.
+
 ## 0.3.1 — 2026-08-15
 
 - Connect guided setup to the live Supa MCP documentation server with an
