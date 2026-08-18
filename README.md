@@ -155,6 +155,13 @@ grants and RLS policies as the rest of the application. API-key and public
 modes receive an anonymous client instead; their capability code owns the
 application authorization decision.
 
+Set `instructions` alongside `server` in `createSupabaseMcp` to give clients
+server-level usage guidance in the `initialize` result — what the server is
+for and where the model should start. Pass a string, or a
+`(context) => string` resolver when different callers or row-defined servers
+warrant different guidance. Tool descriptions say what one tool does;
+instructions say how the server hangs together.
+
 The generated example also demonstrates a resource, a prompt, and an MCP
 multi-round-trip confirmation flow. Advanced MCP features remain available
 through the underlying official `McpServer`.
@@ -665,7 +672,7 @@ recognized, `setup --resume` leaves application-authored capabilities alone.
 
 ## Development
 
-Version 0.3.2 pins the runtime dependencies in each generated Deno project.
+Version 0.4.0 pins the runtime dependencies in each generated Deno project.
 The package test suite covers MCP discovery, scopes, public rate limiting,
 API-key authentication, concurrent request isolation, generated
 OAuth/API-key/public projects, structured CLI output, and real two-user
