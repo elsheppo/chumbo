@@ -1,0 +1,7 @@
+{
+  "slug": "connect-clients",
+  "kind": "reference",
+  "title": "Connect your MCP client",
+  "summary": "Point Claude Code, claude.ai, Claude Desktop, Cursor, or MCP Inspector at a deployed Supa MCP endpoint, with the verification status of each path.",
+  "officialDocs": ["https://supabase.com/docs/guides/functions"]
+}

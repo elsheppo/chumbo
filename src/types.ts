@@ -113,6 +113,18 @@ export interface SupabaseMcpAccessOptions<Database = unknown> {
 
 export interface CreateSupabaseMcpOptions<Database = unknown> {
   server: Implementation;
+  /**
+   * Server-level usage guidance returned in the `initialize` result.
+   * Clients surface it to the model as "how to use this server" context,
+   * complementing per-tool descriptions. A resolver receives the
+   * request context, so row-defined servers can return per-surface
+   * instructions.
+   */
+  instructions?:
+    | string
+    | ((
+        context: SupabaseMcpContext<Database>,
+      ) => string | undefined | Promise<string | undefined>);
   resourceUrl: string | URL;
   auth?: SupabaseMcpAuth<Database>;
   access?: SupabaseMcpAccessOptions<Database>;

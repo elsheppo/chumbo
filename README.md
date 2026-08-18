@@ -13,6 +13,10 @@ Start with one server. The same library also supports advanced Supabase-native
 patterns—including many MCPs from one Edge Function—without introducing a
 second framework or making the basic setup more complicated.
 
+The path from here to "an MCP client is calling my app" is five sections:
+setup, write a capability, run it locally, finish your access mode and deploy,
+then connect a client. Everything after that is optional depth.
+
 ## Guided setup
 
 From a repository that already contains `supabase/config.toml`:
@@ -41,6 +45,10 @@ The four access choices are:
    Supabase user access token.
 4. **Public** — anonymous access through the Supabase `anon` role, with a
    generated Postgres rate limiter.
+
+Unsure which to pick? The
+[auth mode decision guide](./docs/reference/auth-modes) compares them in one
+page. When in doubt, choose OAuth for a product and API key for a prototype.
 
 Setup is resumable without a hidden state file:
 
@@ -75,91 +83,6 @@ verify_jwt = false
 This does not make an authenticated MCP public. It lets the Edge Function
 answer an unauthenticated request with the MCP OAuth challenge before the
 function validates the resulting Supabase access token itself.
-
-## Agent and CI setup
-
-Agents should use the non-interactive JSON interface instead of parsing
-terminal prose.
-
-Inspect the complete plan without writing:
-
-```sh
-npx supa-mcp setup --auth oauth --plan --json
-```
-
-Apply it and receive structured next actions:
-
-```sh
-npx supa-mcp setup \
-  --auth oauth \
-  --function mcp \
-  --server-name "My app" \
-  --yes \
-  --json
-```
-
-Resume or re-observe after a user completes a dashboard action:
-
-```sh
-npx supa-mcp setup --resume --function mcp --yes --json
-npx supa-mcp status --function mcp --json
-```
-
-JSON output has a versioned envelope and stable step IDs:
-
-```json
-{
-  "schemaVersion": 1,
-  "command": "setup",
-  "status": "needs_user_action",
-  "functionName": "mcp",
-  "auth": "oauth",
-  "steps": [
-    { "id": "scaffold", "status": "complete" },
-    { "id": "local_checks", "status": "complete" },
-    { "id": "deploy", "status": "ready" },
-    { "id": "configure_oauth", "status": "needs_user_action" },
-    { "id": "verify_remote", "status": "ready" }
-  ],
-  "nextActions": [
-    { "id": "deploy", "status": "ready" },
-    { "id": "configure_oauth", "status": "needs_user_action" },
-    { "id": "verify_remote", "status": "ready" }
-  ],
-  "resumeCommand": "npx supa-mcp setup --resume --function mcp --auth oauth --yes --json"
-}
-```
-
-`--json` never prompts. Without `--yes`, a new setup returns
-`needs_confirmation` and makes no changes. Failures return a structured
-`command_failed` error and a non-zero exit code. Tokens are never included in
-the setup report or resume command.
-
-Useful automation flags:
-
-- `--plan`: calculate the full setup plan without writing.
-- `--yes`: accept selected or default choices without prompting.
-- `--resume`: inspect the existing scaffold and continue idempotently.
-- `--skip-checks`: leave Deno checks as a reported next action.
-- `--project-ref <ref>`: make deployment and endpoint discovery explicit.
-- `--public-url <url>`: make clients see a clean URL such as
-  `https://yourapp.com/mcp` while Supabase continues to run the function.
-- `--deploy`: deploy the generated function after successful local checks.
-- `--apply-migrations`: run `supabase db push --yes` for public mode.
-- `--url <url>`: verify an explicit deployed endpoint.
-
-Public deployment deliberately requires both mutation flags because
-`supabase db push` may include other pending application migrations:
-
-```sh
-npx supa-mcp setup \
-  --resume \
-  --auth public \
-  --apply-migrations \
-  --deploy \
-  --yes \
-  --json
-```
 
 ## Write your MCP capabilities
 
@@ -232,58 +155,36 @@ grants and RLS policies as the rest of the application. API-key and public
 modes receive an anonymous client instead; their capability code owns the
 application authorization decision.
 
+Set `instructions` alongside `server` in `createSupabaseMcp` to give clients
+server-level usage guidance in the `initialize` result — what the server is
+for and where the model should start. Pass a string, or a
+`(context) => string` resolver when different callers or row-defined servers
+warrant different guidance. Tool descriptions say what one tool does;
+instructions say how the server hangs together.
+
 The generated example also demonstrates a resource, a prompt, and an MCP
 multi-round-trip confirmation flow. Advanced MCP features remain available
 through the underlying official `McpServer`.
 
-## Living patterns and documentation MCP
+## Run it locally
 
-This repository is also a runnable Supabase reference project. Its database is
-designed around the cases the project teaches, and each pattern is exercised
-through a real MCP request:
-
-- [Authenticated tools with RLS](./docs/patterns/authenticated-tools) proves
-  two connected users receive only their own rows.
-- [Model-facing results](./docs/patterns/model-facing-results) proves populated,
-  empty, and error responses remain useful in `content[].text`.
-- [Many MCPs from one function](./docs/patterns/many-mcps-one-function) proves
-  one deployment can resolve distinct row-defined tool surfaces per request.
-
-The public documentation MCP exposes `search_docs`, `get_pattern`,
-`get_example`, and `get_setup_steps`. It contains Supa MCP-owned instructions
-and links out to official Supabase documentation for the platform underneath;
-it does not attempt to duplicate Supabase's docs.
-
-Connect an MCP client or coding agent directly to:
-
-```text
-https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp
-```
-
-Then ask: `Inspect this project and implement the authenticated-tools pattern.`
-
-Git is authoritative. `pnpm reference:content` syncs the Markdown and metadata
-under `docs/` and `examples/` into searchable Postgres rows. The database is a
-deployed representation, never a second editorial source.
-
-To rebuild the complete project from a clean clone:
+Exercise the function before deploying anything:
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm reference:check
+supabase functions serve mcp
+deno task --config supabase/functions/mcp/deno.json test
 ```
 
-That command starts local Supabase when needed, resets only this reference
-project, applies migrations and seed data, syncs the corpus, type-checks every
-Edge Function against the published npm package, and runs the protocol-level
-integration suite.
+The local endpoint is `http://127.0.0.1:54321/functions/v1/mcp`. Probe its MCP
+discovery surface directly:
 
-The public reference deployment also exposes:
+```sh
+npx supa-mcp doctor --url http://127.0.0.1:54321/functions/v1/mcp
+```
 
-- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/authenticated-tools`
-- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/model-facing-results`
-- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/directory`
-- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/invoices`
+For interactive tool calls against the local endpoint, MCP Inspector
+(`npx @modelcontextprotocol/inspector`) speaks Streamable HTTP and shows every
+request and result.
 
 ## Finish each access mode
 
@@ -415,8 +316,108 @@ The remote MCP URL is:
 https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
 
-That URL works immediately. A product-facing server can instead use a clean
-URL without moving the Edge Function:
+That URL works immediately. To serve clients a clean URL such as
+`https://yourapp.com/mcp` instead, see
+[Clean URLs](#clean-urls-for-a-product-facing-server) below—it changes what
+clients see, not where the function runs.
+
+## Connect your MCP client
+
+This is the payoff. Once `doctor` reports the deployed endpoint healthy, point
+a real client at it.
+
+**Claude Code**
+
+```sh
+claude mcp add --transport http my-app \
+  https://PROJECT_REF.supabase.co/functions/v1/mcp
+```
+
+In OAuth mode, run `/mcp` inside Claude Code to complete the browser sign-in.
+In API-key or bearer mode, attach the credential instead:
+
+```sh
+claude mcp add --transport http my-app \
+  https://PROJECT_REF.supabase.co/functions/v1/mcp \
+  --header "Authorization: Bearer $MCP_API_KEY"
+```
+
+**Claude (claude.ai and the desktop app)** — Settings → Connectors → Add
+custom connector, then paste the endpoint URL. This path requires OAuth mode
+with dynamic client registration enabled, because claude.ai registers itself
+as an OAuth client against your Supabase Auth server.
+
+**Cursor** — add the server to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-app": {
+      "url": "https://PROJECT_REF.supabase.co/functions/v1/mcp"
+    }
+  }
+}
+```
+
+Then ask the connected assistant something only your app can answer, such as
+_"List my projects."_ Watching the model call a tool you wrote three sections
+ago, as the signed-in user, is the whole point of this package.
+
+Per-client details and the verification status of each combination live in
+[Connect your MCP client](./docs/reference/connect-clients).
+
+## Living patterns and documentation MCP
+
+This repository is also a runnable Supabase reference project. Its database is
+designed around the cases the project teaches, and each pattern is exercised
+through a real MCP request:
+
+- [Authenticated tools with RLS](./docs/patterns/authenticated-tools) proves
+  two connected users receive only their own rows.
+- [Model-facing results](./docs/patterns/model-facing-results) proves populated,
+  empty, and error responses remain useful in `content[].text`.
+- [Many MCPs from one function](./docs/patterns/many-mcps-one-function) proves
+  one deployment can resolve distinct row-defined tool surfaces per request.
+
+The public documentation MCP exposes `search_docs`, `get_pattern`,
+`get_example`, and `get_setup_steps`. It contains Supa MCP-owned instructions
+and links out to official Supabase documentation for the platform underneath;
+it does not attempt to duplicate Supabase's docs.
+
+Connect an MCP client or coding agent directly to:
+
+```text
+https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp
+```
+
+Then ask: `Inspect this project and implement the authenticated-tools pattern.`
+
+Git is authoritative. `pnpm reference:content` syncs the Markdown and metadata
+under `docs/` and `examples/` into searchable Postgres rows. The database is a
+deployed representation, never a second editorial source.
+
+To rebuild the complete project from a clean clone:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm reference:check
+```
+
+That command starts local Supabase when needed, resets only this reference
+project, applies migrations and seed data, syncs the corpus, type-checks every
+Edge Function against the published npm package, and runs the protocol-level
+integration suite.
+
+The public reference deployment also exposes:
+
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/authenticated-tools`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/model-facing-results`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/directory`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/invoices`
+
+## Clean URLs for a product-facing server
+
+A product-facing server can use a clean URL without moving the Edge Function:
 
 ```sh
 npx supa-mcp setup \
@@ -488,6 +489,91 @@ export default {
 
 Supa MCP cannot create a DNS record without access to that provider, but setup
 reports the exact remaining route and verifies it once it exists.
+
+## Agent and CI setup
+
+Agents should use the non-interactive JSON interface instead of parsing
+terminal prose.
+
+Inspect the complete plan without writing:
+
+```sh
+npx supa-mcp setup --auth oauth --plan --json
+```
+
+Apply it and receive structured next actions:
+
+```sh
+npx supa-mcp setup \
+  --auth oauth \
+  --function mcp \
+  --server-name "My app" \
+  --yes \
+  --json
+```
+
+Resume or re-observe after a user completes a dashboard action:
+
+```sh
+npx supa-mcp setup --resume --function mcp --yes --json
+npx supa-mcp status --function mcp --json
+```
+
+JSON output has a versioned envelope and stable step IDs:
+
+```json
+{
+  "schemaVersion": 1,
+  "command": "setup",
+  "status": "needs_user_action",
+  "functionName": "mcp",
+  "auth": "oauth",
+  "steps": [
+    { "id": "scaffold", "status": "complete" },
+    { "id": "local_checks", "status": "complete" },
+    { "id": "deploy", "status": "ready" },
+    { "id": "configure_oauth", "status": "needs_user_action" },
+    { "id": "verify_remote", "status": "ready" }
+  ],
+  "nextActions": [
+    { "id": "deploy", "status": "ready" },
+    { "id": "configure_oauth", "status": "needs_user_action" },
+    { "id": "verify_remote", "status": "ready" }
+  ],
+  "resumeCommand": "npx supa-mcp setup --resume --function mcp --auth oauth --yes --json"
+}
+```
+
+`--json` never prompts. Without `--yes`, a new setup returns
+`needs_confirmation` and makes no changes. Failures return a structured
+`command_failed` error and a non-zero exit code. Tokens are never included in
+the setup report or resume command.
+
+Useful automation flags:
+
+- `--plan`: calculate the full setup plan without writing.
+- `--yes`: accept selected or default choices without prompting.
+- `--resume`: inspect the existing scaffold and continue idempotently.
+- `--skip-checks`: leave Deno checks as a reported next action.
+- `--project-ref <ref>`: make deployment and endpoint discovery explicit.
+- `--public-url <url>`: make clients see a clean URL such as
+  `https://yourapp.com/mcp` while Supabase continues to run the function.
+- `--deploy`: deploy the generated function after successful local checks.
+- `--apply-migrations`: run `supabase db push --yes` for public mode.
+- `--url <url>`: verify an explicit deployed endpoint.
+
+Public deployment deliberately requires both mutation flags because
+`supabase db push` may include other pending application migrations:
+
+```sh
+npx supa-mcp setup \
+  --resume \
+  --auth public \
+  --apply-migrations \
+  --deploy \
+  --yes \
+  --json
+```
 
 ## Optional capability scopes
 
@@ -586,7 +672,7 @@ recognized, `setup --resume` leaves application-authored capabilities alone.
 
 ## Development
 
-Version 0.3.2 pins the runtime dependencies in each generated Deno project.
+Version 0.4.0 pins the runtime dependencies in each generated Deno project.
 The package test suite covers MCP discovery, scopes, public rate limiting,
 API-key authentication, concurrent request isolation, generated
 OAuth/API-key/public projects, structured CLI output, and real two-user
