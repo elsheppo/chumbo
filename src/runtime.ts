@@ -372,7 +372,14 @@ export function createSupabaseMcpInternal<Database = unknown>(
         context = stored;
       }
 
-      const server = new McpServer(options.server);
+      const instructions =
+        typeof options.instructions === "function"
+          ? await options.instructions(context)
+          : options.instructions;
+      const server = new McpServer(
+        options.server,
+        instructions ? { instructions } : undefined,
+      );
       await options.register(scopedServer(server, context), context);
       return server;
     },
