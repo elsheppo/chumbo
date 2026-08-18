@@ -736,6 +736,77 @@ describe("protocol eras and malformed requests", () => {
   });
 });
 
+describe("server instructions", () => {
+  async function initializeResult(app: {
+    fetch(request: Request): Promise<Response>;
+  }) {
+    const response = await app.fetch(
+      legacyRequest("initialize", {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "instructions-test", version: "1.0.0" },
+      }),
+    );
+    const payload = (await response.text())
+      .split("\n")
+      .find((line) => line.startsWith("data: "))
+      ?.slice("data: ".length);
+    expect(response.status).toBe(200);
+    return payload ? JSON.parse(payload).result : null;
+  }
+
+  it("returns static instructions from initialize", async () => {
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "guided", version: "1.0.0" },
+        instructions: "Call list_projects before mutating anything.",
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "public" },
+        register() {},
+      },
+      dependencies(),
+    );
+    const result = await initializeResult(app);
+    expect(result.instructions).toBe(
+      "Call list_projects before mutating anything.",
+    );
+  });
+
+  it("resolves per-request instructions with the request context", async () => {
+    let sawAnonymousUser = false;
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "guided", version: "1.0.0" },
+        instructions(context) {
+          sawAnonymousUser = context.user === null;
+          return `Trace ${context.traceId} is anonymous.`;
+        },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "public" },
+        register() {},
+      },
+      dependencies(),
+    );
+    const result = await initializeResult(app);
+    expect(result.instructions).toMatch(/^Trace trace-\d+ is anonymous\.$/);
+    expect(sawAnonymousUser).toBe(true);
+  });
+
+  it("omits instructions when not configured", async () => {
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "silent", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "public" },
+        register() {},
+      },
+      dependencies(),
+    );
+    const result = await initializeResult(app);
+    expect(result.instructions).toBeUndefined();
+  });
+});
+
 describe("MCP capability breadth", () => {
   it("serves discovery, resources, prompts, and a multi-round-trip tool", async () => {
     const app = createSupabaseMcpInternal(

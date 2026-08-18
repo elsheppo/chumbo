@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.4.0 — 2026-08-18
+
+- Add `instructions` to `createSupabaseMcp`: server-level usage guidance
+  returned in the `initialize` result, as a static string or a per-request
+  `(context) => string` resolver for row-defined servers. Tool descriptions
+  were already surfaced; server instructions previously had no pathway.
+- Generated scaffold now sets a starter `instructions` value builders are
+  expected to rewrite alongside `capabilities.ts`.
+- Restructure the README around the builder journey and add reference
+  documents for the five-step quickstart, access-mode selection, and MCP
+  client connection with a verification-status matrix.
+
 ## 0.3.2 — 2026-08-17
 
 - Make `status` and `doctor` distinguish endpoint reachability, responses proven
