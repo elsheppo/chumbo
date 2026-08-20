@@ -68,6 +68,8 @@ architecture on the ordinary one-MCP path.
 - `src/setup.ts`, `src/project.ts`, `src/doctor.ts`, `src/cli.ts`: guided setup,
   project inspection, remote verification, and the command-line interface.
 - `templates/function/`: generated Edge Function and capability scaffold.
+- `skills/supa-mcp/`: versioned project-local agent skill bundled in the npm
+  artifact.
 - `templates/migrations/`: optional generated database support such as public
   rate limiting.
 - `test/`: unit, protocol, generated-project, and optional RLS integration
@@ -109,6 +111,10 @@ When changing public behavior:
 - Keep runtime dependency versions pinned and commit the lockfile.
 - Preserve handwritten generated `capabilities.ts` files; setup must not
   overwrite application code on resume.
+- Preserve existing `AGENTS.md` content and locally edited installed skill
+  files. Skill updates own only their marked pointer and manifest-hashed files.
+- Validate changes under `skills/supa-mcp/` with the skill-creator validator
+  and the isolated install/update fixtures.
 
 Do not publish npm versions or create GitHub releases without explicit user
 authorization. The release workflow publishes the package from a published

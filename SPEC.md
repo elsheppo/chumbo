@@ -1,8 +1,8 @@
 # supa-mcp: Product and Implementation Specification
 
-Status: Published; guided setup implemented, hosted OAuth proof still pending\
-Date: 2026-08-13\
-Current release: `0.3.2`\
+Status: Published; guided setup and living reference implemented\
+Date: 2026-08-20\
+Current release: `0.6.1`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the
@@ -327,6 +327,28 @@ failure or a false claim of authenticated completion.
 
 Each blocking failure must name an immediate recovery command or documentation
 section.
+
+### 8.5 Install the project agent skill
+
+```sh
+npx supa-mcp skill install
+npx supa-mcp skill status
+npx supa-mcp skill update
+```
+
+The optional skill is versioned inside the npm artifact and installed at
+`skills/supa-mcp/`. It teaches a coding agent to translate application
+operations into coherent MCP capabilities, choose explicit result contracts,
+preserve request-scoped authority, and verify the protocol boundary. It is not
+a copy of Supabase documentation or an automatic schema-to-tools generator.
+
+The installer appends one marked pointer to the root `AGENTS.md` while
+preserving all existing content. A managed manifest records the installed
+package version and exact file hashes. Updates replace or remove a managed file
+only when its current hash still matches the manifest; otherwise they report a
+conflict without writing. `--plan`, `--yes`, and `--json` follow setup's
+non-interactive conventions. Setup may advertise this command but never runs it
+implicitly.
 
 ## 9. Generated project shape
 
@@ -807,7 +829,8 @@ must:
 - inspect before writing;
 - use an explicit file plan;
 - preserve unrelated `config.toml` content and formatting where practical;
-- never delete files;
+- never delete application files; a skill update may remove only an obsolete
+  file it owns whose hash still matches its managed manifest;
 - never overwrite a non-generated capability file without confirmation;
 - mark generated files clearly without making them unpleasant to edit;
 - create a recoverable backup or patch preview for modifications to existing
@@ -818,6 +841,10 @@ must:
   read-only `status` and `doctor` commands;
 - emit JSON only on stdout in machine mode and keep subprocess output captured;
 - return stable statuses and next commands without serializing tokens.
+
+The skill installer additionally preserves every byte of `AGENTS.md` outside
+its marked block, writes its manifest last, refuses malformed or path-escaping
+manifests, and does not overwrite locally edited managed files.
 
 ## 22. Documentation requirements
 
