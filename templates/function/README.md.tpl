@@ -12,6 +12,12 @@ the project and report the remaining actions:
 npx supa-mcp setup --resume --function {{FUNCTION_NAME}}
 ```
 
+Design each result for its actual consumer: use `textResult` for an agent,
+`structuredResult` plus an `outputSchema` for typed clients, `renderResult`
+only when both lanes are genuinely useful, and `resourceResult` for large
+content registered through MCP Resources. Do not expose raw database rows as
+your application contract by default.
+
 ## Develop
 
 ```sh

@@ -226,7 +226,7 @@ The intended hand-authored file should remain small:
 ```ts
 import {
   createSupabaseMcp,
-  jsonResult,
+  structuredResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
 } from "supa-mcp";
@@ -242,6 +242,15 @@ const app = createSupabaseMcp({
       {
         description: "List projects visible to the connected user.",
         inputSchema: z.object({}),
+        outputSchema: z.object({
+          projects: z.array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              status: z.string(),
+            }),
+          ),
+        }),
       },
       async () => {
         const { data, error } = await ctx.supabase
@@ -250,7 +259,7 @@ const app = createSupabaseMcp({
           .order("name");
 
         if (error) throw error;
-        return jsonResult({ projects: data });
+        return structuredResult({ projects: data ?? [] });
       },
     );
   },
