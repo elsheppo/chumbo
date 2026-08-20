@@ -116,33 +116,32 @@ assert(
 );
 
 for (const expectedDocument of expected) {
-  let document;
+  let result;
   if (expectedDocument.kind === "pattern") {
-    document = (
-      await mcp("docs-mcp", "tools/call", {
-        name: "get_pattern",
-        arguments: { slug: expectedDocument.slug },
-      })
-    ).structuredContent;
+    result = await mcp("docs-mcp", "tools/call", {
+      name: "get_pattern",
+      arguments: { slug: expectedDocument.slug },
+    });
   } else if (expectedDocument.kind === "example") {
-    document = (
-      await mcp("docs-mcp", "tools/call", {
-        name: "get_example",
-        arguments: { slug: expectedDocument.slug },
-      })
-    ).structuredContent;
+    result = await mcp("docs-mcp", "tools/call", {
+      name: "get_example",
+      arguments: { slug: expectedDocument.slug },
+    });
   } else if (expectedDocument.kind === "reference") {
-    document = (
-      await mcp("docs-mcp", "tools/call", {
-        name: "get_reference",
-        arguments: { slug: expectedDocument.slug },
-      })
-    ).structuredContent;
+    result = await mcp("docs-mcp", "tools/call", {
+      name: "get_reference",
+      arguments: { slug: expectedDocument.slug },
+    });
   }
+  const document = result?.structuredContent;
   assert(document, `Hosted document ${expectedDocument.slug} is missing.`);
   assert(
     document.content_hash === expectedDocument.contentHash,
     `Hosted document ${expectedDocument.slug} does not match Git.`,
+  );
+  assert(
+    !result.content[0].text.includes(document.body_markdown),
+    `Hosted document ${expectedDocument.slug} duplicated its body in portable text.`,
   );
 }
 

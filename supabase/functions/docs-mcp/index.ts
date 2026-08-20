@@ -46,20 +46,34 @@ const resourceUrl = new URL(
   Deno.env.get("DOCS_MCP_PUBLIC_URL") ?? `${projectUrl}/functions/v1/docs-mcp`,
 );
 
-function renderDocument(document: ReferenceDocument): string {
+function renderDocument(
+  document: ReferenceDocument,
+  detail: "summary" | "full" = "summary",
+): string {
   return [
     `# ${document.title}`,
     "",
     document.summary,
-    "",
-    document.body_markdown,
+    ...(detail === "full" ? ["", document.body_markdown] : []),
     "",
     `Source: ${document.source_url}`,
     `Package: supa-mcp@${document.package_version}`,
     "",
-    "→ Next: use get_example for runnable code, or get_setup_steps for an implementation sequence.",
+    detail === "full"
+      ? "→ Next: use get_example for runnable code, or get_setup_steps for an implementation sequence."
+      : "→ Next: use the structured document, or call this tool again with detail “full” when your client only reads text.",
   ].join("\n");
 }
+
+const documentInputSchema = z.object({
+  slug: z.string().min(1),
+  detail: z
+    .enum(["summary", "full"])
+    .default("summary")
+    .describe(
+      "Use summary by default. Use full only when the client cannot read structuredContent.",
+    ),
+});
 
 async function getDocument(
   ctx: SupabaseMcpContext<ReferenceDatabase>,
@@ -148,12 +162,12 @@ function register(
       title: "Get Supa MCP reference guidance",
       description:
         "Read one Supa MCP-owned reference document by slug, such as auth-modes, connect-clients, or getting-started.",
-      inputSchema: z.object({ slug: z.string().min(1) }),
+      inputSchema: documentInputSchema,
     },
-    async ({ slug }) => {
+    async ({ slug, detail }) => {
       const document = await getDocument(ctx, "reference", slug);
       return document
-        ? renderResult(document, renderDocument)
+        ? renderResult(document, (value) => renderDocument(value, detail))
         : errorResult(
             `No Supa MCP reference named “${slug}” exists.`,
             "call search_docs with kind “reference” to list relevant guidance.",
@@ -167,12 +181,12 @@ function register(
       title: "Get a Supa MCP pattern",
       description:
         "Read one tested Supa MCP implementation pattern, including its runnable example and source links.",
-      inputSchema: z.object({ slug: z.string().min(1) }),
+      inputSchema: documentInputSchema,
     },
-    async ({ slug }) => {
+    async ({ slug, detail }) => {
       const document = await getDocument(ctx, "pattern", slug);
       return document
-        ? renderResult(document, renderDocument)
+        ? renderResult(document, (value) => renderDocument(value, detail))
         : errorResult(
             `No Supa MCP pattern named “${slug}” exists.`,
             "call search_docs with the capability you want to build.",
@@ -186,12 +200,12 @@ function register(
       title: "Get a runnable example",
       description:
         "Read one executable Supa MCP example with its endpoint, source, tests, and expected behavior.",
-      inputSchema: z.object({ slug: z.string().min(1) }),
+      inputSchema: documentInputSchema,
     },
-    async ({ slug }) => {
+    async ({ slug, detail }) => {
       const document = await getDocument(ctx, "example", slug);
       return document
-        ? renderResult(document, renderDocument)
+        ? renderResult(document, (value) => renderDocument(value, detail))
         : errorResult(
             `No Supa MCP example named “${slug}” exists.`,
             "call search_docs with kind “example” to list relevant examples.",
@@ -207,9 +221,15 @@ function register(
         "Get the short, agent-ready setup sequence for one MCP or a named advanced pattern.",
       inputSchema: z.object({
         pattern: z.string().min(1).optional(),
+        detail: z
+          .enum(["summary", "full"])
+          .default("summary")
+          .describe(
+            "Use summary by default. Use full only when the client cannot read structuredContent.",
+          ),
       }),
     },
-    async ({ pattern }) => {
+    async ({ pattern, detail }) => {
       const base = await getDocument(ctx, "reference", "getting-started");
       const selected = pattern
         ? await getDocument(ctx, "pattern", pattern)
@@ -229,8 +249,8 @@ function register(
       const payload = { gettingStarted: base, pattern: selected };
       return renderResult(payload, ({ gettingStarted, pattern }) =>
         [
-          renderDocument(gettingStarted),
-          ...(pattern ? ["", "---", "", renderDocument(pattern)] : []),
+          renderDocument(gettingStarted, detail),
+          ...(pattern ? ["", "---", "", renderDocument(pattern, detail)] : []),
         ].join("\n"),
       );
     },
