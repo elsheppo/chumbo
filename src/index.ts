@@ -14,8 +14,12 @@ export type {
   SupabaseMcpAccessOptions,
   SupabaseMcpApp,
   SupabaseMcpAuth,
+  SupabaseMcpAuthentication,
+  SupabaseMcpAuthMode,
   SupabaseMcpContext,
   SupabaseMcpErrorEvent,
   SupabaseMcpPostgresRateLimit,
+  SupabaseMcpPrincipal,
+  SupabaseMcpProtectedAuth,
   SupabaseMcpServer,
 } from "./types.js";

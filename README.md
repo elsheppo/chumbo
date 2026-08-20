@@ -262,6 +262,52 @@ Use `ctx.subject`, resolved scopes, and ordinary application queries or RPCs to
 implement the authorization model your app already has. Supa MCP does not
 prescribe an organization or API-key table schema.
 
+### Supabase users and application keys on one endpoint
+
+Use composed authentication when the same MCP URL must serve interactive
+Supabase users and application-owned credentials. Credential selection happens
+before verification. A verifier-backed key declares a prefix, so a rejected
+application key cannot fall through and be retried as a user token.
+
+```ts
+auth: {
+  mode: "multi",
+  strategies: [
+    { mode: "oauth", strategy: "supabase-user" },
+    {
+      mode: "api-key",
+      strategy: "application-key",
+      tokenPrefix: "myapp_",
+      async verify({ token, supabaseAdmin }) {
+        const { data } = await supabaseAdmin.rpc("resolve_api_key", {
+          presented_key: token,
+        });
+        return data
+          ? { subject: data.subject, scopes: data.scopes ?? [] }
+          : null;
+      },
+    },
+  ],
+},
+```
+
+Every handler receives a normalized `ctx.authentication` and `ctx.principal`.
+For a Supabase user, `ctx.user` and `ctx.jwtClaims` are populated and
+`ctx.supabase` carries that user's JWT for RLS. For an application key,
+`ctx.user` is `null`, `ctx.subject` comes from the verifier, and `ctx.supabase`
+is anonymous. Use the key's explicit scopes and application-owned RPCs or
+policies; Supa MCP never turns an API key into a fictional Supabase user.
+
+```ts
+server
+  .withScopes(["catalog:publish"])
+  .registerTool("publish_item", options, handler);
+```
+
+The same scope gate filters discovery and invocation for tools, resources, and
+prompts. A request-aware `instructions(ctx)` resolver can describe only the
+workflow available to the authenticated principal.
+
 ### Intentionally public MCP
 
 ```sh
@@ -672,7 +718,7 @@ recognized, `setup --resume` leaves application-authored capabilities alone.
 
 ## Development
 
-Version 0.4.0 pins the runtime dependencies in each generated Deno project.
+Version 0.5.0 pins the runtime dependencies in each generated Deno project.
 The package test suite covers MCP discovery, scopes, public rate limiting,
 API-key authentication, concurrent request isolation, generated
 OAuth/API-key/public projects, structured CLI output, and real two-user

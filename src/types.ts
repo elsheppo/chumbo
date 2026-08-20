@@ -15,6 +15,21 @@ export interface SupabaseMcpApiKeyIdentity {
   readonly scopes?: readonly string[];
 }
 
+export type SupabaseMcpAuthMode = "oauth" | "bearer" | "api-key" | "public";
+
+export interface SupabaseMcpAuthentication {
+  /** The credential family that authenticated this request. */
+  readonly mode: SupabaseMcpAuthMode;
+  /** Stable builder-defined strategy name for logs and policy decisions. */
+  readonly strategy: string;
+}
+
+export interface SupabaseMcpPrincipal {
+  readonly subject: string;
+  readonly clientId?: string;
+  readonly authentication: SupabaseMcpAuthentication;
+}
+
 export interface SupabaseMcpApiKeyVerifyContext<Database = unknown> {
   readonly token: string;
   /**
@@ -26,6 +41,13 @@ export interface SupabaseMcpApiKeyVerifyContext<Database = unknown> {
 
 export type SupabaseMcpApiKeyAuth<Database = unknown> = {
   mode: "api-key";
+  /** Stable name exposed as ctx.authentication.strategy. */
+  strategy?: string;
+  /**
+   * Credential prefix used to select this verifier without trying another
+   * authentication strategy. Required for verifier-backed keys in multi mode.
+   */
+  tokenPrefix?: string;
   /** Default scopes for a static key or a verifier result that omits scopes. */
   scopes?: readonly string[];
 } & (
@@ -49,15 +71,29 @@ export type SupabaseMcpApiKeyAuth<Database = unknown> = {
     }
 );
 
-export type SupabaseMcpAuth<Database = unknown> =
+export type SupabaseMcpProtectedAuth<Database = unknown> =
   | {
       mode: "oauth";
+      /** Stable name exposed as ctx.authentication.strategy. */
+      strategy?: string;
       issuer?: string | URL;
       authorizationServerMetadataUrl?: string | URL;
       scopes?: readonly string[];
     }
-  | { mode: "bearer" }
-  | SupabaseMcpApiKeyAuth<Database>
+  | { mode: "bearer"; strategy?: string }
+  | SupabaseMcpApiKeyAuth<Database>;
+
+export type SupabaseMcpAuth<Database = unknown> =
+  | SupabaseMcpProtectedAuth<Database>
+  | {
+      mode: "multi";
+      /**
+       * Protected strategies sharing one MCP endpoint. A token is routed to
+       * exactly one strategy before verification; failed verification never
+       * falls through to another strategy.
+       */
+      strategies: readonly SupabaseMcpProtectedAuth<Database>[];
+    }
   | {
       mode: "public";
       scopes?: readonly string[];
@@ -86,6 +122,10 @@ export interface SupabaseMcpContext<Database = unknown> {
   readonly supabase: SupabaseClient<Database>;
   readonly user: UserClaims | null;
   readonly jwtClaims: JWTClaims | null;
+  /** Normalized identity independent of the credential mechanism. */
+  readonly principal: SupabaseMcpPrincipal | null;
+  /** The exact strategy that authenticated this request. */
+  readonly authentication: SupabaseMcpAuthentication;
   /** Authenticated application principal, including non-Supabase API keys. */
   readonly subject?: string;
   readonly clientId?: string;
