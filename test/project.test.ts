@@ -814,9 +814,13 @@ describe("guided setup", () => {
       documentationServerUrl: SUPA_MCP_DOCUMENTATION_SERVER_URL,
       prompt:
         "Inspect this project and implement the authenticated-tools pattern.",
+      skillInstallCommand: "npx supa-mcp skill install --yes --json",
     });
     expect(formatSetupReport(report)).toContain(
       `MCP docs: ${SUPA_MCP_DOCUMENTATION_SERVER_URL}`,
+    );
+    expect(formatSetupReport(report)).toContain(
+      "Agent skill (optional): npx supa-mcp skill install",
     );
   });
 
