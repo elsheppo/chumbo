@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.6.1 — 2026-08-20
+
+- Bundle an optional project-local Supa MCP agent skill that teaches
+  application-oriented capability boundaries, explicit result contracts,
+  Supabase-native authority, and protocol-level completion evidence.
+- Add `supa-mcp skill install`, `skill status`, and `skill update` with plan,
+  confirmation, and stable JSON modes for interactive builders and coding
+  agents.
+- Preserve existing `AGENTS.md` instructions through a marked managed pointer.
+  Record installed file hashes in a managed manifest and refuse to overwrite
+  local edits during updates.
+- Mention the optional skill in guided setup without installing it
+  automatically.
+
 ## 0.6.0 — 2026-08-20
 
 - Replace automatic JSON-to-text duplication with explicit result contracts:

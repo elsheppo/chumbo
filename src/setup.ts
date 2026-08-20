@@ -64,6 +64,7 @@ export interface SetupReport {
   agentHandoff: {
     documentationServerUrl: string;
     prompt: string;
+    skillInstallCommand: string;
   };
   verification?: RemoteVerificationEvidence;
 }
@@ -389,6 +390,7 @@ export function buildSetupReport(
       documentationServerUrl: SUPA_MCP_DOCUMENTATION_SERVER_URL,
       prompt:
         "Inspect this project and implement the authenticated-tools pattern.",
+      skillInstallCommand: "npx supa-mcp skill install --yes --json",
     },
     ...(options.verification ? { verification: options.verification } : {}),
   };
@@ -432,6 +434,7 @@ export function formatSetupReport(report: SetupReport): string {
     "",
     "Build with an agent:",
     `  MCP docs: ${report.agentHandoff.documentationServerUrl}`,
+    `  Agent skill (optional): ${humanCommand(report.agentHandoff.skillInstallCommand)}`,
     `  Ask: “${report.agentHandoff.prompt}”`,
   );
   return lines.join("\n");

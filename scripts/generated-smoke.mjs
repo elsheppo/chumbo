@@ -28,6 +28,81 @@ try {
     join(fixture, "supabase", "config.toml"),
     'project_id = "generated-smoke"\n',
   );
+  const existingAgents = "# Existing project guidance\n\nKeep this content.\n";
+  await writeFile(join(fixture, "AGENTS.md"), existingAgents);
+
+  const skillPlan = run("node", [
+    join(repository, "dist", "cli.js"),
+    "skill",
+    "install",
+    "--plan",
+    "--json",
+  ]);
+  const skillPlanReport = JSON.parse(skillPlan.stdout);
+  if (
+    skillPlanReport.command !== "skill" ||
+    skillPlanReport.action !== "install" ||
+    skillPlanReport.status !== "planned"
+  ) {
+    throw new Error(`Unexpected skill plan: ${skillPlan.stdout}`);
+  }
+  await readFile(join(fixture, "skills", "supa-mcp", "SKILL.md")).then(
+    () => {
+      throw new Error("skill install --plan wrote files");
+    },
+    () => undefined,
+  );
+
+  const skillConfirmation = run("node", [
+    join(repository, "dist", "cli.js"),
+    "skill",
+    "install",
+    "--json",
+  ]);
+  if (JSON.parse(skillConfirmation.stdout).status !== "needs_confirmation") {
+    throw new Error(
+      `Skill JSON did not request confirmation: ${skillConfirmation.stdout}`,
+    );
+  }
+  const skillInstall = run("node", [
+    join(repository, "dist", "cli.js"),
+    "skill",
+    "install",
+    "--yes",
+    "--json",
+  ]);
+  if (JSON.parse(skillInstall.stdout).status !== "complete") {
+    throw new Error(`Skill install did not complete: ${skillInstall.stdout}`);
+  }
+  const installedAgents = await readFile(join(fixture, "AGENTS.md"), "utf8");
+  if (
+    !installedAgents.startsWith(existingAgents) ||
+    !installedAgents.includes("skills/supa-mcp/SKILL.md")
+  ) {
+    throw new Error("Skill install did not preserve AGENTS.md content");
+  }
+  const repeatedSkillInstall = run("node", [
+    join(repository, "dist", "cli.js"),
+    "skill",
+    "install",
+    "--yes",
+    "--json",
+  ]);
+  if (JSON.parse(repeatedSkillInstall.stdout).status !== "current") {
+    throw new Error(
+      `Repeated skill install was not idempotent: ${repeatedSkillInstall.stdout}`,
+    );
+  }
+  const skillStatus = run("node", [
+    join(repository, "dist", "cli.js"),
+    "skill",
+    "status",
+    "--json",
+  ]);
+  if (JSON.parse(skillStatus.stdout).status !== "current") {
+    throw new Error(`Skill status was not current: ${skillStatus.stdout}`);
+  }
+
   const setup = run("node", [
     join(repository, "dist", "cli.js"),
     "setup",
@@ -64,6 +139,12 @@ try {
     throw new Error(
       `Setup did not report its Supabase upstream: ${setup.stdout}`,
     );
+  }
+  if (
+    setupReport.agentHandoff?.skillInstallCommand !==
+    "npx supa-mcp skill install --yes --json"
+  ) {
+    throw new Error(`Setup omitted the optional agent skill: ${setup.stdout}`);
   }
   const capabilityPath = join(
     fixture,

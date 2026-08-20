@@ -25,6 +25,15 @@ import {
   type SetupAuthMode,
   type SetupReport,
 } from "./setup.js";
+import {
+  applySkillPlan,
+  loadBundledSkill,
+  planSkill,
+  SKILL_RELATIVE_DIRECTORY,
+  skillPlanSummary,
+  type SkillAction,
+  type SkillPlan,
+} from "./skill.js";
 
 const HELP = `supa-mcp ${PACKAGE_VERSION}
 
@@ -34,6 +43,12 @@ Usage:
   supa-mcp init [options]    Generate files only
   supa-mcp doctor [options]  Check local or deployed setup
   supa-mcp dev [options]     Serve the function locally
+  supa-mcp skill <action>    Install, inspect, or update the project agent skill
+
+Skill actions:
+  skill install           Install the versioned skill into this project
+  skill status            Inspect the managed installation without writing
+  skill update            Safely update unmodified managed skill files
 
 Setup options:
   --function <name>       Edge Function name (default: mcp)
@@ -60,6 +75,7 @@ Shared options:
 Agent quickstart:
   supa-mcp setup --auth oauth --yes --json
   supa-mcp status --json
+  supa-mcp skill install --yes --json
 `;
 
 interface CommandResult {
@@ -259,6 +275,175 @@ function fileSummary(files: readonly PlannedFile[], root: string) {
 
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+type SkillCommandStatus =
+  | "planned"
+  | "needs_confirmation"
+  | "complete"
+  | "current"
+  | "update_available"
+  | "not_installed"
+  | "modified"
+  | "blocked";
+
+function skillNextCommand(
+  action: SkillAction,
+  state: SkillPlan["state"],
+): string | undefined {
+  if (state === "not_installed") {
+    return "npx supa-mcp skill install --yes --json";
+  }
+  if (
+    state === "update_available" ||
+    (action === "install" && state === "current")
+  ) {
+    return state === "update_available"
+      ? "npx supa-mcp skill update --yes --json"
+      : undefined;
+  }
+  return undefined;
+}
+
+function skillReport(
+  plan: SkillPlan,
+  status: SkillCommandStatus,
+  message = plan.message,
+) {
+  return {
+    schemaVersion: 1 as const,
+    command: "skill" as const,
+    action: plan.action,
+    status,
+    projectRoot: plan.projectRoot,
+    skillPath: `${SKILL_RELATIVE_DIRECTORY}/SKILL.md`,
+    ...(plan.installedVersion
+      ? { installedVersion: plan.installedVersion }
+      : {}),
+    availableVersion: plan.availableVersion,
+    files: skillPlanSummary(plan),
+    ...(message ? { message } : {}),
+    ...(skillNextCommand(plan.action, plan.state)
+      ? { nextCommand: skillNextCommand(plan.action, plan.state) }
+      : {}),
+  };
+}
+
+function formatSkillPlan(plan: SkillPlan): string {
+  return plan.files
+    .map(
+      (file) =>
+        `${file.status.padEnd(9)} ${file.relativePath}${file.reason ? ` — ${file.reason}` : ""}`,
+    )
+    .join("\n");
+}
+
+function printSkillReport(
+  plan: SkillPlan,
+  status: SkillCommandStatus,
+  message?: string,
+): void {
+  if (status === "complete") {
+    console.log(`Supa MCP skill ${plan.availableVersion} is installed.`);
+    console.log(`Agent entrypoint: ${SKILL_RELATIVE_DIRECTORY}/SKILL.md`);
+    return;
+  }
+  if (status === "current") {
+    console.log(`Supa MCP skill ${plan.availableVersion} is current.`);
+    return;
+  }
+  if (status === "update_available") {
+    console.log(
+      `Supa MCP skill ${plan.installedVersion ?? "unknown"} can update to ${plan.availableVersion}.`,
+    );
+    console.log("Run: npx supa-mcp skill update");
+    return;
+  }
+  if (status === "not_installed") {
+    console.log("The Supa MCP project skill is not installed.");
+    console.log("Run: npx supa-mcp skill install");
+    return;
+  }
+  if (plan.files.length > 0) {
+    console.log(`\nSkill file plan:\n${formatSkillPlan(plan)}\n`);
+  }
+  console.log(
+    message ??
+      (status === "planned"
+        ? "No files changed."
+        : (plan.message ?? "The skill command needs attention.")),
+  );
+}
+
+async function skill(args: string[]): Promise<void> {
+  const parsed = parse(args);
+  const [actionValue, ...extra] = parsed.positionals;
+  if (
+    !actionValue ||
+    !["install", "status", "update"].includes(actionValue) ||
+    extra.length > 0
+  ) {
+    throw new Error(
+      "Use `supa-mcp skill install`, `supa-mcp skill status`, or `supa-mcp skill update`.",
+    );
+  }
+  const action = actionValue as SkillAction;
+  const machine = parsed.values.json ?? false;
+  const root = await findSupabaseProject(process.cwd());
+  const bundle = await loadBundledSkill();
+  let plan = await planSkill(action, root, bundle);
+
+  const terminalStatus: SkillCommandStatus | undefined =
+    plan.state === "blocked"
+      ? "blocked"
+      : plan.state === "modified"
+        ? "modified"
+        : plan.state === "not_installed"
+          ? "not_installed"
+          : action === "install" && plan.state === "update_available"
+            ? "update_available"
+            : action === "status"
+              ? plan.state === "ready"
+                ? "not_installed"
+                : plan.state
+              : plan.state === "current"
+                ? "current"
+                : undefined;
+  if (terminalStatus) {
+    if (machine) printJson(skillReport(plan, terminalStatus));
+    else printSkillReport(plan, terminalStatus);
+    if (["blocked", "modified"].includes(terminalStatus)) process.exitCode = 1;
+    return;
+  }
+
+  const planOnly = Boolean(parsed.values.plan);
+  const needsConfirmation = machine && !parsed.values.yes && !planOnly;
+  if (planOnly || needsConfirmation) {
+    const status = needsConfirmation ? "needs_confirmation" : "planned";
+    const message = needsConfirmation
+      ? "Review the file plan, then rerun with --yes."
+      : "No files changed.";
+    if (machine) printJson(skillReport(plan, status, message));
+    else printSkillReport(plan, status, message);
+    return;
+  }
+
+  if (!machine) console.log(`\nSkill file plan:\n${formatSkillPlan(plan)}\n`);
+  if (!parsed.values.yes && !(await confirm("Apply this skill plan?"))) {
+    throw new Error(
+      "No files changed. Re-run with --yes for non-interactive use.",
+    );
+  }
+  await applySkillPlan(plan);
+  plan = await planSkill("status", root, bundle);
+  if (plan.state !== "current") {
+    throw new Error(
+      "The skill files were written but verification did not pass.",
+    );
+  }
+  const reportPlan = { ...plan, action };
+  if (machine) printJson(skillReport(reportPlan, "complete"));
+  else printSkillReport(reportPlan, "complete");
 }
 
 async function init(args: string[]): Promise<void> {
@@ -984,6 +1169,7 @@ async function main(): Promise<void> {
   if (command === "init") return init(args);
   if (command === "doctor") return doctor(args);
   if (command === "dev") return dev(args);
+  if (command === "skill") return skill(args);
   throw new Error(`Unknown command '${command}'.\n\n${HELP}`);
 }
 
