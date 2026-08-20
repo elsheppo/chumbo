@@ -47,6 +47,9 @@ verify_jwt = false
 [functions.authenticated-tools]
 verify_jwt = false
 
+[functions.privileged-capabilities]
+verify_jwt = false
+
 [functions.model-facing-results]
 verify_jwt = false
 
