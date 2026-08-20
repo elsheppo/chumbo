@@ -99,6 +99,7 @@ assert(
     JSON.stringify([
       "get_example",
       "get_pattern",
+      "get_reference",
       "get_setup_steps",
       "search_docs",
     ]),
@@ -130,13 +131,13 @@ for (const expectedDocument of expected) {
         arguments: { slug: expectedDocument.slug },
       })
     ).structuredContent;
-  } else if (expectedDocument.slug === "getting-started") {
+  } else if (expectedDocument.kind === "reference") {
     document = (
       await mcp("docs-mcp", "tools/call", {
-        name: "get_setup_steps",
-        arguments: {},
+        name: "get_reference",
+        arguments: { slug: expectedDocument.slug },
       })
-    ).structuredContent.gettingStarted;
+    ).structuredContent;
   }
   assert(document, `Hosted document ${expectedDocument.slug} is missing.`);
   assert(
@@ -169,6 +170,30 @@ assert(
 );
 verifiedFunctions.add("authenticated-tools");
 verifiedSurfaces.add("authenticated-tools");
+
+const privilegedUnauthenticated = await fetch(
+  `${functionsUrl}/privileged-capabilities`,
+  {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "mcp-method": "tools/list",
+      "mcp-protocol-version": "2026-07-28",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: crypto.randomUUID(),
+      method: "tools/list",
+      params: {},
+    }),
+  },
+);
+assert(
+  privilegedUnauthenticated.status === 401,
+  `Hosted privileged-capabilities returned HTTP ${privilegedUnauthenticated.status} without credentials.`,
+);
+verifiedFunctions.add("privileged-capabilities");
+verifiedSurfaces.add("privileged-capabilities");
 
 const modelResult = await mcp("model-facing-results", "tools/call", {
   name: "list_examples",

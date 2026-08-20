@@ -82,7 +82,13 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
   const tools = await json(await docsApp.fetch(mcpRequest(url, "tools/list")));
   equal(
     tools.result.tools.map((tool: { name: string }) => tool.name).sort(),
-    ["get_example", "get_pattern", "get_setup_steps", "search_docs"],
+    [
+      "get_example",
+      "get_pattern",
+      "get_reference",
+      "get_setup_steps",
+      "search_docs",
+    ],
     "documentation tool surface",
   );
 
@@ -105,6 +111,22 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
       response.result.content[0].text.includes("Source:"),
       `${slug} has source`,
     );
+    assert(
+      response.result.content[0].text.includes("→ Next:"),
+      `${slug} has next step`,
+    );
+  }
+
+  for (const slug of ["auth-modes", "connect-clients", "getting-started"]) {
+    const response = await json(
+      await docsApp.fetch(
+        mcpRequest(url, "tools/call", {
+          name: "get_reference",
+          arguments: { slug },
+        }),
+      ),
+    );
+    equal(response.result.structuredContent.slug, slug, `reference ${slug}`);
     assert(
       response.result.content[0].text.includes("→ Next:"),
       `${slug} has next step`,
