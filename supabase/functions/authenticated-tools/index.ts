@@ -53,6 +53,16 @@ function register(server: SupabaseMcpServer, ctx: SupabaseMcpContext<any>) {
       description:
         "List the demonstration projects visible to the connected Supabase user. Postgres RLS owns isolation.",
       inputSchema: z.object({}),
+      outputSchema: z.object({
+        projects: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            status: z.enum(["active", "paused", "complete"]),
+            created_at: z.string(),
+          }),
+        ),
+      }),
     },
     async () => {
       const { data, error } = await ctx.supabase
@@ -90,6 +100,14 @@ function register(server: SupabaseMcpServer, ctx: SupabaseMcpContext<any>) {
         "Create one demonstration project owned by the connected Supabase user. The caller cannot choose another owner.",
       inputSchema: z.object({
         name: z.string().trim().min(1).max(120),
+      }),
+      outputSchema: z.object({
+        project: z.object({
+          id: z.string(),
+          name: z.string(),
+          status: z.enum(["active", "paused", "complete"]),
+          created_at: z.string(),
+        }),
       }),
     },
     async ({ name }) => {
@@ -129,7 +147,7 @@ function register(server: SupabaseMcpServer, ctx: SupabaseMcpContext<any>) {
 }
 
 const app = createSupabaseMcp<DemoDatabase>({
-  server: { name: "Authenticated project tools", version: "0.5.0" },
+  server: { name: "Authenticated project tools", version: "0.6.0" },
   resourceUrl,
   auth: { mode: "bearer" },
   register,

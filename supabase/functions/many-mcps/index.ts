@@ -1,9 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import {
   createSupabaseMcp,
-  renderResult,
+  structuredResult,
   type SupabaseMcpServer,
-  toMarkdown,
 } from "supa-mcp";
 import { z } from "zod";
 
@@ -86,7 +85,7 @@ async function handle(request: Request): Promise<Response> {
   const app = createSupabaseMcp({
     server: {
       name: definition.server.name,
-      version: "0.5.0",
+      version: "0.6.0",
     },
     resourceUrl,
     auth: { mode: "public", rateLimit: true },
@@ -98,15 +97,9 @@ async function handle(request: Request): Promise<Response> {
             title: tool.title,
             description: tool.description,
             inputSchema: z.object({}),
+            outputSchema: z.record(z.string(), z.unknown()),
           },
-          async () =>
-            renderResult(tool.response, (response) =>
-              [
-                toMarkdown(response),
-                "",
-                "→ Next: use the returned records in the connected workflow.",
-              ].join("\n"),
-            ),
+          async () => structuredResult(tool.response),
         );
       }
     },
