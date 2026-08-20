@@ -434,6 +434,9 @@ through a real MCP request:
   empty, and error responses remain useful in `content[].text`.
 - [Many MCPs from one function](./docs/patterns/many-mcps-one-function) proves
   one deployment can resolve distinct row-defined tool surfaces per request.
+- [Different capability surfaces](./docs/patterns/privileged-capabilities)
+  proves Supabase users and application-owned keys receive different tools,
+  Resources, prompts, and instructions from one endpoint.
 
 The public documentation MCP exposes `search_docs`, `get_pattern`,
 `get_example`, and `get_setup_steps`. It contains Supa MCP-owned instructions
@@ -631,6 +634,37 @@ npx supa-mcp setup \
   --json
 ```
 
+## Optional project agent skill
+
+Install Supa MCP's capability-design skill when a coding agent will author,
+review, or test the application's MCP surface:
+
+```sh
+npx supa-mcp skill install
+```
+
+The command installs a versioned, project-local skill at
+`skills/supa-mcp/SKILL.md` and adds one managed pointer to the root
+`AGENTS.md`. It preserves every existing instruction outside that block. The
+skill teaches agents to design application operations instead of database CRUD,
+choose explicit result contracts and Resources, preserve request-scoped
+identity and RLS, and prove authority through the real MCP transport. It does
+not reproduce general Supabase documentation.
+
+Inspect or update the managed installation with:
+
+```sh
+npx supa-mcp skill status
+npx supa-mcp skill update
+```
+
+The installer records hashes in
+`skills/supa-mcp/.supa-mcp-skill.json`. An update changes or removes a managed
+file only when it still matches the recorded hash. Local edits produce a
+conflict report and are never overwritten. These commands support `--plan`,
+`--yes`, and `--json` with the same non-interactive behavior as setup. Setup
+mentions the optional skill but never installs it automatically.
+
 ## Optional capability scopes
 
 The starter does not require scopes. Add them only when one MCP connection
@@ -691,13 +725,16 @@ RLS policies, and a two-user negative isolation test.
 
 ## Command reference
 
-| Command  | Purpose                                                          |
-| -------- | ---------------------------------------------------------------- |
-| `setup`  | Guide or automate the complete installation ladder               |
-| `status` | Inspect local setup and optionally probe the remote endpoint     |
-| `init`   | Generate files only; useful as a low-level primitive             |
-| `doctor` | Diagnose local config, runtime identity, auth, and MCP discovery |
-| `dev`    | Delegate to `supabase functions serve`                           |
+| Command         | Purpose                                                          |
+| --------------- | ---------------------------------------------------------------- |
+| `setup`         | Guide or automate the complete installation ladder               |
+| `status`        | Inspect local setup and optionally probe the remote endpoint     |
+| `init`          | Generate files only; useful as a low-level primitive             |
+| `doctor`        | Diagnose local config, runtime identity, auth, and MCP discovery |
+| `dev`           | Delegate to `supabase functions serve`                           |
+| `skill install` | Install the project-local Supa MCP agent skill                   |
+| `skill status`  | Inspect the managed skill without writing                        |
+| `skill update`  | Update only unmodified managed skill files                       |
 
 Use `npx supa-mcp --help` for all flags.
 
@@ -726,9 +763,13 @@ environment.
 generated template. Merge or move it explicitly. Once a generated scaffold is
 recognized, `setup --resume` leaves application-authored capabilities alone.
 
+**Skill update reports a conflict.** A managed skill file or its managed
+`AGENTS.md` pointer changed after installation. Preserve or move that edit,
+then reinstall or update; the CLI will not overwrite it.
+
 ## Development
 
-Version 0.5.0 pins the runtime dependencies in each generated Deno project.
+Version 0.6.1 pins the runtime dependencies in each generated Deno project.
 The package test suite covers MCP discovery, scopes, public rate limiting,
 API-key authentication, concurrent request isolation, generated
 OAuth/API-key/public projects, structured CLI output, and real two-user
