@@ -115,6 +115,12 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
       response.result.content[0].text.includes("→ Next:"),
       `${slug} has next step`,
     );
+    assert(
+      !response.result.content[0].text.includes(
+        response.result.structuredContent.body_markdown,
+      ),
+      `${slug} defaults to compact portable text`,
+    );
   }
 
   for (const slug of ["auth-modes", "connect-clients", "getting-started"]) {
@@ -131,7 +137,43 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
       response.result.content[0].text.includes("→ Next:"),
       `${slug} has next step`,
     );
+    assert(
+      !response.result.content[0].text.includes(
+        response.result.structuredContent.body_markdown,
+      ),
+      `${slug} defaults to compact portable text`,
+    );
   }
+
+  const fullText = await json(
+    await docsApp.fetch(
+      mcpRequest(url, "tools/call", {
+        name: "get_reference",
+        arguments: { slug: "getting-started", detail: "full" },
+      }),
+    ),
+  );
+  assert(
+    fullText.result.content[0].text.includes(
+      fullText.result.structuredContent.body_markdown,
+    ),
+    "portable-only clients can explicitly request the full document",
+  );
+
+  const setupSteps = await json(
+    await docsApp.fetch(
+      mcpRequest(url, "tools/call", {
+        name: "get_setup_steps",
+        arguments: { pattern: "authenticated-tools" },
+      }),
+    ),
+  );
+  assert(
+    !setupSteps.result.content[0].text.includes(
+      setupSteps.result.structuredContent.gettingStarted.body_markdown,
+    ),
+    "setup steps default to compact portable text",
+  );
 
   const search = await json(
     await docsApp.fetch(
