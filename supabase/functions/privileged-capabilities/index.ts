@@ -58,6 +58,9 @@ function register(
       description:
         "Read the public example catalog available to signed-in users.",
       inputSchema: z.object({}),
+      outputSchema: z.object({
+        items: z.array(z.object({ id: z.string(), title: z.string() })),
+      }),
     },
     async () =>
       renderResult(
@@ -74,6 +77,11 @@ function register(
       description:
         "Owner-only demonstration tool. Preview a publication without mutating reference data.",
       inputSchema: z.object({ title: z.string().min(1) }),
+      outputSchema: z.object({
+        title: z.string(),
+        publisher: z.string(),
+        status: z.literal("preview"),
+      }),
     },
     async ({ title }) =>
       renderResult(
@@ -120,7 +128,7 @@ function register(
 }
 
 const app = createSupabaseMcp<ReferenceDatabase>({
-  server: { name: "Supa MCP privileged capabilities", version: "0.5.0" },
+  server: { name: "Supa MCP privileged capabilities", version: "0.6.0" },
   instructions: (ctx) =>
     ctx.hasScope("catalog:publish")
       ? "You may read the catalog and preview owner-only publications. Mutations still require an explicit tool call."

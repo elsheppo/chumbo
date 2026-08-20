@@ -39,6 +39,7 @@ function mcpRequest(
   });
   if (token) headers.set("authorization", `Bearer ${token}`);
   if (typeof params.name === "string") headers.set("mcp-name", params.name);
+  if (typeof params.uri === "string") headers.set("mcp-name", params.uri);
   return new Request(url, {
     method: "POST",
     headers,
@@ -106,7 +107,11 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
         }),
       ),
     );
-    equal(response.result.structuredContent.slug, slug, `pattern ${slug}`);
+    const link = response.result.content.find(
+      (item: { type: string }) => item.type === "resource_link",
+    );
+    assert(link, `${slug} has a resource link`);
+    equal(link.uri, `supa-mcp://docs/pattern/${slug}`, `pattern ${slug}`);
     assert(
       response.result.content[0].text.includes("Source:"),
       `${slug} has source`,
@@ -116,10 +121,8 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
       `${slug} has next step`,
     );
     assert(
-      !response.result.content[0].text.includes(
-        response.result.structuredContent.body_markdown,
-      ),
-      `${slug} defaults to compact portable text`,
+      JSON.stringify(response.result).length < 2_000,
+      `${slug} is compact`,
     );
   }
 
@@ -132,47 +135,57 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
         }),
       ),
     );
-    equal(response.result.structuredContent.slug, slug, `reference ${slug}`);
+    const link = response.result.content.find(
+      (item: { type: string }) => item.type === "resource_link",
+    );
+    assert(link, `${slug} has a resource link`);
+    equal(link.uri, `supa-mcp://docs/reference/${slug}`, `reference ${slug}`);
     assert(
       response.result.content[0].text.includes("→ Next:"),
       `${slug} has next step`,
     );
     assert(
-      !response.result.content[0].text.includes(
-        response.result.structuredContent.body_markdown,
-      ),
-      `${slug} defaults to compact portable text`,
+      JSON.stringify(response.result).length < 2_000,
+      `${slug} is compact`,
     );
   }
 
-  const fullText = await json(
-    await docsApp.fetch(
-      mcpRequest(url, "tools/call", {
-        name: "get_reference",
-        arguments: { slug: "getting-started", detail: "full" },
-      }),
-    ),
+  const templates = await json(
+    await docsApp.fetch(mcpRequest(url, "resources/templates/list")),
   );
   assert(
-    fullText.result.content[0].text.includes(
-      fullText.result.structuredContent.body_markdown,
+    templates.result.resourceTemplates.some(
+      (template: { uriTemplate: string }) =>
+        template.uriTemplate === "supa-mcp://docs/{kind}/{slug}",
     ),
-    "portable-only clients can explicitly request the full document",
+    "documentation resource template is discoverable",
   );
 
-  const setupSteps = await json(
+  const resources = await json(
+    await docsApp.fetch(mcpRequest(url, "resources/list")),
+  );
+  assert(
+    resources.result.resources.some(
+      (resource: { uri: string }) =>
+        resource.uri === "supa-mcp://docs/reference/getting-started",
+    ),
+    "documentation resources are enumerable",
+  );
+
+  const fullDocument = await json(
     await docsApp.fetch(
-      mcpRequest(url, "tools/call", {
-        name: "get_setup_steps",
-        arguments: { pattern: "authenticated-tools" },
+      mcpRequest(url, "resources/read", {
+        uri: "supa-mcp://docs/reference/getting-started",
       }),
     ),
   );
   assert(
-    !setupSteps.result.content[0].text.includes(
-      setupSteps.result.structuredContent.gettingStarted.body_markdown,
-    ),
-    "setup steps default to compact portable text",
+    fullDocument.result.contents[0].text.includes("# Start a Supa MCP server"),
+    "complete markdown is served only through resources/read",
+  );
+  assert(
+    typeof fullDocument.result.contents[0]._meta.contentHash === "string",
+    "resource preserves source metadata",
   );
 
   const search = await json(
@@ -184,8 +197,14 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
     ),
   );
   assert(
-    search.result.structuredContent.matches.length > 0,
-    "search returns a match",
+    search.result.content.some(
+      (item: { type: string }) => item.type === "resource_link",
+    ),
+    "search returns linked resources",
+  );
+  assert(
+    JSON.stringify(search.result).length < 4_000,
+    "search result is bounded",
   );
 });
 
@@ -297,6 +316,40 @@ Deno.test(
       assert(text.includes("→ Next:"), `${name} has a next step`);
       assert(!text.trimStart().startsWith("{"), `${name} is not a JSON dump`);
     }
+
+    const structured = await json(
+      await modelResultsApp.fetch(
+        mcpRequest(url, "tools/call", {
+          name: "get_result_contract",
+          arguments: {},
+        }),
+      ),
+    );
+    equal(structured.result.content, [], "structured result has no text copy");
+    equal(
+      structured.result.structuredContent.modes,
+      ["text", "structured", "hybrid", "resource"],
+      "structured result value",
+    );
+
+    const linked = await json(
+      await modelResultsApp.fetch(
+        mcpRequest(url, "tools/call", {
+          name: "open_result_guide",
+          arguments: {},
+        }),
+      ),
+    );
+    assert(
+      linked.result.content.some(
+        (item: { type: string }) => item.type === "resource_link",
+      ),
+      "large result returns a resource link",
+    );
+    assert(
+      !JSON.stringify(linked.result).includes("Choose text, structured data"),
+      "large result does not embed its resource body",
+    );
   },
 );
 
@@ -441,8 +494,10 @@ Deno.test(
       ),
     );
     assert(
-      updated.result.content[0].text.includes("Live Row Update"),
-      "row update is live",
+      updated.result.content.length === 0 &&
+        updated.result.structuredContent.businesses[0].name ===
+          "Live Row Update",
+      "row update is live without a duplicate text lane",
     );
 
     const missing = await manyMcpsApp.fetch(

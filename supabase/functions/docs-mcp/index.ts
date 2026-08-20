@@ -1,10 +1,14 @@
 import {
   createSupabaseMcp,
   errorResult,
-  renderResult,
+  resourceResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
 } from "supa-mcp";
+import {
+  ResourceTemplate,
+  type ResourceLink,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 type DocumentKind = "reference" | "pattern" | "example" | "troubleshooting";
@@ -46,34 +50,47 @@ const resourceUrl = new URL(
   Deno.env.get("DOCS_MCP_PUBLIC_URL") ?? `${projectUrl}/functions/v1/docs-mcp`,
 );
 
-function renderDocument(
-  document: ReferenceDocument,
-  detail: "summary" | "full" = "summary",
-): string {
+function documentUri(document: Pick<ReferenceDocument, "kind" | "slug">) {
+  return `supa-mcp://docs/${document.kind}/${encodeURIComponent(document.slug)}`;
+}
+
+function documentMeta(document: ReferenceDocument) {
+  return {
+    sourceUrl: document.source_url,
+    sourcePath: document.source_path,
+    packageVersion: document.package_version,
+    contentHash: document.content_hash,
+    ...document.metadata,
+  };
+}
+
+function documentLink(document: ReferenceDocument): ResourceLink {
+  return {
+    type: "resource_link",
+    uri: documentUri(document),
+    name: `${document.kind}-${document.slug}`,
+    title: document.title,
+    description: document.summary,
+    mimeType: "text/markdown",
+    size: new TextEncoder().encode(document.body_markdown).byteLength,
+    _meta: documentMeta(document),
+  };
+}
+
+function documentCard(document: ReferenceDocument): string {
   return [
     `# ${document.title}`,
     "",
     document.summary,
-    ...(detail === "full" ? ["", document.body_markdown] : []),
     "",
     `Source: ${document.source_url}`,
     `Package: supa-mcp@${document.package_version}`,
     "",
-    detail === "full"
-      ? "→ Next: use get_example for runnable code, or get_setup_steps for an implementation sequence."
-      : "→ Next: use the structured document, or call this tool again with detail “full” when your client only reads text.",
+    "→ Next: read the linked MCP resource for the complete document.",
   ].join("\n");
 }
 
-const documentInputSchema = z.object({
-  slug: z.string().min(1),
-  detail: z
-    .enum(["summary", "full"])
-    .default("summary")
-    .describe(
-      "Use summary by default. Use full only when the client cannot read structuredContent.",
-    ),
-});
+const documentInputSchema = z.object({ slug: z.string().min(1) });
 
 async function getDocument(
   ctx: SupabaseMcpContext<ReferenceDatabase>,
@@ -96,6 +113,58 @@ function register(
   server: SupabaseMcpServer,
   ctx: SupabaseMcpContext<ReferenceDatabase>,
 ) {
+  server.registerResource(
+    "supa-mcp-document",
+    new ResourceTemplate("supa-mcp://docs/{kind}/{slug}", {
+      list: async () => {
+        const { data, error } = await ctx.supabase
+          .from("reference_documents")
+          .select(
+            "slug, kind, title, summary, body_markdown, source_path, source_url, package_version, content_hash, metadata",
+          )
+          .order("kind")
+          .order("slug");
+        if (error) throw error;
+        const documents = (data ?? []) as unknown as ReferenceDocument[];
+        return {
+          resources: documents.map((document) => ({
+            uri: documentUri(document),
+            name: `${document.kind}-${document.slug}`,
+            title: document.title,
+            description: document.summary,
+            mimeType: "text/markdown",
+            size: new TextEncoder().encode(document.body_markdown).byteLength,
+            _meta: documentMeta(document),
+          })),
+        };
+      },
+    }),
+    {
+      title: "Supa MCP document",
+      description:
+        "A complete Supa MCP-owned reference, pattern, example, or troubleshooting document.",
+      mimeType: "text/markdown",
+      cacheHint: { cacheScope: "public", ttlMs: 60_000 },
+    },
+    async (uri, variables) => {
+      const kind = String(variables.kind) as DocumentKind;
+      const slug = String(variables.slug);
+      const document = await getDocument(ctx, kind, slug);
+      return {
+        contents: document
+          ? [
+              {
+                uri: uri.href,
+                mimeType: "text/markdown",
+                text: document.body_markdown,
+                _meta: documentMeta(document),
+              },
+            ]
+          : [],
+      };
+    },
+  );
+
   server.registerTool(
     "search_docs",
     {
@@ -114,7 +183,7 @@ function register(
       let request = ctx.supabase
         .from("reference_documents")
         .select(
-          "slug, kind, title, summary, source_path, source_url, package_version",
+          "slug, kind, title, summary, body_markdown, source_path, source_url, package_version, content_hash, metadata",
         )
         .textSearch("search_document", query, {
           config: "english",
@@ -137,22 +206,35 @@ function register(
           | "content_hash"
         >
       >;
-      return renderResult({ query, matches }, ({ query, matches }) =>
-        matches.length === 0
-          ? `No Supa MCP documentation matched “${query}”.\n\n→ Next: broaden the query or call get_setup_steps for the supported starting paths.`
-          : [
-              `## Supa MCP docs — ${matches.length} match${
-                matches.length === 1 ? "" : "es"
-              }`,
+      if (matches.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `No Supa MCP documentation matched “${query}”.\n\n→ Next: broaden the query or call get_setup_steps for the supported starting paths.`,
+            },
+          ],
+        };
+      }
+      const documents = matches as unknown as ReferenceDocument[];
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: [
+              `## Supa MCP docs — ${matches.length} match${matches.length === 1 ? "" : "es"}`,
               "",
               ...matches.map(
                 (match) =>
-                  `- **${match.title}** (${match.kind}/${match.slug}) — ${match.summary}\n  Source: ${match.source_url}`,
+                  `- **${match.title}** (${match.kind}/${match.slug}) — ${match.summary}`,
               ),
               "",
-              "→ Next: call get_pattern or get_example with the most relevant slug.",
+              "→ Next: read the most relevant linked resource.",
             ].join("\n"),
-      );
+          },
+          ...documents.map(documentLink),
+        ],
+      };
     },
   );
 
@@ -164,10 +246,10 @@ function register(
         "Read one Supa MCP-owned reference document by slug, such as auth-modes, connect-clients, or getting-started.",
       inputSchema: documentInputSchema,
     },
-    async ({ slug, detail }) => {
+    async ({ slug }) => {
       const document = await getDocument(ctx, "reference", slug);
       return document
-        ? renderResult(document, (value) => renderDocument(value, detail))
+        ? resourceResult(documentCard(document), documentLink(document))
         : errorResult(
             `No Supa MCP reference named “${slug}” exists.`,
             "call search_docs with kind “reference” to list relevant guidance.",
@@ -183,10 +265,10 @@ function register(
         "Read one tested Supa MCP implementation pattern, including its runnable example and source links.",
       inputSchema: documentInputSchema,
     },
-    async ({ slug, detail }) => {
+    async ({ slug }) => {
       const document = await getDocument(ctx, "pattern", slug);
       return document
-        ? renderResult(document, (value) => renderDocument(value, detail))
+        ? resourceResult(documentCard(document), documentLink(document))
         : errorResult(
             `No Supa MCP pattern named “${slug}” exists.`,
             "call search_docs with the capability you want to build.",
@@ -202,10 +284,10 @@ function register(
         "Read one executable Supa MCP example with its endpoint, source, tests, and expected behavior.",
       inputSchema: documentInputSchema,
     },
-    async ({ slug, detail }) => {
+    async ({ slug }) => {
       const document = await getDocument(ctx, "example", slug);
       return document
-        ? renderResult(document, (value) => renderDocument(value, detail))
+        ? resourceResult(documentCard(document), documentLink(document))
         : errorResult(
             `No Supa MCP example named “${slug}” exists.`,
             "call search_docs with kind “example” to list relevant examples.",
@@ -221,15 +303,9 @@ function register(
         "Get the short, agent-ready setup sequence for one MCP or a named advanced pattern.",
       inputSchema: z.object({
         pattern: z.string().min(1).optional(),
-        detail: z
-          .enum(["summary", "full"])
-          .default("summary")
-          .describe(
-            "Use summary by default. Use full only when the client cannot read structuredContent.",
-          ),
       }),
     },
-    async ({ pattern, detail }) => {
+    async ({ pattern }) => {
       const base = await getDocument(ctx, "reference", "getting-started");
       const selected = pattern
         ? await getDocument(ctx, "pattern", pattern)
@@ -246,13 +322,25 @@ function register(
           "call search_docs to find a supported pattern slug.",
         );
       }
-      const payload = { gettingStarted: base, pattern: selected };
-      return renderResult(payload, ({ gettingStarted, pattern }) =>
-        [
-          renderDocument(gettingStarted, detail),
-          ...(pattern ? ["", "---", "", renderDocument(pattern, detail)] : []),
-        ].join("\n"),
-      );
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: [
+              `# ${base.title}`,
+              "",
+              base.summary,
+              ...(selected
+                ? ["", `Pattern: ${selected.title} — ${selected.summary}`]
+                : []),
+              "",
+              "→ Next: read the linked resources and implement their tested sequence.",
+            ].join("\n"),
+          },
+          documentLink(base),
+          ...(selected ? [documentLink(selected)] : []),
+        ],
+      };
     },
   );
 }
@@ -260,7 +348,7 @@ function register(
 const app = createSupabaseMcp<ReferenceDatabase>({
   server: {
     name: "Supa MCP documentation",
-    version: "0.5.0",
+    version: "0.6.0",
   },
   resourceUrl,
   auth: { mode: "public", rateLimit: true },
