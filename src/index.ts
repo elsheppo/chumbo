@@ -1,11 +1,12 @@
 export { createSupabaseMcp, oauthDefaults, runtimeUrls } from "./runtime.js";
 export {
   errorResult,
-  jsonResult,
   renderResult,
+  resourceResult,
+  structuredResult,
   textResult,
-  toMarkdown,
 } from "./results.js";
+export type { JsonValue, ResourceResultLink } from "./results.js";
 export type {
   CreateSupabaseMcpOptions,
   SupabaseMcpApiKeyAuth,

@@ -2,6 +2,9 @@ import {
   createSupabaseMcp,
   errorResult,
   renderResult,
+  resourceResult,
+  structuredResult,
+  textResult,
   type SupabaseMcpServer,
 } from "supa-mcp";
 import { z } from "zod";
@@ -14,6 +17,27 @@ const resourceUrl = new URL(
 );
 
 function register(server: SupabaseMcpServer) {
+  const guideUri = "supa-mcp://examples/result-contract-guide";
+  server.registerResource(
+    "result-contract-guide",
+    guideUri,
+    {
+      title: "Result contract guide",
+      description: "Complete guide used by the large-resource example.",
+      mimeType: "text/markdown",
+      cacheHint: { cacheScope: "public", ttlMs: 60_000 },
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "text/markdown",
+          text: "# Result contracts\n\nChoose text, structured data, a deliberate hybrid, or a Resource according to the real consumer.",
+        },
+      ],
+    }),
+  );
+
   server.registerTool(
     "list_examples",
     {
@@ -21,6 +45,9 @@ function register(server: SupabaseMcpServer) {
       description:
         "Return a populated result whose model-facing text remains useful without structuredContent.",
       inputSchema: z.object({}),
+      outputSchema: z.object({
+        examples: z.array(z.object({ name: z.string(), status: z.string() })),
+      }),
     },
     async () => {
       const examples = [
@@ -42,6 +69,42 @@ function register(server: SupabaseMcpServer) {
   );
 
   server.registerTool(
+    "get_result_contract",
+    {
+      title: "Get a typed result contract",
+      description:
+        "Return exact typed data without manufacturing model-facing text.",
+      inputSchema: z.object({}),
+      outputSchema: z.object({
+        modes: z.array(z.enum(["text", "structured", "hybrid", "resource"])),
+      }),
+    },
+    async () =>
+      structuredResult({
+        modes: ["text", "structured", "hybrid", "resource"] as const,
+      }),
+  );
+
+  server.registerTool(
+    "open_result_guide",
+    {
+      title: "Open the complete result guide",
+      description:
+        "Return a concise reading card and link instead of embedding a large document.",
+      inputSchema: z.object({}),
+    },
+    async () =>
+      resourceResult("The complete result-contract guide is linked.", {
+        type: "resource_link",
+        uri: guideUri,
+        name: "result-contract-guide",
+        title: "Result contract guide",
+        description: "Complete guide to choosing a result contract.",
+        mimeType: "text/markdown",
+      }),
+  );
+
+  server.registerTool(
     "show_empty_state",
     {
       title: "Show an empty result",
@@ -50,10 +113,8 @@ function register(server: SupabaseMcpServer) {
       inputSchema: z.object({}),
     },
     async () =>
-      renderResult(
-        { examples: [] as unknown[] },
-        () =>
-          "No examples matched this demonstration filter.\n\n→ Next: call list_examples to retrieve the populated case.",
+      textResult(
+        "No examples matched this demonstration filter.\n\n→ Next: call list_examples to retrieve the populated case.",
       ),
   );
 
@@ -74,7 +135,7 @@ function register(server: SupabaseMcpServer) {
 }
 
 const app = createSupabaseMcp({
-  server: { name: "Model-facing result examples", version: "0.5.0" },
+  server: { name: "Model-facing result examples", version: "0.6.0" },
   resourceUrl,
   auth: { mode: "public", rateLimit: true },
   register,
