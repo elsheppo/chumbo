@@ -50,6 +50,7 @@ for (const name of [
   "authenticated-tools",
   "model-facing-results",
   "many-mcps",
+  "privileged-capabilities",
 ]) {
   run(
     "deno",

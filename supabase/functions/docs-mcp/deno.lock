@@ -1,7 +1,7 @@
 {
   "version": "4",
   "specifiers": {
-    "npm:supa-mcp@0.3.1": "0.3.1_@supabase+supabase-js@2.105.4",
+    "npm:supa-mcp@0.5.0": "0.5.0_@supabase+supabase-js@2.105.4",
     "npm:zod@4.2.0": "4.2.0"
   },
   "npm": {
@@ -76,8 +76,8 @@
     "jose@6.2.9": {
       "integrity": "sha512-XrchZOFZUl/T3vTwRe8XK+cJrGtMF4th1ARnDfwbBXFKThGhlsxEE4Zu03AD/bjJSt/9jT/mxrOCkJWOg77aPA=="
     },
-    "supa-mcp@0.3.1_@supabase+supabase-js@2.105.4": {
-      "integrity": "sha512-ZtPh+2TcCa9Mqg/Fp19dv8IN25dKszGrnq3XhafOvnYcXvU/uKeSHAk6791pM+g2RUdTUcCS7w6oxxdkjSrKrg==",
+    "supa-mcp@0.5.0_@supabase+supabase-js@2.105.4": {
+      "integrity": "sha512-hG0wc1Wzk4CJZaM8kCdZemLWFjLqjyQYx7Lp1HRZ0rRKISUathM740xbHZhhklwSWPXYVB+ziyPqgEcq9WmjZQ==",
       "dependencies": [
         "@modelcontextprotocol/server",
         "@supabase/server",
@@ -97,7 +97,7 @@
       "npm:@modelcontextprotocol/server@2.0.0",
       "npm:@supabase/server@1.4.1",
       "npm:@supabase/supabase-js@2.105.4",
-      "npm:supa-mcp@0.3.1",
+      "npm:supa-mcp@0.5.0",
       "npm:zod@4.2.0"
     ]
   }

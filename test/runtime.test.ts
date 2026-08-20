@@ -338,6 +338,167 @@ describe("request context", () => {
     ]);
   });
 
+  it("serves Supabase users and application keys from one endpoint", async () => {
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "composed", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: {
+          mode: "multi",
+          strategies: [
+            { mode: "oauth", strategy: "supabase-user" },
+            {
+              mode: "api-key",
+              strategy: "application-key",
+              tokenPrefix: "app_",
+              async verify({ token }) {
+                return token === "app_owner"
+                  ? { subject: "owner", scopes: ["catalog:publish"] }
+                  : null;
+              },
+            },
+          ],
+        },
+        register(server, context) {
+          server.registerTool(
+            "identity",
+            { inputSchema: z.object({}) },
+            async () =>
+              jsonResult({
+                principal: context.principal,
+                authentication: context.authentication,
+                user: context.user?.id ?? null,
+                scopes: context.scopes,
+                clientToken: (
+                  context.supabase as unknown as { token: string | null }
+                ).token,
+              }),
+          );
+        },
+      },
+      dependencies({ alice: identity("alice") }),
+    );
+
+    const userResponse = await app.fetch(
+      request("tools/call", "alice", { name: "identity", arguments: {} }),
+    );
+    expect(userResponse.headers.get("x-supa-mcp-auth-mode")).toBe("multi");
+    expect(userResponse.headers.get("x-supa-mcp-auth-strategy")).toBe(
+      "composed",
+    );
+    expect((await userResponse.json()).result.structuredContent).toMatchObject({
+      principal: {
+        subject: "alice",
+        authentication: { mode: "oauth", strategy: "supabase-user" },
+      },
+      authentication: { mode: "oauth", strategy: "supabase-user" },
+      user: "alice",
+      clientToken: "alice",
+    });
+
+    const keyResponse = await app.fetch(
+      request("tools/call", "app_owner", {
+        name: "identity",
+        arguments: {},
+      }),
+    );
+    expect((await keyResponse.json()).result.structuredContent).toMatchObject({
+      principal: {
+        subject: "owner",
+        authentication: { mode: "api-key", strategy: "application-key" },
+      },
+      authentication: { mode: "api-key", strategy: "application-key" },
+      user: null,
+      scopes: ["catalog:publish"],
+      clientToken: null,
+    });
+
+    const concurrent = await Promise.all(
+      Array.from({ length: 20 }, (_, index) => {
+        const token = index % 2 === 0 ? "alice" : "app_owner";
+        return app
+          .fetch(
+            request("tools/call", token, {
+              name: "identity",
+              arguments: {},
+            }),
+          )
+          .then((response) => response.json());
+      }),
+    );
+    for (const [index, response] of concurrent.entries()) {
+      const value = response.result.structuredContent;
+      if (index % 2 === 0) {
+        expect(value).toMatchObject({
+          user: "alice",
+          clientToken: "alice",
+          authentication: { mode: "oauth" },
+        });
+      } else {
+        expect(value).toMatchObject({
+          user: null,
+          clientToken: null,
+          authentication: { mode: "api-key" },
+        });
+      }
+    }
+  });
+
+  it("fails a matched application-key strategy without falling through to OAuth", async () => {
+    let userVerifierCalls = 0;
+    const deps = dependencies({ app_bad: identity("should-not-run") });
+    const verifyToken = deps.verifyToken;
+    deps.verifyToken = async (...args) => {
+      userVerifierCalls += 1;
+      return verifyToken(...args);
+    };
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "composed", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: {
+          mode: "multi",
+          strategies: [
+            { mode: "oauth" },
+            {
+              mode: "api-key",
+              tokenPrefix: "app_",
+              async verify() {
+                return null;
+              },
+            },
+          ],
+        },
+        register() {},
+      },
+      deps,
+    );
+
+    const response = await app.fetch(request("tools/list", "app_bad"));
+    expect(response.status).toBe(401);
+    expect(userVerifierCalls).toBe(0);
+  });
+
+  it("rejects ambiguous multi-auth configuration at startup", () => {
+    expect(() =>
+      createSupabaseMcpInternal(
+        {
+          server: { name: "ambiguous", version: "1.0.0" },
+          resourceUrl: RESOURCE_URL,
+          auth: {
+            mode: "multi",
+            strategies: [
+              { mode: "oauth" },
+              { mode: "api-key", verify: async () => null },
+            ],
+          },
+          register() {},
+        },
+        dependencies(),
+      ),
+    ).toThrow("tokenPrefix");
+  });
+
   it("keeps concurrent user contexts isolated", async () => {
     const app = createSupabaseMcpInternal(
       {

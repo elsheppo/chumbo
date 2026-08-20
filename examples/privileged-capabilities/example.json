@@ -1,0 +1,9 @@
+{
+  "slug": "privileged-capabilities-example",
+  "kind": "example",
+  "title": "User and owner capability surfaces",
+  "summary": "One Edge Function gives a Supabase user a read surface and a verified application identity an additional privileged surface.",
+  "pattern": "privileged-capabilities",
+  "endpointPath": "/functions/v1/privileged-capabilities",
+  "officialDocs": []
+}
