@@ -2,7 +2,7 @@
 
 The living reference function at
 `supabase/functions/privileged-capabilities/index.ts` uses public
-`supa-mcp@0.5.0` and one MCP endpoint.
+`supa-mcp@0.6.0` and one MCP endpoint.
 
 - A real Supabase Auth user receives `catalog:read`, an RLS-aware Supabase
   client, the `list_catalog` tool, and the `catalog-guide` resource.
