@@ -10,9 +10,11 @@ export default defineConfig({
   platform: "neutral",
   external: [
     "node:child_process",
+    "node:crypto",
     "node:fs/promises",
     "node:path",
     "node:readline/promises",
+    "node:url",
     "node:util",
     "@modelcontextprotocol/server",
     "@supabase/server",
