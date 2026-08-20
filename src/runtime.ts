@@ -20,6 +20,8 @@ import type {
   RuntimeDependencies,
   SupabaseMcpApp,
   SupabaseMcpContext,
+  SupabaseMcpApiKeyAuth,
+  SupabaseMcpProtectedAuth,
   SupabaseMcpPostgresRateLimit,
   SupabaseMcpServer,
   VerifiedSupabaseIdentity,
@@ -49,6 +51,74 @@ interface RequestIdentity<Database> {
   subject: string;
   clientId?: string;
   scopes: string[];
+  authentication: SupabaseMcpContext<Database>["authentication"];
+}
+
+function strategyName<Database>(
+  strategy: SupabaseMcpProtectedAuth<Database>,
+): string {
+  return strategy.strategy?.trim() || strategy.mode;
+}
+
+function protectedStrategies<Database>(
+  auth: CreateSupabaseMcpOptions<Database>["auth"],
+): readonly SupabaseMcpProtectedAuth<Database>[] {
+  if (!auth || auth.mode === "public") return [];
+  return auth.mode === "multi" ? auth.strategies : [auth];
+}
+
+function validateStrategies<Database>(
+  strategies: readonly SupabaseMcpProtectedAuth<Database>[],
+  multi: boolean,
+): void {
+  if (multi && strategies.length < 2) {
+    throw new Error("Multi auth requires at least two strategies");
+  }
+  const userStrategies = strategies.filter(
+    (strategy) => strategy.mode === "oauth" || strategy.mode === "bearer",
+  );
+  if (userStrategies.length > 1) {
+    throw new Error("Multi auth accepts at most one OAuth or bearer strategy");
+  }
+  const names = strategies.map(strategyName);
+  if (new Set(names).size !== names.length) {
+    throw new Error("Authentication strategy names must be unique");
+  }
+  const prefixes: string[] = [];
+  const staticKeys: string[] = [];
+  for (const strategy of strategies) {
+    if (strategy.mode !== "api-key") continue;
+    if (typeof strategy.key === "string" && strategy.key.length === 0) {
+      throw new Error("API-key mode requires a non-empty key");
+    }
+    if (typeof strategy.key === "string") staticKeys.push(strategy.key);
+    if (strategy.tokenPrefix !== undefined && !strategy.tokenPrefix.trim()) {
+      throw new Error("API-key tokenPrefix must be non-empty");
+    }
+    if (
+      multi &&
+      typeof strategy.verify === "function" &&
+      !strategy.tokenPrefix
+    ) {
+      throw new Error(
+        "Verifier-backed API keys require tokenPrefix in multi auth",
+      );
+    }
+    if (strategy.tokenPrefix) prefixes.push(strategy.tokenPrefix);
+  }
+  if (new Set(staticKeys).size !== staticKeys.length) {
+    throw new Error("Static API keys must be unique in multi auth");
+  }
+  if (new Set(prefixes).size !== prefixes.length) {
+    throw new Error("API-key tokenPrefix values must be unique");
+  }
+  for (const prefix of prefixes) {
+    if (
+      prefixes.some((other) => other !== prefix && other.startsWith(prefix))
+    ) {
+      throw new Error("API-key tokenPrefix values must not overlap");
+    }
+  }
 }
 
 function trimTrailingSlash(url: URL): URL {
@@ -255,6 +325,11 @@ export function createSupabaseMcpInternal<Database = unknown>(
   dependencies: RuntimeDependencies<Database>,
 ): SupabaseMcpApp {
   const auth = options.auth ?? { mode: "oauth" as const };
+  const strategies = protectedStrategies(auth);
+  validateStrategies(strategies, auth.mode === "multi");
+  const oauthStrategy = strategies.find(
+    (strategy) => strategy.mode === "oauth",
+  );
   const resourceUrl = trimTrailingSlash(new URL(options.resourceUrl));
   const resourceMetadataUrl = appendPath(
     resourceUrl,
@@ -264,20 +339,20 @@ export function createSupabaseMcpInternal<Database = unknown>(
     resourceUrl,
     ".well-known/oauth-authorization-server",
   );
-  const issuer =
-    auth.mode === "oauth"
-      ? trimTrailingSlash(
-          new URL(auth.issuer ?? `${resourceUrl.origin}/auth/v1`),
-        )
-      : undefined;
-  const authorizationServerMetadataUrl =
-    auth.mode === "oauth"
-      ? new URL(
-          auth.authorizationServerMetadataUrl ?? metadataUrlForIssuer(issuer!),
-        )
-      : undefined;
-  const advertisedScopes =
-    auth.mode === "oauth" ? [...(auth.scopes ?? DEFAULT_SCOPES)] : [];
+  const issuer = oauthStrategy
+    ? trimTrailingSlash(
+        new URL(oauthStrategy.issuer ?? `${resourceUrl.origin}/auth/v1`),
+      )
+    : undefined;
+  const authorizationServerMetadataUrl = oauthStrategy
+    ? new URL(
+        oauthStrategy.authorizationServerMetadataUrl ??
+          metadataUrlForIssuer(issuer!),
+      )
+    : undefined;
+  const advertisedScopes = oauthStrategy
+    ? [...(oauthStrategy.scopes ?? DEFAULT_SCOPES)]
+    : [];
   const publicRateLimit =
     auth.mode === "public" && auth.rateLimit
       ? rateLimitConfig(auth.rateLimit)
@@ -293,15 +368,10 @@ export function createSupabaseMcpInternal<Database = unknown>(
           "x-supa-mcp-auth-strategy":
             typeof auth.key === "string" ? "static" : "verifier",
         }
-      : {}),
+      : auth.mode === "multi"
+        ? { "x-supa-mcp-auth-strategy": "composed" }
+        : {}),
   };
-  if (
-    auth.mode === "api-key" &&
-    typeof auth.key === "string" &&
-    auth.key.length === 0
-  ) {
-    throw new Error("API-key mode requires a non-empty key");
-  }
 
   async function buildContext(
     value: Omit<
@@ -358,6 +428,8 @@ export function createSupabaseMcpInternal<Database = unknown>(
             supabase: dependencies.createClient(null, options.supabase?.env),
             user: null,
             jwtClaims: null,
+            principal: null,
+            authentication: { mode: "public", strategy: "public" },
             traceId: dependencies.randomUUID(),
           },
           auth.scopes ?? [],
@@ -396,21 +468,47 @@ export function createSupabaseMcpInternal<Database = unknown>(
     auth.mode === "public"
       ? undefined
       : requireBearerAuth({
-          resourceMetadataUrl:
-            auth.mode === "oauth" ? resourceMetadataUrl.href : undefined,
+          resourceMetadataUrl: oauthStrategy
+            ? resourceMetadataUrl.href
+            : undefined,
           verifier: {
             async verifyAccessToken(token: string): Promise<AuthInfo> {
               try {
-                if (auth.mode === "api-key") {
+                const apiKeyStrategies = strategies.filter(
+                  (strategy): strategy is SupabaseMcpApiKeyAuth<Database> =>
+                    strategy.mode === "api-key",
+                );
+                let selected = apiKeyStrategies.find(
+                  (strategy) =>
+                    typeof strategy.key === "string" && strategy.key === token,
+                );
+                selected ??= apiKeyStrategies.find(
+                  (strategy) =>
+                    Boolean(strategy.tokenPrefix) &&
+                    token.startsWith(strategy.tokenPrefix!),
+                );
+                const userStrategy = strategies.find(
+                  (strategy) =>
+                    strategy.mode === "oauth" || strategy.mode === "bearer",
+                );
+                if (
+                  !selected &&
+                  !userStrategy &&
+                  apiKeyStrategies.length === 1
+                ) {
+                  selected = apiKeyStrategies[0];
+                }
+
+                if (selected) {
                   const verified =
-                    typeof auth.key === "string"
-                      ? (await sha256(token)) === (await sha256(auth.key))
+                    typeof selected.key === "string"
+                      ? (await sha256(token)) === (await sha256(selected.key))
                         ? {
-                            subject: auth.subject ?? "api-key",
-                            scopes: auth.scopes,
+                            subject: selected.subject ?? "api-key",
+                            scopes: selected.scopes,
                           }
                         : null
-                      : await auth.verify({
+                      : await selected.verify({
                           token,
                           supabaseAdmin: dependencies.createAdminClient(
                             options.supabase?.env,
@@ -439,8 +537,12 @@ export function createSupabaseMcpInternal<Database = unknown>(
                     subject,
                     clientId: verified.clientId,
                     scopes: normalizedScopes(
-                      verified.scopes ?? auth.scopes ?? [],
+                      verified.scopes ?? selected.scopes ?? [],
                     ),
+                    authentication: {
+                      mode: "api-key",
+                      strategy: strategyName(selected),
+                    },
                   };
                   return {
                     token,
@@ -452,6 +554,12 @@ export function createSupabaseMcpInternal<Database = unknown>(
                     expiresAt: Number.MAX_SAFE_INTEGER,
                     extra: { [IDENTITY_KEY]: requestIdentity },
                   };
+                }
+                if (!userStrategy) {
+                  throw new OAuthError(
+                    OAuthErrorCode.InvalidToken,
+                    "Invalid access token",
+                  );
                 }
                 const identity = await dependencies.verifyToken(
                   token,
@@ -473,6 +581,10 @@ export function createSupabaseMcpInternal<Database = unknown>(
                   subject: identity.userClaims.id,
                   clientId: actualClientId(identity.jwtClaims),
                   scopes: scopesFromClaims(identity.jwtClaims),
+                  authentication: {
+                    mode: userStrategy.mode,
+                    strategy: strategyName(userStrategy),
+                  },
                 };
                 return {
                   token,
@@ -499,7 +611,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
   async function serveMetadata(
     request: Request,
   ): Promise<Response | undefined> {
-    if (auth.mode !== "oauth") return undefined;
+    if (!oauthStrategy) return undefined;
     const pathname = new URL(request.url).pathname.replace(/\/+$/, "");
     const protectedPath = resourceMetadataUrl.pathname.replace(/\/+$/, "");
     const authorizationPath = authorizationMetadataMirrorUrl.pathname.replace(
@@ -641,6 +753,12 @@ export function createSupabaseMcpInternal<Database = unknown>(
           jwtClaims: identity.jwtClaims,
           subject: identity.subject,
           clientId: identity.clientId,
+          principal: {
+            subject: identity.subject,
+            ...(identity.clientId ? { clientId: identity.clientId } : {}),
+            authentication: identity.authentication,
+          },
+          authentication: identity.authentication,
           traceId,
         },
         identity.scopes,

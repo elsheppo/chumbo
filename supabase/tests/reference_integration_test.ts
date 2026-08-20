@@ -3,6 +3,7 @@ import authenticatedApp from "../functions/authenticated-tools/index.ts";
 import docsApp from "../functions/docs-mcp/index.ts";
 import manyMcpsApp from "../functions/many-mcps/index.ts";
 import modelResultsApp from "../functions/model-facing-results/index.ts";
+import privilegedApp from "../functions/privileged-capabilities/index.ts";
 
 const projectUrl = Deno.env.get("SUPABASE_URL");
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -66,7 +67,17 @@ async function json(response: Response): Promise<any> {
   return JSON.parse(text);
 }
 
-Deno.test("documentation MCP retrieves the three tested patterns", async () => {
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+Deno.test("documentation MCP retrieves the tested patterns", async () => {
   const url = `${projectUrl}/functions/v1/docs-mcp`;
   const tools = await json(await docsApp.fetch(mcpRequest(url, "tools/list")));
   equal(
@@ -79,6 +90,7 @@ Deno.test("documentation MCP retrieves the three tested patterns", async () => {
     "authenticated-tools",
     "model-facing-results",
     "many-mcps-one-function",
+    "privileged-capabilities",
   ]) {
     const response = await json(
       await docsApp.fetch(
@@ -221,6 +233,104 @@ Deno.test(
       assert(text.includes("→ Next:"), `${name} has a next step`);
       assert(!text.trimStart().startsWith("{"), `${name} is not a JSON dump`);
     }
+  },
+);
+
+Deno.test(
+  "one endpoint gives normal and privileged identities different surfaces",
+  async () => {
+    const admin = createClient(projectUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const credential = {
+      email: "capability-user@supa-mcp.test",
+      password: "reference-capability-password",
+    };
+    const { error: createError } = await admin.auth.admin.createUser({
+      ...credential,
+      email_confirm: true,
+    });
+    if (
+      createError &&
+      !createError.message.includes("already been registered")
+    ) {
+      throw createError;
+    }
+    const userClient = createClient(projectUrl, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: signIn, error: signInError } =
+      await userClient.auth.signInWithPassword(credential);
+    if (signInError) throw signInError;
+    const userToken = signIn.session?.access_token;
+    assert(userToken, "normal user token");
+
+    const ownerToken = `supa_ref_${crypto.randomUUID()}`;
+    const { error: keyError } = await admin.from("reference_api_keys").insert({
+      token_hash: await sha256(ownerToken),
+      subject: "reference-owner",
+      scopes: ["catalog:publish"],
+    });
+    if (keyError) throw keyError;
+
+    const url = `${projectUrl}/functions/v1/privileged-capabilities`;
+    const list = async (method: string, token: string) => {
+      const body = await json(
+        await privilegedApp.fetch(mcpRequest(url, method, {}, token)),
+      );
+      const key = method.split("/")[0];
+      return body.result[key] ?? [];
+    };
+
+    const [userTools, userResources, userPrompts] = await Promise.all([
+      list("tools/list", userToken),
+      list("resources/list", userToken),
+      list("prompts/list", userToken),
+    ]);
+    equal(
+      userTools.map((item: { name: string }) => item.name),
+      ["list_catalog"],
+      "normal user tools",
+    );
+    equal(
+      userResources.map((item: { name: string }) => item.name),
+      ["catalog-guide"],
+      "normal user resources",
+    );
+    equal(userPrompts, [], "normal user prompts");
+
+    const [ownerTools, ownerResources, ownerPrompts] = await Promise.all([
+      list("tools/list", ownerToken),
+      list("resources/list", ownerToken),
+      list("prompts/list", ownerToken),
+    ]);
+    equal(
+      ownerTools.map((item: { name: string }) => item.name),
+      ["preview_publication"],
+      "owner tools",
+    );
+    equal(ownerResources, [], "owner resources");
+    equal(
+      ownerPrompts.map((item: { name: string }) => item.name),
+      ["plan_publication"],
+      "owner prompts",
+    );
+
+    const bypass = await privilegedApp.fetch(
+      mcpRequest(
+        url,
+        "tools/call",
+        { name: "preview_publication", arguments: { title: "Denied" } },
+        userToken,
+      ),
+    );
+    const bypassBody = await bypass.json();
+    assert(bypassBody.error, "normal user cannot invoke privileged tool");
+
+    const invalid = await privilegedApp.fetch(
+      mcpRequest(url, "tools/list", {}, "supa_ref_invalid"),
+    );
+    equal(invalid.status, 401, "invalid application key status");
   },
 );
 
