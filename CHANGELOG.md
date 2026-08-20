@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.5.0 — 2026-08-20
+
+- Add composed authentication so one MCP endpoint can accept Supabase OAuth
+  users and application-owned API keys without collapsing their authority or
+  database behavior into one credential path.
+- Route every credential to exactly one named strategy before verification.
+  Verifier-backed application keys require a non-overlapping prefix in composed
+  mode, and a failed match never falls through to OAuth.
+- Add normalized `ctx.authentication` and `ctx.principal` context alongside the
+  existing `ctx.user`, `ctx.subject`, `ctx.scopes`, and request-scoped Supabase
+  client. Supabase users retain their JWT-backed RLS client; application keys
+  retain an anonymous client and application-resolved identity and scopes.
+- Add a living privileged-capabilities pattern proving that ordinary users and
+  privileged application identities receive different tools, resources,
+  prompts, and server instructions from the same endpoint.
+
 ## 0.4.0 — 2026-08-18
 
 - Add `instructions` to `createSupabaseMcp`: server-level usage guidance

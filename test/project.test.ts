@@ -507,6 +507,89 @@ describe("doctor", () => {
     }
   });
 
+  it("diagnoses composed authentication without mistaking a nested strategy for the server mode", async () => {
+    const root = await fixture();
+    const functionDir = join(root, "supabase", "functions", "composed-mcp");
+    await mkdir(functionDir, { recursive: true });
+    await writeFile(
+      join(root, "supabase", "config.toml"),
+      "[functions.composed-mcp]\nverify_jwt = false\n",
+    );
+    await writeFile(
+      join(functionDir, "index.ts"),
+      `import { createSupabaseMcp } from "npm:supa-mcp@${PACKAGE_VERSION}";\n` +
+        'createSupabaseMcp({ auth: { mode: "multi", strategies: [{ mode: "oauth" }, { mode: "api-key", tokenPrefix: "app_", verify() {} }] } });\n',
+    );
+    expect(await inspectGeneratedAuth(root, "composed-mcp")).toBeUndefined();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/.well-known/oauth-protected-resource")) {
+          return Response.json({
+            resource: "https://example.com/mcp",
+            authorization_servers: ["https://example.com/auth/v1"],
+          });
+        }
+        if (new Headers(init?.headers).has("authorization")) {
+          return Response.json(
+            { jsonrpc: "2.0", id: "authenticated", result: { tools: [] } },
+            {
+              headers: {
+                "x-supa-mcp-version": PACKAGE_VERSION,
+                "x-supa-mcp-auth-mode": "multi",
+                "x-supa-mcp-auth-strategy": "composed",
+              },
+            },
+          );
+        }
+        return Response.json(
+          { error: "invalid_token" },
+          {
+            status: 401,
+            headers: {
+              "www-authenticate":
+                'Bearer resource_metadata="https://example.com/mcp/.well-known/oauth-protected-resource"',
+              "x-supa-mcp-version": PACKAGE_VERSION,
+              "x-supa-mcp-auth-mode": "multi",
+              "x-supa-mcp-auth-strategy": "composed",
+            },
+          },
+        );
+      }),
+    );
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "composed-mcp",
+        url: "https://example.com/mcp",
+        token: "app_owner",
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "runtime-auth-mode",
+            ok: true,
+            detail: "multi",
+          }),
+          expect.objectContaining({ name: "multi-auth-gate", ok: true }),
+          expect.objectContaining({
+            name: "authenticated-tools-list",
+            ok: true,
+          }),
+          expect.objectContaining({
+            name: "protected-resource-metadata",
+            ok: true,
+          }),
+        ]),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("treats the generated layout as guidance for a valid composed function", async () => {
     const root = await fixture();
     const functionDir = join(root, "supabase", "functions", "composed-mcp");
