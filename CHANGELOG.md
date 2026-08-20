@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.6.0 — 2026-08-20
+
+- Replace automatic JSON-to-text duplication with explicit result contracts:
+  `textResult`, `structuredResult`, `renderResult`, and `resourceResult`.
+- Remove `jsonResult` and `toMarkdown`. Structured results now preserve the
+  exact JSON value, and builders declare the matching tool `outputSchema`.
+- Update the generated capability scaffold and living examples to demonstrate
+  text-only, structured-only, deliberate hybrid, recoverable error, and
+  large-resource result patterns.
+- Move complete living documentation bodies to stable MCP Resources at
+  `supa-mcp://docs/{kind}/{slug}`. Documentation tools now return compact
+  reading cards and resource links instead of duplicated bodies.
+
 ## 0.5.0 — 2026-08-20
 
 - Add composed authentication so one MCP endpoint can accept Supabase OAuth

@@ -37,6 +37,7 @@ async function expectedDocuments() {
     );
     expected.push({
       ...metadata,
+      body,
       contentHash: createHash("sha256")
         .update(JSON.stringify(metadata))
         .update("\n")
@@ -54,6 +55,7 @@ async function mcp(endpoint, method, params = {}) {
     "mcp-protocol-version": "2026-07-28",
   };
   if (typeof params.name === "string") headers["mcp-name"] = params.name;
+  if (typeof params.uri === "string") headers["mcp-name"] = params.uri;
   const response = await fetch(`${functionsUrl}/${endpoint}`, {
     method: "POST",
     headers,
@@ -111,8 +113,26 @@ const search = await mcp("docs-mcp", "tools/call", {
   arguments: { query: "many MCPs one function" },
 });
 assert(
-  search.structuredContent.matches.length > 0,
-  "Hosted documentation search returned no results.",
+  search.content.some((item) => item.type === "resource_link"),
+  "Hosted documentation search returned no linked resources.",
+);
+assert(
+  JSON.stringify(search).length < 4_000,
+  "Hosted documentation search exceeded the compact response budget.",
+);
+
+const templates = await mcp("docs-mcp", "resources/templates/list");
+assert(
+  templates.resourceTemplates.some(
+    (template) => template.uriTemplate === "supa-mcp://docs/{kind}/{slug}",
+  ),
+  "Hosted documentation resource template is missing.",
+);
+
+const resources = await mcp("docs-mcp", "resources/list");
+assert(
+  resources.resources.length === expected.length,
+  "Hosted documentation resource catalog drifted.",
 );
 
 for (const expectedDocument of expected) {
@@ -133,15 +153,23 @@ for (const expectedDocument of expected) {
       arguments: { slug: expectedDocument.slug },
     });
   }
-  const document = result?.structuredContent;
-  assert(document, `Hosted document ${expectedDocument.slug} is missing.`);
+  const link = result?.content.find((item) => item.type === "resource_link");
   assert(
-    document.content_hash === expectedDocument.contentHash,
+    link,
+    `Hosted document ${expectedDocument.slug} has no resource link.`,
+  );
+  assert(
+    link._meta.contentHash === expectedDocument.contentHash,
     `Hosted document ${expectedDocument.slug} does not match Git.`,
   );
   assert(
-    !result.content[0].text.includes(document.body_markdown),
-    `Hosted document ${expectedDocument.slug} duplicated its body in portable text.`,
+    JSON.stringify(result).length < 2_000,
+    `Hosted document ${expectedDocument.slug} exceeded the compact response budget.`,
+  );
+  const read = await mcp("docs-mcp", "resources/read", { uri: link.uri });
+  assert(
+    read.contents[0].text === expectedDocument.body,
+    `Hosted resource ${expectedDocument.slug} does not match Git.`,
   );
 }
 

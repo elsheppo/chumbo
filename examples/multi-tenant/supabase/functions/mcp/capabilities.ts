@@ -1,5 +1,5 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
-import { jsonResult, type SupabaseMcpContext } from "supa-mcp";
+import { structuredResult, type SupabaseMcpContext } from "supa-mcp";
 import { z } from "zod";
 
 interface ExampleDatabase {
@@ -27,6 +27,16 @@ export function registerCapabilities(
     {
       description: "List documents visible to the connected user through RLS.",
       inputSchema: z.object({}),
+      outputSchema: z.object({
+        documents: z.array(
+          z.object({
+            id: z.string(),
+            organization_id: z.string(),
+            title: z.string(),
+            created_at: z.string(),
+          }),
+        ),
+      }),
     },
     async () => {
       const { data, error } = await ctx.supabase
@@ -34,7 +44,7 @@ export function registerCapabilities(
         .select("id, organization_id, title, created_at")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return jsonResult({ documents: data });
+      return structuredResult({ documents: data ?? [] });
     },
   );
 

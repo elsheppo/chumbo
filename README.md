@@ -91,7 +91,7 @@ registration API, so there is no parallel tool framework to learn.
 
 ```ts
 import {
-  jsonResult,
+  structuredResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
 } from "supa-mcp";
@@ -106,6 +106,15 @@ export function registerCapabilities(
     {
       description: "List projects visible to the connected user.",
       inputSchema: z.object({}),
+      outputSchema: z.object({
+        projects: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            status: z.string(),
+          }),
+        ),
+      }),
     },
     async () => {
       const { data, error } = await ctx.supabase
@@ -114,17 +123,17 @@ export function registerCapabilities(
         .order("name");
 
       if (error) throw error;
-      return jsonResult({ projects: data });
+      return structuredResult({ projects: data ?? [] });
     },
   );
 }
 ```
 
-### Write the text the model actually reads
+### Choose the result for its real consumer
 
-`content[].text` is the portable model-facing lane. Some clients do not surface
-`structuredContent` to the model, so the text must work as the complete tool
-response on its own. Compose it deliberately:
+Use `textResult` when an agent or person is the only meaningful consumer. Use
+`structuredResult` with an `outputSchema` for typed composition or UI clients.
+Use `renderResult` only when both consumers genuinely matter:
 
 ```ts
 import { renderResult } from "supa-mcp";
@@ -141,11 +150,12 @@ return renderResult({ projects: data }, ({ projects }) =>
 );
 ```
 
-`jsonResult(value)` without a text falls back to `toMarkdown(value)` — a
-legible generic rendering, fine for prototyping. Passing an explicit `text`
-to `jsonResult` replaces the rendering entirely, so clients that do not expose
-`structuredContent` will hide the payload from the model. If you want a message
-_and_ the data, use `renderResult` and put both in the text.
+Use `resourceResult(text, link)` for large documents registered through MCP
+Resources. It returns a concise reading card and link without embedding the
+body in the tool response. Do not expose raw database rows as the application
+contract by default; preserve only the facts and identifiers the consumer
+needs for its next step.
+
 `errorResult(message, nextStep)` appends a `→ Next:` line so errors route the
 model to recovery instead of a dead end.
 
@@ -630,7 +640,7 @@ should expose fewer capabilities than another:
 server
   .withScopes(["projects:read"])
   .registerTool("list_projects", { inputSchema: z.object({}) }, async () =>
-    jsonResult({ projects: [] }),
+    textResult("No projects are currently visible."),
   );
 ```
 

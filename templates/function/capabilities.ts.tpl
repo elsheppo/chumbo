@@ -3,7 +3,10 @@ import {
   inputRequired,
 } from "@modelcontextprotocol/server";
 import {
-  jsonResult,
+  renderResult,
+  resourceResult,
+  structuredResult,
+  textResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
 } from "supa-mcp";
@@ -16,15 +19,68 @@ export function registerCapabilities(
   server.registerTool(
     "whoami",
     {
-      description: "Return the connected application user's identity.",
+      description: "Explain which application identity is connected.",
+      inputSchema: z.object({}),
+      outputSchema: z.object({
+        subject: z.string().nullable(),
+        oauthClientId: z.string().nullable(),
+      }),
+    },
+    async () => {
+      const identity = {
+        subject: ctx.subject ?? null,
+        oauthClientId: ctx.clientId ?? null,
+      };
+      return renderResult(identity, ({ subject }) =>
+        subject
+          ? `Connected as ${subject}.`
+          : "This public connection has no signed-in user.",
+      );
+    },
+  );
+
+  server.registerTool(
+    "identity_snapshot",
+    {
+      description:
+        "Return the connected identity as typed data for a programmatic client.",
+      inputSchema: z.object({}),
+      outputSchema: z.object({ subject: z.string().nullable() }),
+    },
+    async () => structuredResult({ subject: ctx.subject ?? null }),
+  );
+
+  server.registerTool(
+    "open_connected_user",
+    {
+      description:
+        "Open the complete connected-user document through MCP resources.",
       inputSchema: z.object({}),
     },
-    async () => jsonResult({
-      subject: ctx.subject,
-      user: ctx.user,
-      oauthClientId: ctx.clientId,
-      traceId: ctx.traceId,
-    }),
+    async () =>
+      resourceResult(
+        "Connected-user details are available as an MCP resource.",
+        {
+          type: "resource_link",
+          uri: "app://connected-user",
+          name: "connected-user",
+          title: "Connected user",
+          description: "Complete identity associated with this MCP request.",
+          mimeType: "application/json",
+        },
+      ),
+  );
+
+  server.registerTool(
+    "connection_help",
+    {
+      description: "Explain the next useful action for this connection.",
+      inputSchema: z.object({}),
+    },
+    async () =>
+      textResult(
+        "The MCP connection is ready.\n\n→ Next: replace these starter capabilities with your application operations.",
+      ),
   );
 
   server.registerTool(
@@ -49,8 +105,12 @@ export function registerCapabilities(
         });
       }
       return response.confirm
-        ? jsonResult({ user: ctx.user })
-        : jsonResult({ declined: true });
+        ? textResult(
+            ctx.subject
+              ? `Connected as ${ctx.subject}.`
+              : "This public connection has no signed-in user.",
+          )
+        : textResult("Identity confirmation declined.");
     },
   );
 

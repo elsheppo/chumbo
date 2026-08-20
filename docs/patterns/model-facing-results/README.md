@@ -1,16 +1,18 @@
 # Model-facing tool results
 
-Use `renderResult(value, render)` when the model needs data plus interpretation,
-empty-state meaning, or a next action. The renderer's text must stand alone;
-some MCP clients do not surface `structuredContent` to the model.
+Choose the smallest result contract that serves a real consumer:
 
-Use `jsonResult(value)` as a legible prototyping fallback. It renders Markdown
-instead of dumping JSON. Use `errorResult(message, nextStep)` for failures that
-the model can recover from.
+- `textResult(text)` for an agent-facing answer.
+- `structuredResult(value)` plus `outputSchema` for typed composition.
+- `renderResult(value, render)` only when both representations matter.
+- `resourceResult(text, link)` for large content served by MCP Resources.
+- `errorResult(message, nextStep)` for recoverable failures.
 
-The living example proves three surfaces: a populated result, a cause-specific
-empty state, and a recoverable error. Its tests inspect the actual
-`content[0].text` rather than treating `structuredContent` as model evidence.
+Design the contract around the application operation and next reasoning step,
+not the shape of the database row that produced it.
+
+The living examples prove purposeful text, typed output, an intentional hybrid,
+large-resource delivery, a cause-specific empty state, and a recoverable error.
 
 Source:
 
