@@ -65,7 +65,7 @@ export async function runDoctor(
   const root = await findSupabaseProject(options.cwd);
   const inspection = await inspectGeneratedAuth(root, options.functionName);
   const configuredAuth = options.auth ?? inspection?.mode;
-  let auth = configuredAuth ?? "oauth";
+  let auth: SetupAuthMode | "multi" = configuredAuth ?? "oauth";
   let apiKeyStrategy =
     options.apiKeyStrategy ?? inspection?.apiKeyStrategy ?? "unknown";
   const checks: DoctorCheck[] = [];
@@ -139,10 +139,14 @@ export async function runDoctor(
   const runtimeAuth = response.headers.get("x-supa-mcp-auth-mode");
   const runtimeStrategy = response.headers.get("x-supa-mcp-auth-strategy");
   const runtimeResourceUrl = response.headers.get("x-supa-mcp-resource-url");
-  const observedAuth = ["oauth", "api-key", "bearer", "public"].includes(
-    runtimeAuth ?? "",
-  )
-    ? (runtimeAuth as SetupAuthMode)
+  const observedAuth = [
+    "oauth",
+    "api-key",
+    "bearer",
+    "public",
+    "multi",
+  ].includes(runtimeAuth ?? "")
+    ? (runtimeAuth as SetupAuthMode | "multi")
     : undefined;
   if (!configuredAuth && observedAuth) auth = observedAuth;
   if (
@@ -256,6 +260,33 @@ export async function runDoctor(
       detail: `HTTP ${authenticatedResponse.status}`,
     });
     return checks;
+  }
+
+  if (auth === "multi") {
+    checks.push({
+      name: "multi-auth-gate",
+      ok: response.status === 401,
+      detail: runtimeVersion
+        ? `HTTP ${response.status} from Supa MCP`
+        : `HTTP ${response.status}; responding layer is unconfirmed`,
+    });
+    if (options.token) {
+      const authenticatedHeaders = new Headers(headers);
+      authenticatedHeaders.set("authorization", `Bearer ${options.token}`);
+      const authenticatedResponse = await fetch(options.url, {
+        method: "POST",
+        headers: authenticatedHeaders,
+        body: modernRequest("tools/list"),
+      });
+      const body = (await authenticatedResponse.json().catch(() => null)) as {
+        result?: { tools?: unknown[] };
+      } | null;
+      checks.push({
+        name: "authenticated-tools-list",
+        ok: authenticatedResponse.ok && Array.isArray(body?.result?.tools),
+        detail: `HTTP ${authenticatedResponse.status}`,
+      });
+    }
   }
 
   const metadataUrl = challengeMetadataUrl(

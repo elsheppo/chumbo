@@ -1,0 +1,11 @@
+{
+  "slug": "privileged-capabilities",
+  "kind": "pattern",
+  "title": "Different capability surfaces on one endpoint",
+  "summary": "Compose Supabase users and application keys while preserving each identity's client, scopes, instructions, and discoverable MCP surface.",
+  "example": "privileged-capabilities-example",
+  "officialDocs": [
+    "https://supabase.com/docs/guides/auth",
+    "https://supabase.com/docs/guides/database/postgres/row-level-security"
+  ]
+}
