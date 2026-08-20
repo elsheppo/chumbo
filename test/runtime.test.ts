@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { acceptedContent, inputRequired } from "@modelcontextprotocol/server";
-import { jsonResult } from "../src/results.js";
+import { structuredResult } from "../src/results.js";
 import { createSupabaseMcpInternal, runtimeUrls } from "../src/runtime.js";
 import { PACKAGE_VERSION } from "../src/version.js";
 import type {
@@ -269,7 +269,7 @@ describe("request context", () => {
             "identity",
             { inputSchema: z.object({}) },
             async () =>
-              jsonResult({
+              structuredResult({
                 subject: context.subject,
                 user: context.user,
                 scopes: context.scopes,
@@ -322,7 +322,7 @@ describe("request context", () => {
           server
             .withScopes(["blocks:write"])
             .registerTool("write", { inputSchema: z.object({}) }, async () =>
-              jsonResult({ subject: context.subject }),
+              structuredResult({ subject: context.subject }),
             );
         },
       },
@@ -364,7 +364,7 @@ describe("request context", () => {
             "identity",
             { inputSchema: z.object({}) },
             async () =>
-              jsonResult({
+              structuredResult({
                 principal: context.principal,
                 authentication: context.authentication,
                 user: context.user?.id ?? null,
@@ -510,7 +510,7 @@ describe("request context", () => {
             "current_user",
             { inputSchema: z.object({}) },
             async () =>
-              jsonResult({
+              structuredResult({
                 id: context.user?.id,
                 clientToken: (context.supabase as unknown as { token: string })
                   .token,
@@ -567,7 +567,7 @@ describe("request context", () => {
         auth: { mode: "public" },
         register(server) {
           server.registerTool("ping", { inputSchema: z.object({}) }, async () =>
-            jsonResult({ pong: true }),
+            structuredResult({ pong: true }),
           );
         },
       },
@@ -593,14 +593,14 @@ describe("progressive access controls", () => {
           server.registerTool(
             "health",
             { inputSchema: z.object({}) },
-            async () => jsonResult({ ok: true }),
+            async () => structuredResult({ ok: true }),
           );
           server
             .withScopes(["projects:read"])
             .registerTool(
               "list_projects",
               { inputSchema: z.object({}) },
-              async () => jsonResult({ projects: [] }),
+              async () => structuredResult({ projects: [] }),
             );
           server
             .withScopes(["projects:write"])
@@ -609,7 +609,7 @@ describe("progressive access controls", () => {
               { inputSchema: z.object({}) },
               async () => {
                 deniedCalls += 1;
-                return jsonResult({ created: true });
+                return structuredResult({ created: true });
               },
             );
         },
@@ -652,7 +652,7 @@ describe("progressive access controls", () => {
             .registerTool(
               "create_project",
               { inputSchema: z.object({}) },
-              async () => jsonResult({ created: true }),
+              async () => structuredResult({ created: true }),
             );
         },
       },
@@ -703,7 +703,7 @@ describe("progressive access controls", () => {
           server
             .withScopes(["catalog:read"])
             .registerTool("catalog", { inputSchema: z.object({}) }, async () =>
-              jsonResult({ items: [] }),
+              structuredResult({ items: [] }),
             );
           server
             .withScopes(["catalog:read"])
@@ -805,7 +805,7 @@ describe("progressive access controls", () => {
         },
         register(server) {
           server.registerTool("ping", { inputSchema: z.object({}) }, async () =>
-            jsonResult({ pong: true }),
+            structuredResult({ pong: true }),
           );
         },
       },
@@ -843,9 +843,9 @@ describe("progressive access controls", () => {
 
 describe("result helpers", () => {
   it("returns model-readable markdown and structured JSON", () => {
-    expect(jsonResult([1, 2])).toEqual({
-      content: [{ type: "text", text: "- 1\n- 2" }],
-      structuredContent: { value: [1, 2] },
+    expect(structuredResult([1, 2])).toEqual({
+      content: [],
+      structuredContent: [1, 2],
     });
   });
 });
@@ -859,7 +859,7 @@ describe("protocol eras and malformed requests", () => {
         auth: { mode: "public" },
         register(server) {
           server.registerTool("ping", { inputSchema: z.object({}) }, async () =>
-            jsonResult({ pong: true }),
+            structuredResult({ pong: true }),
           );
         },
       },
@@ -1005,7 +1005,7 @@ describe("MCP capability breadth", () => {
                 "answer",
               );
               return response?.ok
-                ? jsonResult({ confirmed: true })
+                ? structuredResult({ confirmed: true })
                 : inputRequired({
                     inputRequests: {
                       answer: inputRequired.elicit({

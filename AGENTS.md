@@ -51,10 +51,11 @@ architecture on the ordinary one-MCP path.
 - The generated server uses Streamable HTTP and the official MCP registration
   APIs. Keep tools, resources, prompts, and multi-round-trip flows available
   without inventing a parallel capability framework.
-- `content[].text` must be a complete, legible model-facing result because some
-  clients do not surface `structuredContent` to the model. Prefer
-  `renderResult`; use `jsonResult` as a prototyping fallback. Give errors and
-  empty states a useful next step when one exists.
+- Design each result for its real consumer. Use `textResult` for agent-facing
+  text, `structuredResult` plus `outputSchema` for typed clients,
+  `renderResult` only for a deliberate hybrid, and `resourceResult` for large
+  content served through MCP Resources. Never mirror a database row by default.
+  Give errors and empty states a useful next step when one exists.
 - Public mode stays intentionally simple but must retain its generated
   Postgres-backed rate-limit guardrail.
 - Setup must remain resumable, idempotent, and agent-friendly. `--json` never

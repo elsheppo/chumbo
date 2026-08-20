@@ -16,10 +16,10 @@ their own accounts, API key for the fastest authenticated start. The
 remaining actions.
 
 **2. Implement.** Edit the generated `capabilities.ts`. Query through
-`ctx.supabase` so the caller's own grants and RLS apply. Use `renderResult`
-for purpose-written model-facing responses: the complete answer must live in
-`content[].text`, while `structuredContent` carries the same raw value for
-typed consumers.
+`ctx.supabase` so the caller's own grants and RLS apply. Choose `textResult`,
+`structuredResult`, `renderResult`, or `resourceResult` according to the real
+consumer. Define an `outputSchema` for structured results, and do not mirror a
+database row into both result lanes automatically.
 
 **3. Check locally.**
 
