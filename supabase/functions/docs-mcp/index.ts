@@ -143,6 +143,25 @@ function register(
   );
 
   server.registerTool(
+    "get_reference",
+    {
+      title: "Get Supa MCP reference guidance",
+      description:
+        "Read one Supa MCP-owned reference document by slug, such as auth-modes, connect-clients, or getting-started.",
+      inputSchema: z.object({ slug: z.string().min(1) }),
+    },
+    async ({ slug }) => {
+      const document = await getDocument(ctx, "reference", slug);
+      return document
+        ? renderResult(document, renderDocument)
+        : errorResult(
+            `No Supa MCP reference named “${slug}” exists.`,
+            "call search_docs with kind “reference” to list relevant guidance.",
+          );
+    },
+  );
+
+  server.registerTool(
     "get_pattern",
     {
       title: "Get a Supa MCP pattern",
