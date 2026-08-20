@@ -180,7 +180,7 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
     ),
   );
   assert(
-    fullDocument.result.contents[0].text.includes("# Getting started"),
+    fullDocument.result.contents[0].text.includes("# Start a Supa MCP server"),
     "complete markdown is served only through resources/read",
   );
   assert(
@@ -494,8 +494,10 @@ Deno.test(
       ),
     );
     assert(
-      updated.result.content[0].text.includes("Live Row Update"),
-      "row update is live",
+      updated.result.content.length === 0 &&
+        updated.result.structuredContent.businesses[0].name ===
+          "Live Row Update",
+      "row update is live without a duplicate text lane",
     );
 
     const missing = await manyMcpsApp.fetch(
