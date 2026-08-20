@@ -1,7 +1,7 @@
 {
   "projectRef": "dxrpeagddrpbezbkgvdv",
   "region": "ca-central-1",
-  "packageVersion": "0.5.0",
+  "packageVersion": "0.6.0",
   "docsMcpUrl": "https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp",
   "source": "https://github.com/elsheppo/supa-mcp",
   "deployment": "public-reference"
