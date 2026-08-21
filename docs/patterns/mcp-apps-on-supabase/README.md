@@ -128,6 +128,11 @@ transport headers such as `mcp-protocol-version` and `mcp-session-id`. CORS is
 transport compatibility, not authorization; OAuth, scopes, ownership checks,
 and RLS remain unchanged.
 
+The living reference admits its local reference host and `https://claude.ai`
+by exact origin. It deliberately does not use `*`: a builder should add only
+hosts they have actually chosen to support, and the server should still reject
+every unauthenticated or unauthorized MCP request after preflight succeeds.
+
 ## OAuth consent hosting across Supabase plans
 
 The MCP App bundle and the OAuth consent page are different surfaces. The App

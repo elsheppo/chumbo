@@ -46,3 +46,6 @@ jobs:
           SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY: ${{ secrets.SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY }}
       - name: Verify the public reference MCPs
         run: pnpm reference:hosted
+        env:
+          SUPA_MCP_REFERENCE_PUBLISHABLE_KEY: sb_publishable_FeTpSW8asDIhn29Cyt1sjg_SMB_MMSa
+          SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY: ${{ secrets.SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY }}

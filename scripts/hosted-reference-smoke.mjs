@@ -11,7 +11,9 @@ const projectUrl = (
   "https://dxrpeagddrpbezbkgvdv.supabase.co"
 ).replace(/\/$/, "");
 const functionsUrl = `${projectUrl}/functions/v1`;
-const anonKey = process.env.SUPA_MCP_REFERENCE_ANON_KEY;
+const publishableKey =
+  process.env.SUPA_MCP_REFERENCE_PUBLISHABLE_KEY ??
+  process.env.SUPA_MCP_REFERENCE_ANON_KEY;
 const serviceRoleKey = process.env.SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY;
 const consentUrl =
   process.env.SUPA_MCP_REFERENCE_CONSENT_URL ??
@@ -125,6 +127,43 @@ assert(
     !consentHtml.includes("sb_secret_") &&
     !consentHtml.includes("service_role"),
   "Hosted OAuth consent page contains an unresolved placeholder or private credential.",
+);
+
+const claudePreflight = await fetch(`${functionsUrl}/review-queue-app`, {
+  method: "OPTIONS",
+  headers: {
+    origin: "https://claude.ai",
+    "access-control-request-method": "POST",
+    "access-control-request-headers":
+      "authorization, content-type, mcp-protocol-version",
+  },
+});
+assert(
+  claudePreflight.status === 204,
+  `Hosted Claude preflight returned HTTP ${claudePreflight.status}.`,
+);
+assert(
+  claudePreflight.headers.get("access-control-allow-origin") ===
+    "https://claude.ai",
+  "Hosted review app did not admit Claude's exact browser origin.",
+);
+assert(
+  claudePreflight.headers
+    .get("access-control-allow-headers")
+    ?.includes("mcp-protocol-version"),
+  "Hosted review app preflight omitted MCP transport headers.",
+);
+
+const unknownPreflight = await fetch(`${functionsUrl}/review-queue-app`, {
+  method: "OPTIONS",
+  headers: {
+    origin: "https://not-a-configured-host.example",
+    "access-control-request-method": "POST",
+  },
+});
+assert(
+  unknownPreflight.headers.get("access-control-allow-origin") === null,
+  "Hosted review app admitted an unknown browser origin.",
 );
 
 const tools = await mcp("docs-mcp", "tools/list");
@@ -277,13 +316,13 @@ verifiedSurfaces.add("many-mcps/directory");
 verifiedSurfaces.add("many-mcps/invoices");
 
 let authenticatedApp = "skipped";
-if (Boolean(anonKey) !== Boolean(serviceRoleKey)) {
+if (Boolean(publishableKey) !== Boolean(serviceRoleKey)) {
   throw new Error(
-    "Set both SUPA_MCP_REFERENCE_ANON_KEY and SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY to verify the authenticated MCP App.",
+    "Set both SUPA_MCP_REFERENCE_PUBLISHABLE_KEY (or the legacy anon key) and SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY to verify the authenticated MCP App.",
   );
 }
 
-if (anonKey && serviceRoleKey) {
+if (publishableKey && serviceRoleKey) {
   const admin = createClient(projectUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -306,7 +345,7 @@ if (anonKey && serviceRoleKey) {
 
     const identities = [];
     for (const credential of credentials) {
-      const client = createClient(projectUrl, anonKey, {
+      const client = createClient(projectUrl, publishableKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
       const { data, error } = await client.auth.signInWithPassword(credential);
@@ -406,7 +445,8 @@ if (anonKey && serviceRoleKey) {
       "Hosted review app bundle exceeded its size budget.",
     );
     assert(
-      !appHtml.text.includes(anonKey) && !appHtml.text.includes(serviceRoleKey),
+      !appHtml.text.includes(publishableKey) &&
+        !appHtml.text.includes(serviceRoleKey),
       "Hosted review app bundle contains a Supabase credential.",
     );
 

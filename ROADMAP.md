@@ -326,6 +326,9 @@ Supa MCP's runtime or deployment model.
 - two hosted users cannot read or decide each other's rows;
 - the official MCP Apps reference host renders the public Edge Function,
   executes a decision, receives updated UI state, and receives model context;
+- Claude dynamically registers through Supabase OAuth, distinguishes the one
+  model-visible interactive tool from two app-only tools, renders the bundled
+  View, and persists a decision through the app-only path;
 - browser hosts require an explicit origin-aware preflight policy at the HTTP
   boundary. A future Supa MCP abstraction should make that opt-in and visible.
 - hosted clients that initiate OAuth also require the Supabase project's OAuth
