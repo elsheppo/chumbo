@@ -30,6 +30,7 @@ function status() {
 }
 
 if (!status()) run("supabase", ["start"]);
+run("pnpm", ["run", "reference:app"]);
 run("supabase", ["db", "reset", "--local"]);
 
 const local = status();
@@ -51,6 +52,7 @@ for (const name of [
   "model-facing-results",
   "many-mcps",
   "privileged-capabilities",
+  "review-queue-app",
 ]) {
   run(
     "deno",
@@ -71,6 +73,7 @@ run(
     "supabase/deno.json",
     "--allow-env",
     "--allow-net=127.0.0.1,localhost",
+    "--allow-read=supabase/functions/review-queue-app/dist/review-queue.html",
     "supabase/tests/reference_integration_test.ts",
   ],
   { env },

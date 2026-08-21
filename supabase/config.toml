@@ -50,6 +50,10 @@ verify_jwt = false
 [functions.privileged-capabilities]
 verify_jwt = false
 
+[functions.review-queue-app]
+verify_jwt = false
+static_files = [ "./functions/review-queue-app/dist/review-queue.html" ]
+
 [functions.model-facing-results]
 verify_jwt = false
 

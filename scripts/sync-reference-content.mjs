@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { createClient } from "@supabase/supabase-js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(
@@ -81,47 +82,101 @@ for (const metadataFile of metadataFiles) {
   });
 }
 
-const headers = {
-  apikey: serviceRoleKey,
-  authorization: `Bearer ${serviceRoleKey}`,
-  "content-type": "application/json",
-};
-const endpoint = `${projectUrl.replace(/\/$/, "")}/rest/v1/reference_documents`;
-
-const upsert = await fetch(`${endpoint}?on_conflict=slug`, {
-  method: "POST",
-  headers: { ...headers, prefer: "resolution=merge-duplicates,return=minimal" },
-  body: JSON.stringify(documents),
+const admin = createClient(projectUrl, serviceRoleKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
 });
-if (!upsert.ok) {
-  throw new Error(
-    `Content upsert failed (${upsert.status}): ${await upsert.text()}`,
+
+if (process.env.SUPA_MCP_REFERENCE_USE_LINKED_DB === "1") {
+  const payload = JSON.stringify(documents).replaceAll("'", "''");
+  const sql = `
+    with incoming as (
+      select *
+      from jsonb_to_recordset('${payload}'::jsonb) as document(
+        slug text,
+        kind text,
+        title text,
+        summary text,
+        body_markdown text,
+        source_path text,
+        source_url text,
+        package_version text,
+        metadata jsonb,
+        content_hash text,
+        updated_at timestamptz
+      )
+    ), upserted as (
+      insert into public.reference_documents (
+        slug, kind, title, summary, body_markdown, source_path, source_url,
+        package_version, metadata, content_hash, updated_at
+      )
+      select
+        slug, kind, title, summary, body_markdown, source_path, source_url,
+        package_version, metadata, content_hash, updated_at
+      from incoming
+      on conflict (slug) do update set
+        kind = excluded.kind,
+        title = excluded.title,
+        summary = excluded.summary,
+        body_markdown = excluded.body_markdown,
+        source_path = excluded.source_path,
+        source_url = excluded.source_url,
+        package_version = excluded.package_version,
+        metadata = excluded.metadata,
+        content_hash = excluded.content_hash,
+        updated_at = excluded.updated_at
+      returning slug
+    )
+    delete from public.reference_documents
+    where slug not in (select slug from incoming);
+  `;
+  execFileSync(
+    path.join(root, "scripts", "supabase-reference"),
+    ["db", "query", "--linked", sql],
+    { cwd: root, stdio: "inherit" },
   );
+  console.log(
+    JSON.stringify(
+      {
+        synced: documents.length,
+        removed: "reconciled",
+        packageVersion: manifest.version,
+        source: "Git",
+        transport: "linked-database",
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(0);
 }
 
-const currentResponse = await fetch(`${endpoint}?select=slug`, { headers });
-if (!currentResponse.ok) {
-  throw new Error(
-    `Could not inspect synced content (${currentResponse.status}): ${await currentResponse.text()}`,
-  );
+for (const document of documents) {
+  const { error } = await admin
+    .from("reference_documents")
+    .upsert(document, { onConflict: "slug" });
+  if (error) {
+    throw new Error(`Could not sync ${document.slug}: ${error.message}`);
+  }
+}
+
+const { data: current, error: currentError } = await admin
+  .from("reference_documents")
+  .select("slug");
+if (currentError) {
+  throw new Error(`Could not inspect synced content: ${currentError.message}`);
 }
 const wanted = new Set(documents.map((document) => document.slug));
-const stale = (await currentResponse.json()).filter(
-  (row) => !wanted.has(row.slug),
-);
+const stale = (current ?? []).filter((row) => !wanted.has(row.slug));
 for (const row of stale) {
-  const response = await fetch(
-    `${endpoint}?slug=eq.${encodeURIComponent(row.slug)}`,
-    {
-      method: "DELETE",
-      headers,
-    },
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Could not remove stale document ${row.slug}: ${await response.text()}`,
-    );
-  }
+  const { error } = await admin
+    .from("reference_documents")
+    .delete()
+    .eq("slug", row.slug);
+  if (error) throw new Error(`Could not remove ${row.slug}: ${error.message}`);
 }
 
 console.log(

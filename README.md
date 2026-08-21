@@ -437,6 +437,10 @@ through a real MCP request:
 - [Different capability surfaces](./docs/patterns/privileged-capabilities)
   proves Supabase users and application-owned keys receive different tools,
   Resources, prompts, and instructions from one endpoint.
+- [Interactive review queue](./docs/patterns/mcp-apps-on-supabase) proves an
+  authenticated MCP App can render from an Edge Function, call app-only tools,
+  and preserve the same user's RLS boundary without giving the iframe a
+  credential.
 
 The public documentation MCP exposes `search_docs`, `get_pattern`,
 `get_example`, and `get_setup_steps`. It contains Supa MCP-owned instructions
@@ -473,6 +477,7 @@ The public reference deployment also exposes:
 - `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/model-facing-results`
 - `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/directory`
 - `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/many-mcps/invoices`
+- `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/review-queue-app`
 
 ## Clean URLs for a product-facing server
 
