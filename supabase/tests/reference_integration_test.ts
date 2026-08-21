@@ -4,6 +4,7 @@ import docsApp from "../functions/docs-mcp/index.ts";
 import manyMcpsApp from "../functions/many-mcps/index.ts";
 import modelResultsApp from "../functions/model-facing-results/index.ts";
 import privilegedApp from "../functions/privileged-capabilities/index.ts";
+import reviewQueueApp from "../functions/review-queue-app/index.ts";
 
 const projectUrl = Deno.env.get("SUPABASE_URL");
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -98,6 +99,7 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
     "model-facing-results",
     "many-mcps-one-function",
     "privileged-capabilities",
+    "mcp-apps-on-supabase",
   ]) {
     const response = await json(
       await docsApp.fetch(
@@ -349,6 +351,224 @@ Deno.test(
     assert(
       !JSON.stringify(linked.result).includes("Choose text, structured data"),
       "large result does not embed its resource body",
+    );
+  },
+);
+
+Deno.test(
+  "MCP App review actions preserve host metadata and caller RLS",
+  async () => {
+    const admin = createClient(projectUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const credentials = [
+      {
+        email: "app-alice@supa-mcp.test",
+        password: "reference-app-alice-password",
+      },
+      {
+        email: "app-bob@supa-mcp.test",
+        password: "reference-app-bob-password",
+      },
+    ];
+    for (const credential of credentials) {
+      const { error } = await admin.auth.admin.createUser({
+        ...credential,
+        email_confirm: true,
+      });
+      if (error && !error.message.includes("already been registered")) {
+        throw error;
+      }
+    }
+
+    const identities: Array<{ id: string; token: string }> = [];
+    for (const credential of credentials) {
+      const client = createClient(projectUrl, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data, error } = await client.auth.signInWithPassword(credential);
+      if (error) throw error;
+      assert(data.user?.id, `user ID for ${credential.email}`);
+      assert(data.session?.access_token, `token for ${credential.email}`);
+      identities.push({
+        id: data.user.id,
+        token: data.session.access_token,
+      });
+    }
+
+    const [aliceIdentity, bobIdentity] = identities;
+    await admin
+      .from("review_items")
+      .delete()
+      .in("owner_id", [aliceIdentity.id, bobIdentity.id]);
+    const { data: inserted, error: insertError } = await admin
+      .from("review_items")
+      .insert([
+        {
+          owner_id: aliceIdentity.id,
+          title: "Approve the neighborhood guide",
+          summary: "A concise local guide is ready for editorial review.",
+        },
+        {
+          owner_id: bobIdentity.id,
+          title: "Review the seasonal menu",
+          summary: "A draft menu is waiting for the business owner.",
+        },
+      ])
+      .select("id, owner_id, title");
+    if (insertError) throw insertError;
+    assert(inserted?.length === 2, "two review fixtures inserted");
+    const aliceItem = inserted.find(
+      (item) => item.owner_id === aliceIdentity.id,
+    );
+    const bobItem = inserted.find((item) => item.owner_id === bobIdentity.id);
+    assert(aliceItem && bobItem, "both review fixtures are addressable");
+
+    const url = `${projectUrl}/functions/v1/review-queue-app`;
+    const unauthenticated = await reviewQueueApp.fetch(
+      mcpRequest(url, "tools/list"),
+    );
+    equal(unauthenticated.status, 401, "review app requires authentication");
+
+    const tools = await json(
+      await reviewQueueApp.fetch(
+        mcpRequest(url, "tools/list", {}, aliceIdentity.token),
+      ),
+    );
+    const openTool = tools.result.tools.find(
+      (tool: { name: string }) => tool.name === "open_review_queue",
+    );
+    const refreshTool = tools.result.tools.find(
+      (tool: { name: string }) => tool.name === "refresh_review_queue",
+    );
+    const decideTool = tools.result.tools.find(
+      (tool: { name: string }) => tool.name === "decide_review_item",
+    );
+    equal(
+      openTool?._meta?.ui,
+      {
+        resourceUri: "ui://supa-mcp/review-queue.html",
+        visibility: ["model"],
+      },
+      "model-visible app metadata",
+    );
+    equal(refreshTool?._meta?.ui?.visibility, ["app"], "refresh is app-only");
+    equal(decideTool?._meta?.ui?.visibility, ["app"], "decision is app-only");
+    equal(
+      openTool?._meta?.["ui/resourceUri"],
+      "ui://supa-mcp/review-queue.html",
+      "legacy host metadata remains available",
+    );
+
+    const resources = await json(
+      await reviewQueueApp.fetch(
+        mcpRequest(url, "resources/list", {}, aliceIdentity.token),
+      ),
+    );
+    equal(
+      resources.result.resources.map(
+        (resource: { uri: string }) => resource.uri,
+      ),
+      ["ui://supa-mcp/review-queue.html"],
+      "app resource is discoverable",
+    );
+    const appResource = await json(
+      await reviewQueueApp.fetch(
+        mcpRequest(
+          url,
+          "resources/read",
+          { uri: "ui://supa-mcp/review-queue.html" },
+          aliceIdentity.token,
+        ),
+      ),
+    );
+    const appContent = appResource.result.contents[0];
+    equal(
+      appContent.mimeType,
+      "text/html;profile=mcp-app",
+      "MCP App MIME type",
+    );
+    assert(
+      appContent.text.includes("Supa MCP Review Queue"),
+      "single-file app contains its compiled browser client",
+    );
+    assert(
+      new TextEncoder().encode(appContent.text).byteLength < 400_000,
+      "single-file app stays within its initial size budget",
+    );
+
+    const aliceQueue = await json(
+      await reviewQueueApp.fetch(
+        mcpRequest(
+          url,
+          "tools/call",
+          { name: "open_review_queue", arguments: {} },
+          aliceIdentity.token,
+        ),
+      ),
+    );
+    equal(
+      aliceQueue.result.structuredContent.items.map(
+        (item: { title: string }) => item.title,
+      ),
+      ["Approve the neighborhood guide"],
+      "Alice sees only Alice's queue",
+    );
+    assert(
+      aliceQueue.result.content[0].text.includes("→ Next:"),
+      "non-App hosts receive a useful text fallback",
+    );
+
+    const crossUserDecision = await json(
+      await reviewQueueApp.fetch(
+        mcpRequest(
+          url,
+          "tools/call",
+          {
+            name: "decide_review_item",
+            arguments: { id: bobItem.id, decision: "approved" },
+          },
+          aliceIdentity.token,
+        ),
+      ),
+    );
+    assert(crossUserDecision.result.isError, "Alice cannot decide Bob's item");
+
+    const aliceDecision = await json(
+      await reviewQueueApp.fetch(
+        mcpRequest(
+          url,
+          "tools/call",
+          {
+            name: "decide_review_item",
+            arguments: { id: aliceItem.id, decision: "approved" },
+          },
+          aliceIdentity.token,
+        ),
+      ),
+    );
+    equal(
+      aliceDecision.result.structuredContent.pendingCount,
+      0,
+      "Alice's decision persists",
+    );
+
+    const bobQueue = await json(
+      await reviewQueueApp.fetch(
+        mcpRequest(
+          url,
+          "tools/call",
+          { name: "refresh_review_queue", arguments: {} },
+          bobIdentity.token,
+        ),
+      ),
+    );
+    equal(
+      bobQueue.result.structuredContent.items.map(
+        (item: { title: string; status: string }) => [item.title, item.status],
+      ),
+      [["Review the seasonal menu", "pending"]],
+      "Bob's queue remains isolated",
     );
   },
 );
