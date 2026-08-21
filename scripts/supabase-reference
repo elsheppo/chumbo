@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+export SUPABASE_PROFILE="${repo_root}/supabase/reference-profile.yml"
+export SUPABASE_PROJECT_ID="dxrpeagddrpbezbkgvdv"
+
+exec supabase --workdir "${repo_root}" "$@"
