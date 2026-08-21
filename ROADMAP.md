@@ -203,3 +203,190 @@ declarative OIDC/JWKS strategy only, or additionally allow a custom JWT
 verifier behind the same normalized result contract. The default should remain
 declarative. A custom hook earns inclusion only if a real issuer cannot be
 represented safely with issuer, audience, JWKS, and claim mapping.
+
+## Proposed 0.8.0: durable MCP Tasks
+
+- **Status:** Proposed next core capability after identity federation
+- **Motivating cases:** work that cannot or should not complete inside one Edge
+  Function request
+
+### Outcome
+
+Map MCP's durable task lifecycle onto Supabase-native persistence and Queues:
+
+```text
+agent starts work
+→ Supa MCP verifies identity and capability
+→ task and job are persisted
+→ a worker executes the application-owned operation
+→ the agent reads status and the durable result
+```
+
+This makes long imports, image processing, reports, bulk mutations, and other
+asynchronous application work feel like one coherent MCP capability instead of
+a custom collection of polling tools.
+
+The package may own:
+
+- protocol registration for task creation, status, cancellation, and results;
+- a small optional Postgres and Supabase Queues adapter;
+- task IDs, request correlation, idempotency, and terminal-state handling;
+- result delivery through explicit result contracts or MCP Resources;
+- request-scoped authorization for creating, discovering, and controlling a
+  task.
+
+The builder continues to own:
+
+- the work performed by the job;
+- the worker or Edge Function that performs it;
+- application retry and compensation behavior;
+- which identities may create, inspect, cancel, or receive each result;
+- whether authority is re-evaluated at execution time or deliberately captured
+  when the task is accepted.
+
+Bearer credentials must not become durable queue payloads. Task records retain
+the minimum application principal and audit information needed for the chosen
+authority model, while database grants, RLS, and narrow worker operations
+remain authoritative.
+
+Start with a living reference implementation using
+[Supabase Queues](https://supabase.com/docs/guides/queues). Promote an adapter
+into the runtime only after the example identifies repeated protocol and state
+machinery that builders should not rewrite.
+
+### Release evidence
+
+- Create, inspect, cancel, complete, fail, and read-result paths work through
+  the real MCP transport.
+- Duplicate creation or delivery does not execute one logical task twice.
+- Ordinary identities cannot discover or control another identity's tasks.
+- Cancellation and revocation semantics are explicit rather than implied.
+- A complete result can outlive the initiating Edge request without retaining
+  its bearer token.
+- Concurrent workers cannot produce contradictory terminal states.
+- A hosted reference proves the complete agent → queue → worker → result loop.
+
+### Non-goals
+
+Version `0.8.0` will not provide a general workflow engine, prescribe the
+worker runtime, or hide an application's business retries behind a false
+exactly-once guarantee.
+
+## Proposed 0.9.0: MCP Apps on Supabase
+
+- **Status:** Proposed advanced presentation pattern
+- **Motivating cases:** capabilities that are easier to understand or control
+  through an interactive interface than through text alone
+
+### Outcome
+
+Make a tool-linked MCP App straightforward to host beside the MCP Edge
+Function:
+
+```text
+agent calls a tool
+→ result points to an application UI resource
+→ HTML and assets load from Edge Functions or Storage
+→ the UI interacts with the same authorized application capability
+```
+
+The useful Supa MCP seam is not a new frontend framework. It is the deployment
+and protocol glue that currently makes an otherwise small app difficult:
+
+- register the application resource and its relationship to a tool;
+- provide a generated minimal HTML application fixture;
+- support Edge Function or Storage-backed asset delivery;
+- make resource metadata, content types, CSP, and public URLs explicit;
+- preserve the authenticated application boundary for interactive actions;
+- verify the tool call, resource load, and app action in local and hosted
+  smoke tests.
+
+The first reference should be intentionally small and production-shaped. A
+builder should be able to replace its HTML and framework without replacing
+Supa MCP's runtime or deployment model.
+
+### Non-goals
+
+Version `0.9.0` will not become an application builder, component library,
+design system, browser automation suite, or general MCP testing product.
+
+## Proposed 0.10.0: production operations
+
+- **Status:** Proposed runtime hardening
+- **Motivating cases:** builders need to understand who invoked a capability,
+  what happened, and how much work the request consumed
+
+### Outcome
+
+Expose a small stable lifecycle-event surface around the existing trace ID:
+
+- authentication accepted or rejected;
+- capability discovery and direct invocation decisions;
+- tool, Resource, prompt, and Task start, finish, and failure;
+- principal, authentication strategy, capability name, duration, result size,
+  and terminal status;
+- builder-defined audit, usage, and rate-limit hooks.
+
+Events should be structured, redact credentials by construction, and flow to a
+builder-provided sink. A living pattern can demonstrate Postgres audit rows and
+Supabase's existing logging surface, but the runtime should not require either
+storage choice.
+
+This release should also make oversized result warnings and per-principal
+usage decisions possible without installing a second policy framework.
+
+### Non-goals
+
+Version `0.10.0` will not ship a hosted observability product, silently collect
+telemetry, retain model prompts by default, or replace an application's billing
+and entitlement system.
+
+## Advanced living-pattern backlog
+
+The following ideas should begin as executable reference patterns, not version
+promises or new core abstractions:
+
+- **Storage-backed Resources:** private and public documents or media with
+  correct MIME types, cache hints, signed delivery, and RLS-aware access.
+- **Realtime capability updates:** notify a connected surface when a Resource
+  changes or a durable Task completes, without treating Realtime as required
+  transport machinery.
+- **Cron-triggered agent workflows:** scheduled SQL, database functions, or
+  Edge Function calls that prepare work an MCP identity can later inspect.
+- **Many MCPs from one function:** continue hardening the existing row-defined
+  reference without creating a separate fleet framework.
+- **Application-key pairing:** simple one-key onboarding and rotation for
+  clients that cannot complete OAuth, proven through a real application.
+- **Custom domains and proxy routes:** deployment recipes for a clean MCP URL
+  while keeping the authorization issuer and protected-resource metadata
+  correct.
+- **External JWT data planes:** one third-party identity using Supabase RLS and
+  one workload identity using a narrow application operation, as required by
+  the `0.7.0` release evidence.
+
+The promotion rule is deliberate:
+
+```text
+real application need
+→ living pattern
+→ hosted and held-out evidence
+→ repeated adopter friction
+→ smallest useful package abstraction
+```
+
+Supa MCP should not wrap every Supabase feature. It should own the reusable MCP
+boundary and teach builders how existing Supabase capabilities compose behind
+it.
+
+
+## Directional sequence
+
+```text
+0.7  external identity federation
+0.8  durable agent work
+0.9  interactive MCP Apps
+0.10 production visibility and control hooks
+```
+
+The sequence is directional. A living pattern may advance without forcing a
+runtime release, and real dogfooding evidence may change the order.
