@@ -100,6 +100,12 @@ in ordinary CI. `pnpm reference:check` rebuilds the living Supabase project,
 syncs the Git corpus, and executes every published pattern against the actual
 MCP boundary. Use `npm pack --dry-run` to inspect the public artifact.
 
+For remote work against the living reference project, use
+`scripts/supabase-reference` instead of the bare Supabase CLI. The wrapper pins
+the public project ref and the repository's non-secret CLI profile. Authenticate
+that profile once with `scripts/supabase-reference login --name supa-mcp`; its
+token is stored separately from the default Supabase CLI account.
+
 When changing public behavior:
 
 - Update exports in `src/index.ts`, focused tests, README examples, and the

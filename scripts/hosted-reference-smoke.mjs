@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { createClient } from "@supabase/supabase-js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectUrl = (
@@ -10,6 +11,11 @@ const projectUrl = (
   "https://dxrpeagddrpbezbkgvdv.supabase.co"
 ).replace(/\/$/, "");
 const functionsUrl = `${projectUrl}/functions/v1`;
+const anonKey = process.env.SUPA_MCP_REFERENCE_ANON_KEY;
+const serviceRoleKey = process.env.SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY;
+const consentUrl =
+  process.env.SUPA_MCP_REFERENCE_CONSENT_URL ??
+  "https://elsheppo.github.io/supa-mcp/oauth/consent.html";
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -48,12 +54,13 @@ async function expectedDocuments() {
   return expected;
 }
 
-async function mcp(endpoint, method, params = {}) {
+async function mcp(endpoint, method, params = {}, bearer) {
   const headers = {
     "content-type": "application/json",
     "mcp-method": method,
     "mcp-protocol-version": "2026-07-28",
   };
+  if (bearer) headers.authorization = `Bearer ${bearer}`;
   if (typeof params.name === "string") headers["mcp-name"] = params.name;
   if (typeof params.uri === "string") headers["mcp-name"] = params.uri;
   const response = await fetch(`${functionsUrl}/${endpoint}`, {
@@ -94,6 +101,31 @@ function assert(condition, message) {
 const expected = await expectedDocuments();
 const verifiedFunctions = new Set(["docs-mcp"]);
 const verifiedSurfaces = new Set(["docs-mcp"]);
+
+const consentResponse = await fetch(consentUrl);
+assert(
+  consentResponse.ok,
+  `Hosted OAuth consent page returned HTTP ${consentResponse.status}.`,
+);
+assert(
+  consentResponse.headers.get("content-type")?.includes("text/html"),
+  "Hosted OAuth consent page is not served as HTML.",
+);
+const consentHtml = await consentResponse.text();
+assert(
+  consentHtml.includes("Approve this connection?"),
+  "Hosted OAuth consent page has the wrong content.",
+);
+assert(
+  consentHtml.includes('name="robots" content="noindex"'),
+  "Hosted OAuth consent page is missing its noindex directive.",
+);
+assert(
+  !consentHtml.includes("__SUPABASE_") &&
+    !consentHtml.includes("sb_secret_") &&
+    !consentHtml.includes("service_role"),
+  "Hosted OAuth consent page contains an unresolved placeholder or private credential.",
+);
 
 const tools = await mcp("docs-mcp", "tools/list");
 assert(
@@ -244,6 +276,211 @@ verifiedFunctions.add("many-mcps");
 verifiedSurfaces.add("many-mcps/directory");
 verifiedSurfaces.add("many-mcps/invoices");
 
+let authenticatedApp = "skipped";
+if (Boolean(anonKey) !== Boolean(serviceRoleKey)) {
+  throw new Error(
+    "Set both SUPA_MCP_REFERENCE_ANON_KEY and SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY to verify the authenticated MCP App.",
+  );
+}
+
+if (anonKey && serviceRoleKey) {
+  const admin = createClient(projectUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const suffix = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+  const credentials = ["alice", "bob"].map((name) => ({
+    email: `hosted-app-${name}-${suffix}@supa-mcp.test`,
+    password: `Supa-MCP-${crypto.randomUUID()}-aA1!`,
+  }));
+  const users = [];
+
+  try {
+    for (const credential of credentials) {
+      const { data, error } = await admin.auth.admin.createUser({
+        ...credential,
+        email_confirm: true,
+      });
+      if (error) throw error;
+      users.push(data.user);
+    }
+
+    const identities = [];
+    for (const credential of credentials) {
+      const client = createClient(projectUrl, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data, error } = await client.auth.signInWithPassword(credential);
+      if (error) throw error;
+      assert(
+        data.user && data.session,
+        `Hosted sign-in failed for ${credential.email}.`,
+      );
+      identities.push({ id: data.user.id, token: data.session.access_token });
+    }
+
+    const [alice, bob] = identities;
+    const { data: inserted, error: insertError } = await admin
+      .from("review_items")
+      .insert([
+        {
+          owner_id: alice.id,
+          title: "Approve the hosted neighborhood guide",
+          summary: "A production-shaped hosted item is ready for Alice.",
+        },
+        {
+          owner_id: bob.id,
+          title: "Review the hosted seasonal menu",
+          summary: "A separate hosted item is waiting for Bob.",
+        },
+      ])
+      .select("id, owner_id, title");
+    if (insertError) throw insertError;
+    const aliceItem = inserted.find((item) => item.owner_id === alice.id);
+    const bobItem = inserted.find((item) => item.owner_id === bob.id);
+    assert(aliceItem && bobItem, "Hosted review fixtures were not created.");
+
+    const unauthenticatedApp = await fetch(`${functionsUrl}/review-queue-app`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "mcp-method": "tools/list",
+        "mcp-protocol-version": "2026-07-28",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: crypto.randomUUID(),
+        method: "tools/list",
+        params: {},
+      }),
+    });
+    assert(
+      unauthenticatedApp.status === 401,
+      `Hosted review app returned HTTP ${unauthenticatedApp.status} without credentials.`,
+    );
+
+    const appTools = await mcp(
+      "review-queue-app",
+      "tools/list",
+      {},
+      alice.token,
+    );
+    const toolByName = Object.fromEntries(
+      appTools.tools.map((tool) => [tool.name, tool]),
+    );
+    assert(
+      toolByName.open_review_queue?._meta?.ui?.visibility?.[0] === "model",
+      "Hosted opener is not model-visible.",
+    );
+    for (const name of ["refresh_review_queue", "decide_review_item"]) {
+      assert(
+        toolByName[name]?._meta?.ui?.visibility?.[0] === "app",
+        `Hosted ${name} is not app-only.`,
+      );
+    }
+
+    const appResources = await mcp(
+      "review-queue-app",
+      "resources/list",
+      {},
+      alice.token,
+    );
+    assert(
+      appResources.resources.some(
+        (resource) => resource.uri === "ui://supa-mcp/review-queue.html",
+      ),
+      "Hosted review app resource is missing.",
+    );
+    const appResource = await mcp(
+      "review-queue-app",
+      "resources/read",
+      { uri: "ui://supa-mcp/review-queue.html" },
+      alice.token,
+    );
+    const appHtml = appResource.contents[0];
+    assert(
+      appHtml.mimeType === "text/html;profile=mcp-app",
+      "Hosted review app has the wrong MIME type.",
+    );
+    assert(
+      new TextEncoder().encode(appHtml.text).byteLength < 400_000,
+      "Hosted review app bundle exceeded its size budget.",
+    );
+    assert(
+      !appHtml.text.includes(anonKey) && !appHtml.text.includes(serviceRoleKey),
+      "Hosted review app bundle contains a Supabase credential.",
+    );
+
+    const aliceQueue = await mcp(
+      "review-queue-app",
+      "tools/call",
+      { name: "open_review_queue", arguments: {} },
+      alice.token,
+    );
+    assert(
+      aliceQueue.content[0]?.text.includes("→ Next:"),
+      "Hosted review opener has no text fallback.",
+    );
+    assert(
+      JSON.stringify(
+        aliceQueue.structuredContent.items.map((item) => item.title),
+      ) === JSON.stringify([aliceItem.title]),
+      "Hosted Alice queue crossed the RLS boundary.",
+    );
+
+    const crossUserDecision = await mcp(
+      "review-queue-app",
+      "tools/call",
+      {
+        name: "decide_review_item",
+        arguments: { id: bobItem.id, decision: "approved" },
+      },
+      alice.token,
+    );
+    assert(crossUserDecision.isError, "Hosted Alice could decide Bob's item.");
+
+    const ownDecision = await mcp(
+      "review-queue-app",
+      "tools/call",
+      {
+        name: "decide_review_item",
+        arguments: { id: aliceItem.id, decision: "approved" },
+      },
+      alice.token,
+    );
+    assert(
+      ownDecision.structuredContent.pendingCount === 0,
+      "Hosted Alice decision did not persist.",
+    );
+    const bobQueue = await mcp(
+      "review-queue-app",
+      "tools/call",
+      { name: "refresh_review_queue", arguments: {} },
+      bob.token,
+    );
+    assert(
+      bobQueue.structuredContent.items.length === 1 &&
+        bobQueue.structuredContent.items[0].id === bobItem.id &&
+        bobQueue.structuredContent.items[0].status === "pending",
+      "Hosted Bob queue did not remain isolated.",
+    );
+
+    verifiedFunctions.add("review-queue-app");
+    verifiedSurfaces.add("review-queue-app");
+    authenticatedApp = "verified";
+  } finally {
+    if (users.length) {
+      await admin
+        .from("review_items")
+        .delete()
+        .in(
+          "owner_id",
+          users.map((user) => user.id),
+        );
+      for (const user of users) await admin.auth.admin.deleteUser(user.id);
+    }
+  }
+}
+
 console.log(
   JSON.stringify(
     {
@@ -254,6 +491,8 @@ console.log(
         .length,
       functions: verifiedFunctions.size,
       surfaces: verifiedSurfaces.size,
+      authenticatedApp,
+      consentHost: "verified",
     },
     null,
     2,

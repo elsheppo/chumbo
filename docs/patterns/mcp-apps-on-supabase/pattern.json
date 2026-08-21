@@ -1,0 +1,12 @@
+{
+  "slug": "mcp-apps-on-supabase",
+  "kind": "pattern",
+  "title": "Interactive MCP Apps on Supabase",
+  "summary": "Serve an authenticated interactive View through MCP Resources while host-mediated app tools preserve the caller's Supabase identity and RLS boundary.",
+  "example": "review-queue-app-example",
+  "officialDocs": [
+    "https://modelcontextprotocol.io/extensions/apps/overview",
+    "https://github.com/modelcontextprotocol/ext-apps/blob/main/docs/quickstart.md",
+    "https://supabase.com/docs/guides/functions"
+  ]
+}

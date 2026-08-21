@@ -274,7 +274,8 @@ exactly-once guarantee.
 
 ## Proposed 0.9.0: MCP Apps on Supabase
 
-- **Status:** Proposed advanced presentation pattern
+- **Status:** Hosted living pattern proven; reusable runtime surface under
+  review
 - **Motivating cases:** capabilities that are easier to understand or control
   through an interactive interface than through text alone
 
@@ -286,8 +287,9 @@ Function:
 ```text
 agent calls a tool
 → result points to an application UI resource
-→ HTML and assets load from Edge Functions or Storage
-→ the UI interacts with the same authorized application capability
+→ bundled HTML loads through resources/read
+→ the UI calls app-only tools through the authorized host connection
+→ those calls retain the same Supabase identity, scopes, and RLS boundary
 ```
 
 The useful Supa MCP seam is not a new frontend framework. It is the deployment
@@ -301,9 +303,38 @@ and protocol glue that currently makes an otherwise small app difficult:
 - verify the tool call, resource load, and app action in local and hosted
   smoke tests.
 
+The first experiment uses a single-file browser bundle carried inside the MCP
+Resource response. This avoids a second web origin, browser-held Supabase
+credentials, and direct HTML serving. Storage remains useful for public or
+signed media, but is not required for the application shell.
+
+Tool visibility is presentation metadata, not authorization. App-only tools
+must still use ordinary Supa MCP scopes and application-owned RLS or policy.
+
 The first reference should be intentionally small and production-shaped. A
 builder should be able to replace its HTML and framework without replacing
 Supa MCP's runtime or deployment model.
+
+### Evidence now in hand
+
+- one deployed Edge Function serves the MCP endpoint, authenticated app tools,
+  and a self-contained HTML Resource;
+- an ordinary tool exposes concise model text, exact View data, and the linked
+  App Resource without exposing app-only mutation tools to the model picker;
+- app actions traverse the host's existing OAuth connection and persist
+  through the request-scoped RLS-aware Supabase client;
+- two hosted users cannot read or decide each other's rows;
+- the official MCP Apps reference host renders the public Edge Function,
+  executes a decision, receives updated UI state, and receives model context;
+- browser hosts require an explicit origin-aware preflight policy at the HTTP
+  boundary. A future Supa MCP abstraction should make that opt-in and visible.
+- hosted clients that initiate OAuth also require the Supabase project's OAuth
+  server plus an application-owned authorization UI. Supa MCP should diagnose
+  that prerequisite clearly; it should not generate or own the product's login
+  and consent experience.
+- OAuth setup guidance must be plan-aware: use the builder's existing
+  frontend, a free static host, or a paid custom domain. The default hosted
+  Edge Function URL cannot serve the consent page as HTML.
 
 ### Non-goals
 
@@ -390,6 +421,11 @@ versioned protocol helper:
   surface;
 - generate a tested pull request back into the builder's project;
 - evaluate representative agent tasks against the resulting MCP.
+- compose MCP App interfaces from a constrained set of known-good blocks,
+  preview their real tool bindings, and emit the single-file Resource bundle
+  and server registration together. A block editor could make the difficult
+  host, metadata, state, and deployment wiring disappear without turning the
+  runtime into a frontend framework.
 
 This is a capability-design and systems-quality layer, not a reason to weaken
 the free package. Supa MCP remains sufficient to build a complete production

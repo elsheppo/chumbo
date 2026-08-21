@@ -1,8 +1,11 @@
 {
   "projectRef": "dxrpeagddrpbezbkgvdv",
   "region": "ca-central-1",
-  "packageVersion": "0.6.0",
+  "packageVersion": "0.6.1",
   "docsMcpUrl": "https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp",
+  "oauthConsentUrl": "https://elsheppo.github.io/supa-mcp/oauth/consent.html",
+  "oauthConsentHost": "temporary-github-pages",
+  "oauthConsentMigration": "Move to the Supa MCP website /oauth/consent route, update the Supabase Site URL and authorization path, then disable GitHub Pages.",
   "source": "https://github.com/elsheppo/supa-mcp",
   "deployment": "public-reference"
 }

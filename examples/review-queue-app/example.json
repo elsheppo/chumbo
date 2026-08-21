@@ -1,0 +1,9 @@
+{
+  "slug": "review-queue-app-example",
+  "kind": "example",
+  "title": "Authenticated interactive review queue",
+  "summary": "A model-visible tool opens a bundled MCP App whose app-only tools persist decisions through the caller's RLS-aware Supabase client.",
+  "pattern": "mcp-apps-on-supabase",
+  "endpointPath": "/functions/v1/review-queue-app",
+  "officialDocs": []
+}
