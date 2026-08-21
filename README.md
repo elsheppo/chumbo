@@ -221,6 +221,10 @@ npx supa-mcp setup --consent minimal
 Existing applications should normally integrate Supabase's authorization
 details, approve, and deny calls into their own signed-in frontend. The
 fallback is a runnable bridge, not a replacement for the app's eventual UX.
+On Supabase's default hosted project URL, Edge Function HTML is rewritten to
+`text/plain`; use the fallback locally or behind a custom domain. Free-plan
+projects should put the same small consent UI in their existing frontend or an
+ordinary static host.
 
 ### Existing bearer tokens
 
