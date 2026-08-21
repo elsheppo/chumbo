@@ -51,6 +51,8 @@
     "check": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:generated",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "reference:app": "vite build --config supabase/functions/review-queue-app/app/vite.config.ts",
+    "reference:consent": "node scripts/build-reference-consent.mjs",
     "reference:content": "node scripts/sync-reference-content.mjs",
     "reference:check": "node scripts/reference-check.mjs",
     "reference:hosted": "node scripts/hosted-reference-smoke.mjs",
@@ -68,10 +70,13 @@
     "zod": "4.2.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
     "@types/node": "24.10.1",
     "prettier": "3.8.1",
     "tsdown": "0.20.3",
     "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vite-plugin-singlefile": "2.3.3",
     "vitest": "4.1.0"
   },
   "packageManager": "pnpm@10.11.0"
