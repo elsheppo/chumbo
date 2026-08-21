@@ -29,7 +29,11 @@ function status() {
   }
 }
 
-if (!status()) run("supabase", ["start"]);
+if (!status()) {
+  // The CLI's success table includes deterministic local development keys.
+  // Keep those out of public CI logs while preserving startup errors.
+  run("supabase", ["start"], { stdio: ["ignore", "ignore", "inherit"] });
+}
 run("pnpm", ["run", "reference:app"]);
 run("supabase", ["db", "reset", "--local"]);
 
