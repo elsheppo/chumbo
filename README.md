@@ -784,4 +784,5 @@ npm pack --dry-run
 ```
 
 See [SPEC.md](./SPEC.md) for the detailed protocol and architecture contract.
+Proposed versioned expansion is tracked in [ROADMAP.md](./ROADMAP.md).
 Released under the [MIT License](./LICENSE).
