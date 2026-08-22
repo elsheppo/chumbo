@@ -1,10 +1,4 @@
-import {
-  App,
-  applyDocumentTheme,
-  applyHostFonts,
-  applyHostStyleVariables,
-  type McpUiHostContext,
-} from "@modelcontextprotocol/ext-apps";
+import { createAppWorkspace } from "supa-mcp/app";
 import "./style.css";
 
 type ReviewStatus = "pending" | "approved" | "rejected";
@@ -34,8 +28,13 @@ const queueElement = document.querySelector("#queue") as HTMLElement;
 const pendingElement = document.querySelector("#pending-count") as HTMLElement;
 const noticeElement = document.querySelector("#notice") as HTMLElement;
 const refreshButton = document.querySelector("#refresh") as HTMLButtonElement;
+const expandButton = document.querySelector("#expand") as HTMLButtonElement;
 
-const app = new App({ name: "Supa MCP Review Queue", version: "0.1.0" });
+const workspace = createAppWorkspace(
+  { name: "Supa MCP Review Queue", version: "0.1.0" },
+  { root },
+);
+const { app } = workspace;
 let queue: QueuePayload = { items: [], pendingCount: 0 };
 let busyItemId: string | null = null;
 
@@ -198,24 +197,26 @@ async function refresh() {
   }
 }
 
-function applyHostContext(context: McpUiHostContext) {
-  if (context.theme) applyDocumentTheme(context.theme);
-  if (context.styles?.variables)
-    applyHostStyleVariables(context.styles.variables);
-  if (context.styles?.css?.fonts) applyHostFonts(context.styles.css.fonts);
-  if (context.safeAreaInsets) {
-    root.style.padding = `${context.safeAreaInsets.top + 20}px ${context.safeAreaInsets.right + 20}px ${context.safeAreaInsets.bottom + 20}px ${context.safeAreaInsets.left + 20}px`;
-  }
+function updateDisplayControls() {
+  const context = workspace.getHostContext();
+  expandButton.hidden = !workspace.canFullscreen();
+  expandButton.textContent =
+    context?.displayMode === "fullscreen" ? "Collapse" : "Expand";
 }
 
 app.ontoolresult = applyPayload;
-app.onhostcontextchanged = applyHostContext;
+app.addEventListener("hostcontextchanged", updateDisplayControls);
 app.onerror = () =>
   setNotice(
     "The app lost its connection to the host. Reopen the queue to reconnect.",
   );
 refreshButton.addEventListener("click", () => void refresh());
+expandButton.addEventListener("click", async () => {
+  expandButton.disabled = true;
+  await workspace.toggleFullscreen().catch(() => undefined);
+  expandButton.disabled = false;
+  updateDisplayControls();
+});
 
-await app.connect();
-const initialContext = app.getHostContext();
-if (initialContext) applyHostContext(initialContext);
+await workspace.connect();
+updateDisplayControls();

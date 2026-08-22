@@ -11,6 +11,9 @@ The living reference function at
   data for the View.
 - The View calls server tools through the host. It never receives a Supabase
   credential or calls the database directly.
+- `createAppWorkspace` gives the View one host-aware inline viewport with an
+  internal queue scroller and an optional fullscreen control, so adding items
+  does not continually resize the surrounding conversation.
 - Every read and mutation uses the request-scoped Supabase client, while RLS
   limits rows to `auth.uid()`.
 - A two-user integration fixture proves one user cannot see or decide the

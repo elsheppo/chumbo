@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.2 — 2026-08-22
+
+- Add `supa-mcp/app`, a small browser-side MCP Apps workspace helper that
+  applies host theme/font tokens and safe areas, replaces content-driven iframe
+  growth with one bounded inline viewport, provides an internal-scroll
+  contract, and exposes optional fullscreen negotiation without imposing a UI
+  kit.
+
 ## 0.6.1 — 2026-08-20
 
 - Bundle an optional project-local Supa MCP agent skill that teaches
