@@ -9,19 +9,32 @@
     <style>
       :root {
         color-scheme: dark;
-        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
         background: #090a09;
         color: #f5f1e8;
         font-synthesis: none;
       }
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
       body {
         min-height: 100vh;
         margin: 0;
         display: grid;
         place-items: center;
         background:
-          linear-gradient(90deg, transparent 0 23px, #242521 24px, transparent 25px),
+          linear-gradient(
+            90deg,
+            transparent 0 23px,
+            #242521 24px,
+            transparent 25px
+          ),
           #090a09;
       }
       main {
@@ -31,16 +44,20 @@
       .eyebrow {
         margin: 0 0 16px;
         color: #ff5b35;
-        font: 650 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-        letter-spacing: .13em;
+        font:
+          650 11px/1 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        letter-spacing: 0.13em;
       }
       h1 {
         max-width: 520px;
         margin: 0;
         font-size: clamp(42px, 10vw, 74px);
         font-weight: 620;
-        letter-spacing: -.065em;
-        line-height: .92;
+        letter-spacing: -0.065em;
+        line-height: 0.92;
       }
       .lede {
         max-width: 510px;
@@ -58,9 +75,10 @@
         margin: 0 0 8px;
         font-size: 22px;
         font-weight: 620;
-        letter-spacing: -.03em;
+        letter-spacing: -0.03em;
       }
-      .detail, .status {
+      .detail,
+      .status {
         margin: 0;
         color: #a8a79f;
         font-size: 13px;
@@ -78,9 +96,15 @@
         border: 1px solid #3a3b36;
         padding: 7px 9px;
         color: #d1cec5;
-        font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        font:
+          12px/1 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
       }
-      form { margin: 0; }
+      form {
+        margin: 0;
+      }
       label {
         display: block;
         margin-bottom: 9px;
@@ -98,7 +122,8 @@
         color: #f5f1e8;
         font: inherit;
       }
-      input:focus, button:focus-visible {
+      input:focus,
+      button:focus-visible {
         outline: 2px solid #ff5b35;
         outline-offset: 3px;
       }
@@ -123,14 +148,31 @@
         background: transparent;
         color: #f5f1e8;
       }
-      button:disabled { cursor: wait; opacity: .55; }
-      .status { min-height: 20px; margin-top: 18px; }
-      .status[data-error="true"] { color: #ff8064; }
-      [hidden] { display: none !important; }
+      button:disabled {
+        cursor: wait;
+        opacity: 0.55;
+      }
+      .status {
+        min-height: 20px;
+        margin-top: 18px;
+      }
+      .status[data-error="true"] {
+        color: #ff8064;
+      }
+      [hidden] {
+        display: none !important;
+      }
       @media (max-width: 480px) {
-        main { width: min(100% - 32px, 620px); padding: 28px 0; }
-        .lede { margin-bottom: 28px; }
-        .actions button { flex: 1 1 100%; }
+        main {
+          width: min(100% - 32px, 620px);
+          padding: 28px 0;
+        }
+        .lede {
+          margin-bottom: 28px;
+        }
+        .actions button {
+          flex: 1 1 100%;
+        }
       }
     </style>
   </head>
@@ -150,7 +192,13 @@
       <section id="signin" class="panel" hidden>
         <form id="signin-form">
           <label for="email">Email</label>
-          <input id="email" name="email" type="email" autocomplete="email" required />
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autocomplete="email"
+            required
+          />
           <div class="actions">
             <button type="submit">Email sign-in link</button>
           </div>
@@ -159,7 +207,9 @@
 
       <section id="consent" class="panel" hidden>
         <p id="client-name" class="client-name">Agent client</p>
-        <p class="detail">This client is asking to connect to your MJX account.</p>
+        <p class="detail">
+          This client is asking to connect to your MJX account.
+        </p>
         <ul id="scopes" class="scopes"></ul>
         <div class="actions">
           <button id="approve" type="button">Connect</button>
@@ -178,7 +228,9 @@
       const client = createClient(projectUrl, publishableKey, {
         auth: { detectSessionInUrl: true, persistSession: true },
       });
-      const authorizationId = new URLSearchParams(location.search).get("authorization_id");
+      const authorizationId = new URLSearchParams(location.search).get(
+        "authorization_id",
+      );
       const loading = document.querySelector("#loading");
       const signin = document.querySelector("#signin");
       const consent = document.querySelector("#consent");
@@ -193,7 +245,8 @@
       }
 
       function setBusy(busy) {
-        for (const button of document.querySelectorAll("button")) button.disabled = busy;
+        for (const button of document.querySelectorAll("button"))
+          button.disabled = busy;
       }
 
       function redirectTarget() {
@@ -205,7 +258,10 @@
       async function loadConsent() {
         if (!authorizationId) {
           loading.hidden = true;
-          showStatus("This connection request is missing its authorization ID.", true);
+          showStatus(
+            "This connection request is missing its authorization ID.",
+            true,
+          );
           return;
         }
 
@@ -216,10 +272,14 @@
           return;
         }
 
-        const { data, error } = await client.auth.oauth.getAuthorizationDetails(authorizationId);
+        const { data, error } =
+          await client.auth.oauth.getAuthorizationDetails(authorizationId);
         if (error) {
           loading.hidden = true;
-          showStatus(error.message || "This connection request could not be loaded.", true);
+          showStatus(
+            error.message || "This connection request could not be loaded.",
+            true,
+          );
           return;
         }
 
@@ -230,11 +290,13 @@
           .split(/\s+/)
           .filter(Boolean);
         const scopeList = document.querySelector("#scopes");
-        scopeList.replaceChildren(...scopes.map((scope) => {
-          const item = document.createElement("li");
-          item.textContent = scope;
-          return item;
-        }));
+        scopeList.replaceChildren(
+          ...scopes.map((scope) => {
+            const item = document.createElement("li");
+            item.textContent = scope;
+            return item;
+          }),
+        );
         scopeList.hidden = scopes.length === 0;
         loading.hidden = true;
         signin.hidden = true;
@@ -258,7 +320,8 @@
       approve.addEventListener("click", async () => {
         setBusy(true);
         showStatus("Connecting…");
-        const { data, error } = await client.auth.oauth.approveAuthorization(authorizationId);
+        const { data, error } =
+          await client.auth.oauth.approveAuthorization(authorizationId);
         if (error) {
           setBusy(false);
           return showStatus(error.message, true);
@@ -269,7 +332,8 @@
       deny.addEventListener("click", async () => {
         setBusy(true);
         showStatus("Cancelling…");
-        const { data, error } = await client.auth.oauth.denyAuthorization(authorizationId);
+        const { data, error } =
+          await client.auth.oauth.denyAuthorization(authorizationId);
         if (error) {
           setBusy(false);
           return showStatus(error.message, true);

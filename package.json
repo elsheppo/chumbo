@@ -1,6 +1,6 @@
 {
   "name": "supa-mcp",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Turn a Supabase app into a polished end-user MCP server.",
   "type": "module",
   "license": "MIT",
@@ -36,6 +36,10 @@
     "./testing": {
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js"
+    },
+    "./app": {
+      "types": "./dist/app.d.ts",
+      "import": "./dist/app.js"
     }
   },
   "files": [
@@ -64,13 +68,13 @@
     "prepack": "pnpm run check"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/server": "2.0.0",
     "@supabase/server": "1.4.1",
     "@supabase/supabase-js": "2.105.4",
     "zod": "4.2.0"
   },
   "devDependencies": {
-    "@modelcontextprotocol/ext-apps": "1.7.5",
     "@types/node": "24.10.1",
     "prettier": "3.8.1",
     "tsdown": "0.20.3",

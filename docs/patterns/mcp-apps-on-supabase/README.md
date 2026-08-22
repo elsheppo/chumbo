@@ -102,10 +102,48 @@ server.withScopes(["review:decide"]).registerTool(
 model. It is not an authorization boundary. Keep the scope gate, ownership
 predicate, and RLS policy even though the tool is intended only for the View.
 
+## Stable workspace default
+
+An interactive App should behave like a small application surface, not a card
+whose iframe grows every time another row or image renders. Supa MCP packages a
+thin browser helper for that host-specific work:
+
+```ts
+import { createAppWorkspace } from "supa-mcp/app";
+
+const workspace = createAppWorkspace(
+  { name: "My review queue", version: "0.1.0" },
+  { root: document.querySelector("main")! },
+);
+const { app } = workspace;
+
+app.ontoolresult = renderResult;
+await workspace.connect();
+```
+
+Mark the part that should scroll inside the stable frame:
+
+```html
+<main>
+  <header>...</header>
+  <section data-supa-mcp-scroll>...</section>
+</main>
+```
+
+The default applies host theme and font tokens, mobile safe areas, a bounded
+inline height, internal scrolling, and optional fullscreen negotiation. It
+does not provide colors, components, typography, or application layout. If no
+scroll region is marked, the complete root scrolls rather than clipping.
+
+Use `workspace.canFullscreen()` before showing an expand control and
+`workspace.toggleFullscreen()` to negotiate the change with a supporting
+host. The host always makes the final presentation decision.
+
 ## Bundle and deployment
 
-The living example uses the official `@modelcontextprotocol/ext-apps` browser
-SDK and produces one HTML file with Vite and `vite-plugin-singlefile`.
+The living example uses `supa-mcp/app` over the official
+`@modelcontextprotocol/ext-apps` browser SDK and produces one HTML file with
+Vite and `vite-plugin-singlefile`.
 Supabase CLI bundles that file beside the function:
 
 ```toml

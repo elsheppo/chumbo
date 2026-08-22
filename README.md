@@ -443,8 +443,9 @@ through a real MCP request:
   Resources, prompts, and instructions from one endpoint.
 - [Interactive review queue](./docs/patterns/mcp-apps-on-supabase) proves an
   authenticated MCP App can render from an Edge Function, call app-only tools,
-  and preserve the same user's RLS boundary without giving the iframe a
-  credential.
+  preserve the same user's RLS boundary without giving the iframe a
+  credential, and use the `supa-mcp/app` workspace default instead of growing
+  its host frame with every rendered item.
 
 The public documentation MCP exposes `search_docs`, `get_pattern`,
 `get_example`, and `get_setup_steps`. It contains Supa MCP-owned instructions
@@ -778,7 +779,7 @@ then reinstall or update; the CLI will not overwrite it.
 
 ## Development
 
-Version 0.6.1 pins the runtime dependencies in each generated Deno project.
+Version 0.6.2 pins the runtime dependencies in each generated Deno project.
 The package test suite covers MCP discovery, scopes, public rate limiting,
 API-key authentication, concurrent request isolation, generated
 OAuth/API-key/public projects, structured CLI output, and real two-user
