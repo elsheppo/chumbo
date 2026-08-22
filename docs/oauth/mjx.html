@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <meta name="color-scheme" content="dark" />
+    <title>Connect to MJX</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #090a09;
+        color: #f5f1e8;
+        font-synthesis: none;
+      }
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background:
+          linear-gradient(90deg, transparent 0 23px, #242521 24px, transparent 25px),
+          #090a09;
+      }
+      main {
+        width: min(100% - 40px, 620px);
+        padding: 40px 0;
+      }
+      .eyebrow {
+        margin: 0 0 16px;
+        color: #ff5b35;
+        font: 650 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: .13em;
+      }
+      h1 {
+        max-width: 520px;
+        margin: 0;
+        font-size: clamp(42px, 10vw, 74px);
+        font-weight: 620;
+        letter-spacing: -.065em;
+        line-height: .92;
+      }
+      .lede {
+        max-width: 510px;
+        margin: 24px 0 36px;
+        color: #a8a79f;
+        font-size: 16px;
+        line-height: 1.55;
+      }
+      .panel {
+        border-top: 1px solid #3a3b36;
+        border-bottom: 1px solid #3a3b36;
+        padding: 24px 0;
+      }
+      .client-name {
+        margin: 0 0 8px;
+        font-size: 22px;
+        font-weight: 620;
+        letter-spacing: -.03em;
+      }
+      .detail, .status {
+        margin: 0;
+        color: #a8a79f;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .scopes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+      .scopes li {
+        border: 1px solid #3a3b36;
+        padding: 7px 9px;
+        color: #d1cec5;
+        font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      form { margin: 0; }
+      label {
+        display: block;
+        margin-bottom: 9px;
+        color: #d1cec5;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        min-height: 48px;
+        border: 1px solid #4a4b45;
+        border-radius: 0;
+        padding: 0 14px;
+        background: #111210;
+        color: #f5f1e8;
+        font: inherit;
+      }
+      input:focus, button:focus-visible {
+        outline: 2px solid #ff5b35;
+        outline-offset: 3px;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      button {
+        min-height: 46px;
+        border: 1px solid #f5f1e8;
+        border-radius: 0;
+        padding: 0 18px;
+        cursor: pointer;
+        background: #f5f1e8;
+        color: #090a09;
+        font: 650 14px/1 inherit;
+      }
+      button.secondary {
+        border-color: #4a4b45;
+        background: transparent;
+        color: #f5f1e8;
+      }
+      button:disabled { cursor: wait; opacity: .55; }
+      .status { min-height: 20px; margin-top: 18px; }
+      .status[data-error="true"] { color: #ff8064; }
+      [hidden] { display: none !important; }
+      @media (max-width: 480px) {
+        main { width: min(100% - 32px, 620px); padding: 28px 0; }
+        .lede { margin-bottom: 28px; }
+        .actions button { flex: 1 1 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">MJX / CONNECT</p>
+      <h1>Connect your agent.</h1>
+      <p class="lede">
+        Sign in to choose what this client can use. MJX keeps your private Packs
+        and Blocks attached to your own account.
+      </p>
+
+      <section id="loading" class="panel">
+        <p class="detail">Loading connection request…</p>
+      </section>
+
+      <section id="signin" class="panel" hidden>
+        <form id="signin-form">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" required />
+          <div class="actions">
+            <button type="submit">Email sign-in link</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="consent" class="panel" hidden>
+        <p id="client-name" class="client-name">Agent client</p>
+        <p class="detail">This client is asking to connect to your MJX account.</p>
+        <ul id="scopes" class="scopes"></ul>
+        <div class="actions">
+          <button id="approve" type="button">Connect</button>
+          <button id="deny" class="secondary" type="button">Cancel</button>
+        </div>
+      </section>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script type="module">
+      import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
+
+      const projectUrl = "https://rdohifutoqsecoslullu.supabase.co";
+      const publishableKey = "sb_publishable_JOSEWCpZT0hkiGlIWXjGWw_1f_mub0E";
+      const client = createClient(projectUrl, publishableKey, {
+        auth: { detectSessionInUrl: true, persistSession: true },
+      });
+      const authorizationId = new URLSearchParams(location.search).get("authorization_id");
+      const loading = document.querySelector("#loading");
+      const signin = document.querySelector("#signin");
+      const consent = document.querySelector("#consent");
+      const status = document.querySelector("#status");
+      const signinForm = document.querySelector("#signin-form");
+      const approve = document.querySelector("#approve");
+      const deny = document.querySelector("#deny");
+
+      function showStatus(message, isError = false) {
+        status.textContent = message;
+        status.dataset.error = String(isError);
+      }
+
+      function setBusy(busy) {
+        for (const button of document.querySelectorAll("button")) button.disabled = busy;
+      }
+
+      function redirectTarget() {
+        const target = new URL(location.href);
+        target.hash = "";
+        return target.toString();
+      }
+
+      async function loadConsent() {
+        if (!authorizationId) {
+          loading.hidden = true;
+          showStatus("This connection request is missing its authorization ID.", true);
+          return;
+        }
+
+        const { data: sessionData } = await client.auth.getSession();
+        if (!sessionData.session) {
+          loading.hidden = true;
+          signin.hidden = false;
+          return;
+        }
+
+        const { data, error } = await client.auth.oauth.getAuthorizationDetails(authorizationId);
+        if (error) {
+          loading.hidden = true;
+          showStatus(error.message || "This connection request could not be loaded.", true);
+          return;
+        }
+
+        const oauthClient = data?.client ?? data?.client_info ?? {};
+        document.querySelector("#client-name").textContent =
+          oauthClient.name || oauthClient.client_name || "Agent client";
+        const scopes = String(data?.scope || "")
+          .split(/\s+/)
+          .filter(Boolean);
+        const scopeList = document.querySelector("#scopes");
+        scopeList.replaceChildren(...scopes.map((scope) => {
+          const item = document.createElement("li");
+          item.textContent = scope;
+          return item;
+        }));
+        scopeList.hidden = scopes.length === 0;
+        loading.hidden = true;
+        signin.hidden = true;
+        consent.hidden = false;
+      }
+
+      signinForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        showStatus("Sending sign-in link…");
+        const email = new FormData(signinForm).get("email");
+        const { error } = await client.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: redirectTarget() },
+        });
+        setBusy(false);
+        if (error) return showStatus(error.message, true);
+        showStatus("Check your email, then return here to finish connecting.");
+      });
+
+      approve.addEventListener("click", async () => {
+        setBusy(true);
+        showStatus("Connecting…");
+        const { data, error } = await client.auth.oauth.approveAuthorization(authorizationId);
+        if (error) {
+          setBusy(false);
+          return showStatus(error.message, true);
+        }
+        location.assign(data.redirect_url);
+      });
+
+      deny.addEventListener("click", async () => {
+        setBusy(true);
+        showStatus("Cancelling…");
+        const { data, error } = await client.auth.oauth.denyAuthorization(authorizationId);
+        if (error) {
+          setBusy(false);
+          return showStatus(error.message, true);
+        }
+        location.assign(data.redirect_url);
+      });
+
+      await loadConsent();
+    </script>
+  </body>
+</html>
