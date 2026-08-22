@@ -21,6 +21,13 @@ the order most applications adopt them:
   applied. Pick this only for data you would publish on an unauthenticated
   API.
 
+Public rate limiting is a useful guardrail, not a complete abuse-prevention
+boundary. On hosted Supabase, the runtime prefers Cloudflare's
+`cf-connecting-ip` request metadata. Its forwarded-IP fallbacks depend on the
+trust configuration of any custom proxy or self-hosted gateway in front of the
+function. Nonstandard deployments should treat those headers accordingly and
+add application-specific abuse controls when the exposure warrants them.
+
 Switching later is cheap: re-run `npx supa-mcp setup --auth <mode>` and the
 scaffold is regenerated around your untouched `capabilities.ts`.
 
