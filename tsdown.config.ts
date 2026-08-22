@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/testing.ts", "src/cli.ts"],
+  entry: ["src/index.ts", "src/app.ts", "src/testing.ts", "src/cli.ts"],
   format: "esm",
   dts: true,
   clean: true,
@@ -17,6 +17,7 @@ export default defineConfig({
     "node:url",
     "node:util",
     "@modelcontextprotocol/server",
+    "@modelcontextprotocol/ext-apps",
     "@supabase/server",
     "@supabase/server/core",
     "@supabase/supabase-js",
