@@ -44,13 +44,13 @@ and results while developing locally against
 
 ## Verification status
 
-| Client                        | Transport        | Access modes           | Status                                                                                                          |
-| ----------------------------- | ---------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Claude Code                   | Streamable HTTP  | public, api-key/bearer | Verified: connects to the hosted reference deployment (`claude mcp list` reports connected)                     |
-| Raw MCP protocol (any client) | Streamable HTTP  | all                    | Verified: `initialize`, `tools/list`, and `tools/call` exercised by `pnpm reference:check` and the hosted smoke |
-| claude.ai / Claude Desktop    | Custom connector | oauth + DCR only       | Vendor-documented; not yet exercised against the reference deployment                                           |
-| Cursor                        | Streamable HTTP  | all                    | Vendor-documented; not yet exercised against the reference deployment                                           |
-| MCP Inspector                 | Streamable HTTP  | all                    | Vendor-documented; speaks the same verified protocol surface                                                    |
+| Client                        | Transport        | Access modes           | Status                                                                                                                 |
+| ----------------------------- | ---------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Claude Code                   | Streamable HTTP  | public, api-key/bearer | Verified: connects to the hosted reference deployment (`claude mcp list` reports connected)                            |
+| Raw MCP protocol (any client) | Streamable HTTP  | all                    | Verified: `initialize`, `tools/list`, and `tools/call` exercised by `pnpm reference:check` and the hosted smoke        |
+| claude.ai / Claude Desktop    | Custom connector | oauth + DCR only       | Verified: OAuth, discovery, hosted View rendering, and an app-only mutation exercised against the reference deployment |
+| Cursor                        | Streamable HTTP  | all                    | Vendor-documented; not yet exercised against the reference deployment                                                  |
+| MCP Inspector                 | Streamable HTTP  | all                    | Vendor-documented; speaks the same verified protocol surface                                                           |
 
 Rows marked vendor-documented follow those clients' published remote-MCP
 instructions; promote them to verified by connecting once and recording the

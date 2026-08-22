@@ -1,0 +1,7 @@
+{
+  "slug": "clean-urls",
+  "kind": "reference",
+  "title": "Give an MCP a clean product URL",
+  "summary": "Advertise a clean application URL while a Supabase Edge Function continues to run the MCP server.",
+  "officialDocs": ["https://supabase.com/docs/guides/functions"]
+}
