@@ -21,7 +21,6 @@ button {
 .shell {
   width: min(100%, 760px);
   margin: 0 auto;
-  padding: 20px;
 }
 
 .header {
@@ -67,6 +66,11 @@ h1 {
 
 .refresh {
   padding: 8px 13px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 button:hover:not(:disabled) {
@@ -118,7 +122,9 @@ button:disabled {
 
 .queue {
   display: grid;
+  align-content: start;
   gap: 10px;
+  padding-right: 2px;
 }
 
 .item,
@@ -208,7 +214,8 @@ h2 {
 
 @media (max-width: 520px) {
   .shell {
-    padding: 16px;
+    --supa-mcp-app-padding-block: 16px;
+    --supa-mcp-app-padding-inline: 16px;
   }
 
   .actions button {

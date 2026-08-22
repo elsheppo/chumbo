@@ -12,7 +12,12 @@
           <p class="eyebrow">Supa MCP</p>
           <h1>Review queue</h1>
         </div>
-        <button class="refresh" id="refresh" type="button">Refresh</button>
+        <div class="header-actions">
+          <button class="refresh" id="expand" type="button" hidden>
+            Expand
+          </button>
+          <button class="refresh" id="refresh" type="button">Refresh</button>
+        </div>
       </header>
 
       <section class="summary" aria-label="Queue summary">
@@ -21,7 +26,7 @@
       </section>
 
       <p class="notice" id="notice" hidden></p>
-      <section class="queue" id="queue"></section>
+      <section class="queue" id="queue" data-supa-mcp-scroll></section>
     </main>
     <script type="module" src="./src.ts"></script>
   </body>
