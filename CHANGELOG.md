@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.6.5 — 2026-08-25
+
+- Normalize platform-injected `SUPABASE_PUBLISHABLE_KEYS` and
+  `SUPABASE_SECRET_KEYS` JSON dictionaries into the explicit runtime
+  environment passed to Supabase clients. Singular modern variables and legacy
+  variables converge on the same shape, with explicit configuration retaining
+  precedence.
+- Resolve the project URL and inline JWKS from Edge runtime variables when an
+  application does not pass them explicitly. Malformed JSON reports only the
+  affected variable name and expected shape, never its value.
+- Exercise the fully assembled OAuth request against the same modern plural-key
+  environment supplied by current Supabase Edge projects.
+
 ## 0.6.4 — 2026-08-25
 
 - Accept both current Supabase publishable/secret-key configuration and the

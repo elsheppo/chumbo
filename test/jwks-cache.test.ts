@@ -144,10 +144,14 @@ describe("remote JWKS verification", () => {
     expect(fetchJwks).toHaveBeenCalledTimes(1);
   });
 
-  it("assembles an OAuth request with an explicit modern publishable key", async () => {
+  it("assembles an OAuth request with the modern Edge key dictionary", async () => {
     const fixture = await signedUserToken("modern-edge-key-proof");
     const fetchJwks = vi.fn(async () => Response.json(fixture.jwks));
     vi.stubGlobal("fetch", fetchJwks);
+    vi.stubEnv(
+      "SUPABASE_PUBLISHABLE_KEYS",
+      JSON.stringify({ default: "modern-publishable-key" }),
+    );
     const app = createSupabaseMcp({
       server: { name: "modern-key-proof", version: "1.0.0" },
       resourceUrl: "https://project.supabase.co/functions/v1/mcp",
@@ -158,7 +162,6 @@ describe("remote JWKS verification", () => {
           jwks: new URL(
             `https://project.supabase.co/auth/v1/.well-known/jwks.json?case=${crypto.randomUUID()}`,
           ),
-          publishableKeys: { default: "modern-publishable-key" },
         },
       },
       register(server) {

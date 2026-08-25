@@ -309,26 +309,59 @@ function runtimeVariable(name: string): string | undefined {
   return undefined;
 }
 
+function runtimeKeyMap(
+  pluralName: string,
+  singularName: string,
+  legacyName: string,
+): Record<string, string> | undefined {
+  const pluralValue = runtimeVariable(pluralName);
+  if (pluralValue) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(pluralValue);
+    } catch {
+      throw new Error(`${pluralName} must be valid JSON`);
+    }
+    if (
+      !parsed ||
+      Array.isArray(parsed) ||
+      typeof parsed !== "object" ||
+      Object.values(parsed).some((value) => typeof value !== "string")
+    ) {
+      throw new Error(`${pluralName} must be a JSON object of string values`);
+    }
+    return parsed as Record<string, string>;
+  }
+  const singleValue =
+    runtimeVariable(singularName) ?? runtimeVariable(legacyName);
+  return singleValue ? { default: singleValue } : undefined;
+}
+
 function compatibleSupabaseEnv(
   env?: Partial<SupabaseEnv>,
 ): Partial<SupabaseEnv> | undefined {
   const resolved = { ...env };
-  if (
-    !resolved.publishableKeys &&
-    !runtimeVariable("SUPABASE_PUBLISHABLE_KEYS") &&
-    !runtimeVariable("SUPABASE_PUBLISHABLE_KEY")
-  ) {
-    const legacyAnonKey = runtimeVariable("SUPABASE_ANON_KEY");
-    if (legacyAnonKey) resolved.publishableKeys = { default: legacyAnonKey };
+  if (!resolved.url) {
+    resolved.url = runtimeVariable("SUPABASE_URL");
   }
-  if (
-    !resolved.secretKeys &&
-    !runtimeVariable("SUPABASE_SECRET_KEYS") &&
-    !runtimeVariable("SUPABASE_SECRET_KEY")
-  ) {
-    const legacyServiceRoleKey = runtimeVariable("SUPABASE_SERVICE_ROLE_KEY");
-    if (legacyServiceRoleKey) {
-      resolved.secretKeys = { default: legacyServiceRoleKey };
+  resolved.publishableKeys ??= runtimeKeyMap(
+    "SUPABASE_PUBLISHABLE_KEYS",
+    "SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_ANON_KEY",
+  );
+  resolved.secretKeys ??= runtimeKeyMap(
+    "SUPABASE_SECRET_KEYS",
+    "SUPABASE_SECRET_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  );
+  if (resolved.jwks === undefined) {
+    const jwks = runtimeVariable("SUPABASE_JWKS");
+    if (jwks) {
+      try {
+        resolved.jwks = JSON.parse(jwks) as InlineJwks;
+      } catch {
+        throw new Error("SUPABASE_JWKS must be valid JSON");
+      }
     }
   }
   return Object.keys(resolved).length > 0 ? resolved : undefined;
