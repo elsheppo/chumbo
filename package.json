@@ -52,7 +52,7 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "check": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:generated",
+    "check": "pnpm run release:check && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:generated",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "reference:app": "vite build --config supabase/functions/review-queue-app/app/vite.config.ts",
@@ -60,6 +60,7 @@
     "reference:content": "node scripts/sync-reference-content.mjs",
     "reference:check": "node scripts/reference-check.mjs",
     "reference:hosted": "node scripts/hosted-reference-smoke.mjs",
+    "release:check": "node scripts/release-alignment-check.mjs",
     "test": "vitest run",
     "test:generated": "node scripts/generated-smoke.mjs",
     "test:rls": "vitest run test/rls.integration.test.ts",

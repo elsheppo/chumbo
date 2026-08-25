@@ -35,6 +35,19 @@ Two rules hold in every mode. Do not accept a user ID as a tool argument, and
 do not give end-user handlers a service-role client — the request-scoped
 `ctx.supabase` client is the authorization boundary.
 
+For OAuth and bearer deployments, Supa MCP reads the current publishable and
+secret-key variables injected by Supabase Edge Functions and also supports the
+legacy `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` variables retained
+by established projects. Explicit runtime configuration still takes
+precedence. User tokens are verified against Supabase's JWKS, with remote keys
+cached briefly so ordinary requests do not add a key-network round trip.
+
+Invalid credentials remain `invalid_token`. If token verification succeeds but
+the runtime cannot construct the request-scoped Supabase client, the caller
+receives `server_error` and `onError` reports the `runtime` phase with a
+secret-safe configuration message. This distinction keeps credential failures
+separate from deployment configuration failures.
+
 Official platform references:
 
 - [Supabase Auth](https://supabase.com/docs/guides/auth)
