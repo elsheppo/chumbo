@@ -14,7 +14,7 @@ import {
   createContextClient,
   verifyCredentials,
 } from "@supabase/server/core";
-import type { JWTClaims, UserClaims } from "@supabase/server";
+import type { JWTClaims, SupabaseEnv, UserClaims } from "@supabase/server";
 import type {
   CreateSupabaseMcpOptions,
   RuntimeDependencies,
@@ -36,6 +36,13 @@ const DEFAULT_RATE_LIMIT = {
   windowSeconds: 60,
   functionName: "supa_mcp_rate_limit",
 } as const;
+const REMOTE_JWKS_TTL_MS = 60_000;
+const MAX_JWKS_BYTES = 64 * 1024;
+type InlineJwks = Exclude<NonNullable<SupabaseEnv["jwks"]>, URL>;
+const remoteJwksCache = new Map<
+  string,
+  { expiresAt: number; value: Promise<InlineJwks> }
+>();
 const REGISTRATION_METHODS = new Set([
   "registerPrompt",
   "registerResource",
@@ -292,11 +299,51 @@ function normalizeError(error: unknown): Error {
   return error instanceof Error ? error : new Error("Unknown runtime error");
 }
 
+async function loadRemoteJwks(url: URL): Promise<InlineJwks> {
+  const key = url.href;
+  const now = Date.now();
+  const cached = remoteJwksCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  const value = fetch(url, {
+    headers: { accept: "application/json" },
+  }).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(`JWKS endpoint returned HTTP ${response.status}`);
+    }
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_JWKS_BYTES) {
+      throw new Error("JWKS response exceeds 64 KiB");
+    }
+    const parsed = JSON.parse(text) as Partial<InlineJwks>;
+    if (!Array.isArray(parsed.keys)) {
+      throw new Error("JWKS response has no keys array");
+    }
+    return { keys: parsed.keys };
+  });
+  remoteJwksCache.set(key, {
+    expiresAt: now + REMOTE_JWKS_TTL_MS,
+    value,
+  });
+  value.catch(() => {
+    if (remoteJwksCache.get(key)?.value === value) remoteJwksCache.delete(key);
+  });
+  return value;
+}
+
+async function verificationEnv(
+  env?: Partial<SupabaseEnv>,
+): Promise<Partial<SupabaseEnv> | undefined> {
+  if (!(env?.jwks instanceof URL)) return env;
+  return { ...env, jwks: await loadRemoteJwks(env.jwks) };
+}
+
 export const defaultRuntimeDependencies: RuntimeDependencies = {
   async verifyToken(token, env) {
+    const resolvedEnv = await verificationEnv(env);
     const result = await verifyCredentials(
       { token, apikey: null },
-      { auth: "user", env },
+      { auth: "user", env: resolvedEnv },
     );
     if (result.error || !result.data.userClaims || !result.data.jwtClaims) {
       throw new OAuthError(
