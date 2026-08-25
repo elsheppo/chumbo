@@ -1,7 +1,7 @@
 # Authenticated interactive review queue
 
 The living reference function at
-`supabase/functions/review-queue-app/index.ts` uses public `supa-mcp@0.6.1`.
+`supabase/functions/review-queue-app/index.ts` uses public `supa-mcp@0.6.6`.
 
 - `open_review_queue` is model-visible and points to a bundled `ui://`
   Resource.

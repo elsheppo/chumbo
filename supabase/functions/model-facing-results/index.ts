@@ -135,7 +135,7 @@ function register(server: SupabaseMcpServer) {
 }
 
 const app = createSupabaseMcp({
-  server: { name: "Model-facing result examples", version: "0.6.0" },
+  server: { name: "Model-facing result examples", version: "0.6.6" },
   resourceUrl,
   auth: { mode: "public", rateLimit: true },
   register,

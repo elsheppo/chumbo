@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Keep the canonical living-reference import maps and deployment record aligned
+  with the published package version, and fail ordinary checks when they drift.
+- Verify hosted Edge Function runtime fingerprints during the living-reference
+  smoke instead of treating content synchronization as deployment proof.
+- Document current and established Supabase Edge key compatibility plus the
+  distinction between invalid credentials and runtime configuration failures.
+
 ## 0.6.6 — 2026-08-25
 
 - Treat an empty modern publishable- or secret-key dictionary as absent so an

@@ -128,7 +128,7 @@ function register(
 }
 
 const app = createSupabaseMcp<ReferenceDatabase>({
-  server: { name: "Supa MCP privileged capabilities", version: "0.6.0" },
+  server: { name: "Supa MCP privileged capabilities", version: "0.6.6" },
   instructions: (ctx) =>
     ctx.hasScope("catalog:publish")
       ? "You may read the catalog and preview owner-only publications. Mutations still require an explicit tool call."
