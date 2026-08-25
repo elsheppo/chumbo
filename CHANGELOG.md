@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.6.3 — 2026-08-25
+
+- Cache remote Supabase JWKS snapshots for one minute per Edge runtime instead
+  of rebuilding a network-backed resolver for every authenticated request.
+  Failed fetches are evicted immediately, responses are bounded to 64 KiB, and
+  inline platform JWKS behavior is unchanged.
+
 ## 0.6.2 — 2026-08-22
 
 - Add `supa-mcp/app`, a small browser-side MCP Apps workspace helper that

@@ -195,6 +195,10 @@ and verified combinations.
 - **Deliberate authentication.** Supabase users retain an RLS-aware client.
   Application keys retain an application-owned subject and scopes without
   being converted into a fake user.
+- **Rotation-safe verification.** OAuth and bearer requests use Supabase's
+  public JWKS. Remote JWKS configuration is cached briefly per runtime to avoid
+  adding a key-network round trip to every MCP request while still observing
+  signing-key rotation quickly.
 - **Explicit result contracts.** Agent-facing text, typed data, hybrids, and
   large Resources are separate choices rather than automatic duplicated output.
 - **Protocol-native capabilities.** Tools, Resources, prompts, instructions,
