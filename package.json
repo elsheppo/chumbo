@@ -1,6 +1,6 @@
 {
   "name": "supa-mcp",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Turn a Supabase app into a polished end-user MCP server.",
   "type": "module",
   "license": "MIT",
@@ -76,6 +76,7 @@
   },
   "devDependencies": {
     "@types/node": "24.10.1",
+    "jose": "6.2.8",
     "prettier": "3.8.1",
     "tsdown": "0.20.3",
     "typescript": "5.9.3",
