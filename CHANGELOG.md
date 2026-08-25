@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.6.6 — 2026-08-25
+
+- Treat an empty modern publishable- or secret-key dictionary as absent so an
+  established project can fall through to its singular or legacy key. This
+  covers projects where Edge injects an empty modern dictionary alongside a
+  still-active legacy key.
+- Add an assembled OAuth regression for that exact mixed-generation runtime
+  environment.
+
 ## 0.6.5 — 2026-08-25
 
 - Normalize platform-injected `SUPABASE_PUBLISHABLE_KEYS` and

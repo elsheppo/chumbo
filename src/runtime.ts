@@ -330,7 +330,8 @@ function runtimeKeyMap(
     ) {
       throw new Error(`${pluralName} must be a JSON object of string values`);
     }
-    return parsed as Record<string, string>;
+    const keys = parsed as Record<string, string>;
+    if (Object.keys(keys).length > 0) return keys;
   }
   const singleValue =
     runtimeVariable(singularName) ?? runtimeVariable(legacyName);

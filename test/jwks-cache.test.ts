@@ -116,6 +116,7 @@ describe("remote JWKS verification", () => {
     const fixture = await signedUserToken("legacy-edge-key-proof");
     const fetchJwks = vi.fn(async () => Response.json(fixture.jwks));
     vi.stubGlobal("fetch", fetchJwks);
+    vi.stubEnv("SUPABASE_PUBLISHABLE_KEYS", "{}");
     vi.stubEnv("SUPABASE_ANON_KEY", "legacy-anon-key");
     const app = createSupabaseMcp({
       server: { name: "compatibility-proof", version: "1.0.0" },
