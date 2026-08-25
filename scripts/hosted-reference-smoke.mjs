@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const manifest = JSON.parse(
+  await readFile(path.join(root, "package.json"), "utf8"),
+);
+const expectedRuntimeVersion = manifest.version;
 const projectUrl = (
   process.env.SUPA_MCP_REFERENCE_URL ??
   "https://dxrpeagddrpbezbkgvdv.supabase.co"
@@ -85,6 +89,7 @@ async function mcp(endpoint, method, params = {}, bearer) {
       },
     }),
   });
+  assertRuntimeVersion(response, endpoint);
   const text = await response.text();
   if (!response.ok)
     throw new Error(`${endpoint} returned HTTP ${response.status}: ${text}`);
@@ -98,6 +103,14 @@ async function mcp(endpoint, method, params = {}, bearer) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function assertRuntimeVersion(response, endpoint) {
+  const actual = response.headers.get("x-supa-mcp-version");
+  assert(
+    actual === expectedRuntimeVersion,
+    `Hosted ${endpoint} runs supa-mcp ${actual ?? "unknown"}; expected ${expectedRuntimeVersion}.`,
+  );
 }
 
 const expected = await expectedDocuments();
@@ -258,6 +271,7 @@ const unauthenticated = await fetch(`${functionsUrl}/authenticated-tools`, {
     params: {},
   }),
 });
+assertRuntimeVersion(unauthenticated, "authenticated-tools");
 assert(
   unauthenticated.status === 401,
   `Hosted authenticated-tools returned HTTP ${unauthenticated.status} without a bearer token.`,
@@ -286,6 +300,7 @@ const privilegedUnauthenticated = await fetch(
     }),
   },
 );
+assertRuntimeVersion(privilegedUnauthenticated, "privileged-capabilities");
 assert(
   privilegedUnauthenticated.status === 401,
   `Hosted privileged-capabilities returned HTTP ${privilegedUnauthenticated.status} without credentials.`,
@@ -392,6 +407,7 @@ if (publishableKey && serviceRoleKey) {
         params: {},
       }),
     });
+    assertRuntimeVersion(unauthenticatedApp, "review-queue-app");
     assert(
       unauthenticatedApp.status === 401,
       `Hosted review app returned HTTP ${unauthenticatedApp.status} without credentials.`,

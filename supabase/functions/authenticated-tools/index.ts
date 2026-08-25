@@ -147,7 +147,7 @@ function register(server: SupabaseMcpServer, ctx: SupabaseMcpContext<any>) {
 }
 
 const app = createSupabaseMcp<DemoDatabase>({
-  server: { name: "Authenticated project tools", version: "0.6.0" },
+  server: { name: "Authenticated project tools", version: "0.6.6" },
   resourceUrl,
   auth: { mode: "bearer" },
   register,
