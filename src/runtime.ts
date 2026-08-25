@@ -299,6 +299,41 @@ function normalizeError(error: unknown): Error {
   return error instanceof Error ? error : new Error("Unknown runtime error");
 }
 
+function runtimeVariable(name: string): string | undefined {
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    Deno?: { env?: { get(variable: string): string | undefined } };
+  };
+  const denoValue = runtimeGlobal.Deno?.env?.get(name);
+  if (denoValue) return denoValue;
+  if (typeof process !== "undefined" && process.env) return process.env[name];
+  return undefined;
+}
+
+function compatibleSupabaseEnv(
+  env?: Partial<SupabaseEnv>,
+): Partial<SupabaseEnv> | undefined {
+  const resolved = { ...env };
+  if (
+    !resolved.publishableKeys &&
+    !runtimeVariable("SUPABASE_PUBLISHABLE_KEYS") &&
+    !runtimeVariable("SUPABASE_PUBLISHABLE_KEY")
+  ) {
+    const legacyAnonKey = runtimeVariable("SUPABASE_ANON_KEY");
+    if (legacyAnonKey) resolved.publishableKeys = { default: legacyAnonKey };
+  }
+  if (
+    !resolved.secretKeys &&
+    !runtimeVariable("SUPABASE_SECRET_KEYS") &&
+    !runtimeVariable("SUPABASE_SECRET_KEY")
+  ) {
+    const legacyServiceRoleKey = runtimeVariable("SUPABASE_SERVICE_ROLE_KEY");
+    if (legacyServiceRoleKey) {
+      resolved.secretKeys = { default: legacyServiceRoleKey };
+    }
+  }
+  return Object.keys(resolved).length > 0 ? resolved : undefined;
+}
+
 async function loadRemoteJwks(url: URL): Promise<InlineJwks> {
   const key = url.href;
   const now = Date.now();
@@ -340,7 +375,7 @@ async function verificationEnv(
 
 export const defaultRuntimeDependencies: RuntimeDependencies = {
   async verifyToken(token, env) {
-    const resolvedEnv = await verificationEnv(env);
+    const resolvedEnv = await verificationEnv(compatibleSupabaseEnv(env));
     const result = await verifyCredentials(
       { token, apikey: null },
       { auth: "user", env: resolvedEnv },
@@ -358,10 +393,13 @@ export const defaultRuntimeDependencies: RuntimeDependencies = {
     };
   },
   createClient(token, env) {
-    return createContextClient({ auth: { token }, env });
+    return createContextClient({
+      auth: { token },
+      env: compatibleSupabaseEnv(env),
+    });
   },
   createAdminClient(env) {
-    return createAdminClient({ env });
+    return createAdminClient({ env: compatibleSupabaseEnv(env) });
   },
   fetch: globalThis.fetch.bind(globalThis),
   randomUUID: () => crypto.randomUUID(),
@@ -520,6 +558,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
             : undefined,
           verifier: {
             async verifyAccessToken(token: string): Promise<AuthInfo> {
+              let failurePhase: "auth" | "runtime" = "auth";
               try {
                 const apiKeyStrategies = strategies.filter(
                   (strategy): strategy is SupabaseMcpApiKeyAuth<Database> =>
@@ -555,12 +594,14 @@ export function createSupabaseMcpInternal<Database = unknown>(
                             scopes: selected.scopes,
                           }
                         : null
-                      : await selected.verify({
-                          token,
-                          supabaseAdmin: dependencies.createAdminClient(
+                      : await (async () => {
+                          failurePhase = "runtime";
+                          const supabaseAdmin = dependencies.createAdminClient(
                             options.supabase?.env,
-                          ),
-                        });
+                          );
+                          failurePhase = "auth";
+                          return selected.verify({ token, supabaseAdmin });
+                        })();
                   if (!verified) {
                     throw new OAuthError(
                       OAuthErrorCode.InvalidToken,
@@ -573,14 +614,16 @@ export function createSupabaseMcpInternal<Database = unknown>(
                       "API-key verifier returned an empty subject",
                     );
                   }
+                  failurePhase = "runtime";
+                  const supabase = dependencies.createClient(
+                    null,
+                    options.supabase?.env,
+                  );
                   const requestIdentity: RequestIdentity<Database> = {
                     token,
                     userClaims: null,
                     jwtClaims: null,
-                    supabase: dependencies.createClient(
-                      null,
-                      options.supabase?.env,
-                    ),
+                    supabase,
                     subject,
                     clientId: verified.clientId,
                     scopes: normalizedScopes(
@@ -619,12 +662,14 @@ export function createSupabaseMcpInternal<Database = unknown>(
                     "Access token has no expiration",
                   );
                 }
+                failurePhase = "runtime";
+                const supabase = dependencies.createClient(
+                  token,
+                  options.supabase?.env,
+                );
                 const requestIdentity: RequestIdentity<Database> = {
                   ...identity,
-                  supabase: dependencies.createClient(
-                    token,
-                    options.supabase?.env,
-                  ),
+                  supabase,
                   subject: identity.userClaims.id,
                   clientId: actualClientId(identity.jwtClaims),
                   scopes: scopesFromClaims(identity.jwtClaims),
@@ -643,9 +688,15 @@ export function createSupabaseMcpInternal<Database = unknown>(
               } catch (error) {
                 options.onError?.({
                   error: normalizeError(error),
-                  phase: "auth",
+                  phase: failurePhase,
                 });
                 if (error instanceof OAuthError) throw error;
+                if (failurePhase === "runtime") {
+                  throw new OAuthError(
+                    OAuthErrorCode.ServerError,
+                    "Authentication runtime unavailable",
+                  );
+                }
                 throw new OAuthError(
                   OAuthErrorCode.InvalidToken,
                   "Invalid or expired access token",

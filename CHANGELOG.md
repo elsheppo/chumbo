@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.6.4 — 2026-08-25
+
+- Accept both current Supabase publishable/secret-key configuration and the
+  legacy `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` variables still
+  injected by established Edge Function projects. Explicit modern
+  configuration always wins; credentials are never logged or returned.
+- Distinguish rejected credentials from post-verification runtime setup
+  failures. Callers receive a safe `server_error`, while `onError` identifies
+  the `runtime` phase and retains a secret-safe configuration message for
+  operators and coding agents.
+- Add fully assembled OAuth request proofs for modern and legacy project key
+  configurations, plus a missing-key diagnostic and secret-exclusion case.
+
 ## 0.6.3 — 2026-08-25
 
 - Cache remote Supabase JWKS snapshots for one minute per Edge runtime instead

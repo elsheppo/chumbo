@@ -2,7 +2,7 @@
 
 Status: Published; guided setup and living reference implemented\
 Date: 2026-08-20\
-Current release: `0.6.3`\
+Current release: `0.6.4`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the
