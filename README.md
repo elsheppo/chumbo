@@ -1,3 +1,5 @@
+![Supa MCP — Deploy a production MCP for your Supabase app without building another backend.](./docs/assets/supa-mcp-readme-header-v3.png)
+
 # Supa MCP
 
 **Deploy a production MCP for your Supabase app—without building another
