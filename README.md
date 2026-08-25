@@ -199,6 +199,14 @@ and verified combinations.
   public JWKS. Remote JWKS configuration is cached briefly per runtime to avoid
   adding a key-network round trip to every MCP request while still observing
   signing-key rotation quickly.
+- **Old and new project keys work.** Current publishable and secret keys are
+  preferred when configured. Established Edge Function projects that still
+  receive `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are detected
+  automatically, without exposing either credential.
+- **Honest, safe diagnostics.** Invalid credentials remain `invalid_token`.
+  Post-verification setup failures return `server_error`; `onError` reports the
+  `runtime` phase with a secret-safe configuration message for operators and
+  coding agents.
 - **Explicit result contracts.** Agent-facing text, typed data, hybrids, and
   large Resources are separate choices rather than automatic duplicated output.
 - **Protocol-native capabilities.** Tools, Resources, prompts, instructions,
