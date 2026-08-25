@@ -389,6 +389,14 @@ promises or new core abstractions:
   Edge Function calls that prepare work an MCP identity can later inspect.
 - **Many MCPs from one function:** continue hardening the existing row-defined
   reference without creating a separate fleet framework.
+- **Managed capability surfaces:** prove one application-owned catalog whose
+  named profiles and custom selections resolve to different MCP surfaces for
+  different users or tenants. The reference should keep profile selection
+  separate from authority: compute the effective surface from selected tools,
+  application grants, and authorized dependency closure; then prove the same
+  decision in discovery and direct invocation. RLS may govern profile,
+  selection, and grant rows, but Supa MCP must not prescribe those tables,
+  role names, or an administration UI.
 - **Application-key pairing:** simple one-key onboarding and rotation for
   clients that cannot complete OAuth, proven through a real application.
 - **Custom domains and proxy routes:** deployment recipes for a clean MCP URL
@@ -411,7 +419,6 @@ real application need
 Supa MCP should not wrap every Supabase feature. It should own the reusable MCP
 boundary and teach builders how existing Supabase capabilities compose behind
 it.
-
 
 ## Directional sequence
 
