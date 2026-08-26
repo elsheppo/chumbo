@@ -1,13 +1,21 @@
-# Supa MCP Roadmap
+# Chumbo Roadmap
 
 This document records credible future release cuts. It is prior direction, not
 a compatibility promise. A roadmap item ships only after a real application
 proves the abstraction and the public package, living reference, and hosted
 verification agree.
 
+## 0.8.0: Chumbo identity transition
+
+- **Status:** Shipped on 2026-08-26
+- **Outcome:** `chumbo` is the canonical npm package and CLI. The existing
+  `supa-mcp` command remains available as a transition alias, and established
+  technical identifiers remain stable where changing them would break deployed
+  projects or durable state continuity.
+
 ## 0.7.0: opt-in durable MCP state
 
-- **Status:** Release candidate
+- **Status:** Shipped on 2026-08-26
 - **Motivating cases:** MCP capabilities that need small, durable coordination
   across otherwise disposable Edge Function requests
 
@@ -28,7 +36,7 @@ This release is coordination storage, not a resident actor or Durable Object
 runtime. It does not add leases, queues, alarms, actor messaging, generalized
 transactions, or background execution.
 
-## Proposed 0.8.0: external JWT identities
+## Candidate: external JWT identities
 
 - **Status:** Proposed advanced authentication pattern
 - **Motivating cases:** applications with an existing third-party identity
@@ -36,14 +44,14 @@ transactions, or background execution.
 
 ### Outcome
 
-Let a builder deploy Supa MCP on a Supabase Edge Function while retaining an
+Let a builder deploy Chumbo on a Supabase Edge Function while retaining an
 existing JWT issuer:
 
 ```text
 Clerk / Auth0 / WorkOS / Firebase / Cognito / company OIDC
 or a workload identity issuer
 → short-lived signed JWT
-→ Supa MCP verifies the configured issuer and audience
+→ Chumbo verifies the configured issuer and audience
 → verified claims become a normalized principal and capability scopes
 → that identity receives its allowed MCP surface
 ```
@@ -139,7 +147,7 @@ separate decisions.
 
 The safe default is an anonymous request-scoped Supabase client. The verified
 principal and scopes can call the application's narrow RPCs or existing data
-plane, just like a verifier-backed application key. Supa MCP must not
+plane, just like a verifier-backed application key. Chumbo must not
 manufacture a Supabase user from arbitrary JWT claims.
 
 Supabase also supports configured Third-Party Auth integrations for providers
@@ -213,7 +221,7 @@ The external-JWT release will not:
 - store user sessions, workload credentials, or downstream provider secrets;
 - prescribe claim names, roles, organizations, entitlements, or scope
   conventions;
-- turn Supa MCP into a credential broker, IAM product, or generic policy
+- turn Chumbo into a credential broker, IAM product, or generic policy
   engine;
 - support non-JWT schemes such as AWS SigV4 under this API;
 - treat an arbitrary verified JWT as a Supabase Auth user;
@@ -227,7 +235,7 @@ verifier behind the same normalized result contract. The default should remain
 declarative. A custom hook earns inclusion only if a real issuer cannot be
 represented safely with issuer, audience, JWKS, and claim mapping.
 
-## Proposed 0.9.0: durable MCP Tasks
+## Candidate: durable MCP Tasks
 
 - **Status:** Proposed next core capability after identity federation
 - **Motivating cases:** work that cannot or should not complete inside one Edge
@@ -239,7 +247,7 @@ Map MCP's durable task lifecycle onto Supabase-native persistence and Queues:
 
 ```text
 agent starts work
-→ Supa MCP verifies identity and capability
+→ Chumbo verifies identity and capability
 → task and job are persisted
 → a worker executes the application-owned operation
 → the agent reads status and the durable result
@@ -295,7 +303,7 @@ The durable-Tasks release will not provide a general workflow engine, prescribe 
 worker runtime, or hide an application's business retries behind a false
 exactly-once guarantee.
 
-## Proposed 0.10.0: MCP Apps on Supabase
+## Candidate: MCP Apps on Supabase
 
 - **Status:** Hosted living pattern proven; reusable runtime surface under
   review
@@ -315,7 +323,7 @@ agent calls a tool
 → those calls retain the same Supabase identity, scopes, and RLS boundary
 ```
 
-The useful Supa MCP seam is not a new frontend framework. It is the deployment
+The useful Chumbo seam is not a new frontend framework. It is the deployment
 and protocol glue that currently makes an otherwise small app difficult:
 
 - register the application resource and its relationship to a tool;
@@ -332,11 +340,11 @@ credentials, and direct HTML serving. Storage remains useful for public or
 signed media, but is not required for the application shell.
 
 Tool visibility is presentation metadata, not authorization. App-only tools
-must still use ordinary Supa MCP scopes and application-owned RLS or policy.
+must still use ordinary Chumbo scopes and application-owned RLS or policy.
 
 The first reference should be intentionally small and production-shaped. A
 builder should be able to replace its HTML and framework without replacing
-Supa MCP's runtime or deployment model.
+Chumbo's runtime or deployment model.
 
 ### Evidence now in hand
 
@@ -353,9 +361,9 @@ Supa MCP's runtime or deployment model.
   model-visible interactive tool from two app-only tools, renders the bundled
   View, and persists a decision through the app-only path;
 - browser hosts require an explicit origin-aware preflight policy at the HTTP
-  boundary. A future Supa MCP abstraction should make that opt-in and visible.
+  boundary. A future Chumbo abstraction should make that opt-in and visible.
 - hosted clients that initiate OAuth also require the Supabase project's OAuth
-  server plus an application-owned authorization UI. Supa MCP should diagnose
+  server plus an application-owned authorization UI. Chumbo should diagnose
   that prerequisite clearly; it should not generate or own the product's login
   and consent experience.
 - OAuth setup guidance must be plan-aware: use the builder's existing
@@ -367,7 +375,7 @@ Supa MCP's runtime or deployment model.
 The MCP Apps release will not become an application builder, component library,
 design system, browser automation suite, or general MCP testing product.
 
-## Proposed 0.11.0: production operations
+## Candidate: production operations
 
 - **Status:** Proposed runtime hardening
 - **Motivating cases:** builders need to understand who invoked a capability,
@@ -424,7 +432,7 @@ promises or new core abstractions:
   separate from authority: compute the effective surface from selected tools,
   application grants, and authorized dependency closure; then prove the same
   decision in discovery and direct invocation. RLS may govern profile,
-  selection, and grant rows, but Supa MCP must not prescribe those tables,
+  selection, and grant rows, but Chumbo must not prescribe those tables,
   role names, or an administration UI.
 - **Application-key pairing:** simple one-key onboarding and rotation for
   clients that cannot complete OAuth, proven through a real application.
@@ -445,18 +453,16 @@ real application need
 → smallest useful package abstraction
 ```
 
-Supa MCP should not wrap every Supabase feature. It should own the reusable MCP
+Chumbo should not wrap every Supabase feature. It should own the reusable MCP
 boundary and teach builders how existing Supabase capabilities compose behind
 it.
 
 ## Directional sequence
 
 ```text
-0.7  bounded durable MCP state
-0.8  external identity federation
-0.9  durable agent work
-0.10 interactive MCP Apps
-0.11 production visibility and control hooks
+shipped: bounded durable MCP state and Chumbo identity transition
+next candidates: external identity federation and durable agent work
+later candidates: interactive MCP Apps and production visibility hooks
 ```
 
 The sequence is directional. A living pattern may advance without forcing a

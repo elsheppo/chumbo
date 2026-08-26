@@ -8,7 +8,7 @@ export default defineConfig({
   root: appRoot,
   resolve: {
     alias: {
-      "supa-mcp/app": fileURLToPath(
+      "chumbo/app": fileURLToPath(
         new URL("../../../../src/app.ts", import.meta.url),
       ),
     },

@@ -28,6 +28,28 @@ function equal(actual: unknown, expected: unknown, label: string): void {
   }
 }
 
+async function retryLocalAuth<Value>(
+  operation: () => Promise<Value>,
+): Promise<Value> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (
+        !(error instanceof Error) ||
+        error.name !== "AuthRetryableFetchError" ||
+        attempt === 3
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 250));
+    }
+  }
+  throw lastError;
+}
+
 function mcpRequest(
   url: string,
   method: string,
@@ -184,7 +206,7 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
     ),
   );
   assert(
-    fullDocument.result.contents[0].text.includes("# Start a Supa MCP server"),
+    fullDocument.result.contents[0].text.includes("# Start a Chumbo server"),
     "complete markdown is served only through resources/read",
   );
   assert(
@@ -223,10 +245,12 @@ Deno.test(
       { email: "bob@supa-mcp.test", password: "reference-bob-password" },
     ];
     for (const credential of credentials) {
-      const { error } = await admin.auth.admin.createUser({
-        ...credential,
-        email_confirm: true,
-      });
+      const { error } = await retryLocalAuth(() =>
+        admin.auth.admin.createUser({
+          ...credential,
+          email_confirm: true,
+        }),
+      );
       if (error && !error.message.includes("already been registered")) {
         throw error;
       }
@@ -237,7 +261,9 @@ Deno.test(
       const client = createClient(projectUrl, anonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
-      const { data, error } = await client.auth.signInWithPassword(credential);
+      const { data, error } = await retryLocalAuth(() =>
+        client.auth.signInWithPassword(credential),
+      );
       if (error) throw error;
       assert(data.session?.access_token, `token for ${credential.email}`);
       tokens.push(data.session.access_token);
@@ -312,10 +338,12 @@ Deno.test(
       email: "observation@supa-mcp.test",
       password: "reference-observation-password",
     };
-    const { error: createError } = await admin.auth.admin.createUser({
-      ...credential,
-      email_confirm: true,
-    });
+    const { error: createError } = await retryLocalAuth(() =>
+      admin.auth.admin.createUser({
+        ...credential,
+        email_confirm: true,
+      }),
+    );
     if (
       createError &&
       !createError.message.includes("already been registered")
@@ -325,8 +353,9 @@ Deno.test(
     const client = createClient(projectUrl, anonKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data: signIn, error: signInError } =
-      await client.auth.signInWithPassword(credential);
+    const { data: signIn, error: signInError } = await retryLocalAuth(() =>
+      client.auth.signInWithPassword(credential),
+    );
     if (signInError) throw signInError;
     const userId = signIn.user?.id;
     const token = signIn.session?.access_token;
@@ -507,10 +536,12 @@ Deno.test(
       },
     ];
     for (const credential of credentials) {
-      const { error } = await admin.auth.admin.createUser({
-        ...credential,
-        email_confirm: true,
-      });
+      const { error } = await retryLocalAuth(() =>
+        admin.auth.admin.createUser({
+          ...credential,
+          email_confirm: true,
+        }),
+      );
       if (error && !error.message.includes("already been registered")) {
         throw error;
       }
@@ -521,7 +552,9 @@ Deno.test(
       const client = createClient(projectUrl, anonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
-      const { data, error } = await client.auth.signInWithPassword(credential);
+      const { data, error } = await retryLocalAuth(() =>
+        client.auth.signInWithPassword(credential),
+      );
       if (error) throw error;
       assert(data.user?.id, `user ID for ${credential.email}`);
       assert(data.session?.access_token, `token for ${credential.email}`);
@@ -624,7 +657,7 @@ Deno.test(
       "MCP App MIME type",
     );
     assert(
-      appContent.text.includes("Supa MCP Review Queue"),
+      appContent.text.includes("Chumbo Review Queue"),
       "single-file app contains its compiled browser client",
     );
     assert(
@@ -718,10 +751,12 @@ Deno.test(
       email: "capability-user@supa-mcp.test",
       password: "reference-capability-password",
     };
-    const { error: createError } = await admin.auth.admin.createUser({
-      ...credential,
-      email_confirm: true,
-    });
+    const { error: createError } = await retryLocalAuth(() =>
+      admin.auth.admin.createUser({
+        ...credential,
+        email_confirm: true,
+      }),
+    );
     if (
       createError &&
       !createError.message.includes("already been registered")
@@ -731,8 +766,9 @@ Deno.test(
     const userClient = createClient(projectUrl, anonKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data: signIn, error: signInError } =
-      await userClient.auth.signInWithPassword(credential);
+    const { data: signIn, error: signInError } = await retryLocalAuth(() =>
+      userClient.auth.signInWithPassword(credential),
+    );
     if (signInError) throw signInError;
     const userToken = signIn.session?.access_token;
     assert(userToken, "normal user token");
