@@ -18,9 +18,22 @@ export type {
   SupabaseMcpAuthentication,
   SupabaseMcpAuthMode,
   SupabaseMcpContext,
+  SupabaseMcpDurableStateOptions,
   SupabaseMcpErrorEvent,
   SupabaseMcpPostgresRateLimit,
   SupabaseMcpPrincipal,
   SupabaseMcpProtectedAuth,
   SupabaseMcpServer,
+  SupabaseMcpState,
+  SupabaseMcpStateDeleteOptions,
+  SupabaseMcpStateNamespaceOptions,
+  SupabaseMcpStatePutOptions,
+  SupabaseMcpStateValue,
 } from "./types.js";
+export {
+  durableStateLimits,
+  SupabaseMcpStateConflictError,
+  SupabaseMcpStateMissingError,
+  SupabaseMcpStateUnavailableError,
+  validateDurableStateNamespace,
+} from "./state.js";

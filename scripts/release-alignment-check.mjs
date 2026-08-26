@@ -24,8 +24,8 @@ if (!sourceVersion.includes(`PACKAGE_VERSION = "${expected}"`)) {
 }
 
 const spec = await readFile(path.join(root, "SPEC.md"), "utf8");
-if (!spec.includes(`Current release: \`${expected}\``)) {
-  fail("SPEC.md", "a different current release");
+if (!spec.includes(`Current package version: \`${expected}\``)) {
+  fail("SPEC.md", "a different current package version");
 }
 
 const changelog = await readFile(path.join(root, "CHANGELOG.md"), "utf8");
@@ -52,6 +52,20 @@ for (const importMap of importMaps) {
   if (actual !== `npm:supa-mcp@${expected}`) {
     fail(path.relative(root, importMap), actual);
   }
+  const lockFile = path.join(path.dirname(importMap), "deno.lock");
+  const lock = await readFile(lockFile, "utf8");
+  const lockedVersions = [
+    ...lock.matchAll(/npm:supa-mcp@(\d+\.\d+\.\d+)/g),
+  ].map((match) => match[1]);
+  if (
+    lockedVersions.length === 0 ||
+    lockedVersions.some((version) => version !== expected)
+  ) {
+    fail(
+      path.relative(root, lockFile),
+      [...new Set(lockedVersions)].join(", "),
+    );
+  }
 }
 
 const deployment = JSON.parse(
@@ -60,8 +74,14 @@ const deployment = JSON.parse(
     "utf8",
   ),
 );
-if (deployment.packageVersion !== expected) {
-  fail("docs/deployment/hosted-reference.json", deployment.packageVersion);
+if (
+  typeof deployment.packageVersion !== "string" ||
+  !/^\d+\.\d+\.\d+$/.test(deployment.packageVersion)
+) {
+  fail(
+    "docs/deployment/hosted-reference.json",
+    deployment.packageVersion ?? "an invalid deployed package version",
+  );
 }
 
 if (failures.length) {
@@ -73,4 +93,6 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log(`Release surfaces align with supa-mcp ${expected}.`);
+console.log(
+  `Release-candidate surfaces align with supa-mcp ${expected}; hosted reference truth remains ${deployment.packageVersion}.`,
+);

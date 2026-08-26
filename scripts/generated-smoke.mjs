@@ -1,11 +1,22 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const repository = dirname(dirname(fileURLToPath(import.meta.url)));
 const fixture = await mkdtemp(join(tmpdir(), "supa-mcp-smoke-"));
+const packageVersion = JSON.parse(
+  await readFile(join(repository, "package.json"), "utf8"),
+).version;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -195,6 +206,19 @@ try {
     "--auth",
     "api-key",
   ]);
+  run("node", [
+    join(repository, "dist", "cli.js"),
+    "init",
+    "--yes",
+    "--function",
+    "state-mcp",
+    "--server-name",
+    "Generated state smoke",
+    "--auth",
+    "api-key",
+    "--state-namespace",
+    "observations",
+  ]);
   const doctor = run("node", [
     join(repository, "dist", "cli.js"),
     "doctor",
@@ -217,27 +241,43 @@ try {
     throw new Error(`Status JSON is missing next actions: ${status.stdout}`);
   }
 
-  const runtimeWrapper = join(fixture, "local-runtime.ts");
-  const entryTypes = await readFile(
-    join(repository, "dist", "index.d.ts"),
-    "utf8",
+  const localPackage = join(fixture, "node_modules", "supa-mcp");
+  await mkdir(localPackage, { recursive: true });
+  await cp(join(repository, "dist"), join(localPackage, "dist"), {
+    recursive: true,
+  });
+  await cp(
+    join(repository, "package.json"),
+    join(localPackage, "package.json"),
   );
-  const runtimeChunk = /from "\.\/(runtime-[^"]+)\.js"/.exec(entryTypes)?.[1];
-  if (!runtimeChunk)
-    throw new Error("Could not resolve runtime declaration chunk");
-  const localTypes = join(fixture, "local-runtime.d.ts");
+  for (const dependency of [
+    "@modelcontextprotocol/server",
+    "@supabase/server",
+    "@supabase/supabase-js",
+    "zod",
+  ]) {
+    const destination = join(fixture, "node_modules", dependency);
+    await mkdir(dirname(destination), { recursive: true });
+    await symlink(
+      join(repository, "node_modules", dependency),
+      destination,
+      "dir",
+    );
+  }
   await writeFile(
-    localTypes,
-    entryTypes.replace(
-      `from "./${runtimeChunk}.js"`,
-      `from "${pathToFileURL(join(repository, "dist", `${runtimeChunk}.d.ts`)).href}"`,
-    ),
+    join(fixture, "package.json"),
+    `${JSON.stringify(
+      { type: "module", dependencies: { "supa-mcp": packageVersion } },
+      null,
+      2,
+    )}\n`,
   );
-  await writeFile(
-    runtimeWrapper,
-    `// @deno-types="${pathToFileURL(localTypes).href}"\nexport * from "${pathToFileURL(join(repository, "dist", "index.js")).href}";\n`,
-  );
-  for (const functionName of ["mcp", "public-mcp", "api-key-mcp"]) {
+  for (const functionName of [
+    "mcp",
+    "public-mcp",
+    "api-key-mcp",
+    "state-mcp",
+  ]) {
     const functionDirectory = join(
       fixture,
       "supabase",
@@ -246,7 +286,8 @@ try {
     );
     const denoPath = join(functionDirectory, "deno.json");
     const denoConfig = JSON.parse(await readFile(denoPath, "utf8"));
-    denoConfig.imports["supa-mcp"] = pathToFileURL(runtimeWrapper).href;
+    delete denoConfig.imports["supa-mcp"];
+    denoConfig.nodeModulesDir = "manual";
     await writeFile(denoPath, `${JSON.stringify(denoConfig, null, 2)}\n`);
     run("deno", ["task", "check"], { cwd: functionDirectory });
     run("deno", ["task", "test"], { cwd: functionDirectory });
