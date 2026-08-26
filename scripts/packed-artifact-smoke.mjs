@@ -22,7 +22,7 @@ function run(command, args, options = {}) {
   return execFileSync(command, args, {
     cwd: options.cwd ?? repository,
     encoding: "utf8",
-    env: process.env,
+    env: { ...process.env, ...options.env },
     stdio: options.stdio ?? "pipe",
   });
 }
@@ -39,13 +39,11 @@ async function filesUnder(directory) {
 
 try {
   const packed = JSON.parse(
-    run("npm", [
-      "pack",
-      "--ignore-scripts",
-      "--json",
-      "--pack-destination",
-      fixture,
-    ]),
+    run(
+      "npm",
+      ["pack", "--ignore-scripts", "--json", "--pack-destination", fixture],
+      { env: { npm_config_dry_run: "false" } },
+    ),
   )[0];
   const tarball = join(fixture, packed.filename);
   run("tar", ["-xzf", tarball, "-C", fixture]);
