@@ -385,6 +385,12 @@ promises or new core abstractions:
 - **Realtime capability updates:** notify a connected surface when a Resource
   changes or a durable Task completes, without treating Realtime as required
   transport machinery.
+- **Database-backed actors:** after two real adopters need more than bounded
+  CAS state, evaluate an actor layer with addressable mailboxes, per-actor
+  serialized transitions, transactional outbox results, Cron-backed alarms,
+  and private Realtime delivery. Edge Functions remain disposable workers;
+  Postgres owns durability and ordering. Do not label the current state API an
+  actor runtime or add queues/leases/messages before that evidence exists.
 - **Cron-triggered agent workflows:** scheduled SQL, database functions, or
   Edge Function calls that prepare work an MCP identity can later inspect.
 - **Many MCPs from one function:** continue hardening the existing row-defined

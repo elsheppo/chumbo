@@ -7,7 +7,7 @@ Deno.env.set(
   "SUPABASE_PUBLISHABLE_KEY",
   Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "generated-publishable-key",
 );
-const { default: app } = await import("./index.ts");
+{{STATE_TEST_SETUP}}const { default: app } = await import("./index.ts");
 
 function mcpRequest(
   method: string,

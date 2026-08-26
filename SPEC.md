@@ -123,7 +123,9 @@ Version `0.1.0` will not:
 - replace or wrap the complete official MCP SDK API;
 - create generic MCP tools from every database table;
 - expose Supabase service-role access to user handlers by default;
-- emulate Durable Object identity, actor affinity, or transport sessions;
+- provide a resident Durable Object, actor affinity, mailbox, alarms, or
+  transport sessions; the optional durable-state primitive is bounded
+  request-to-request coordination rather than an actor runtime;
 - ship graph, vector, WASM, AI inference, or agent orchestration frameworks;
 - implement a general OAuth authorization server;
 - generate a branded consent UI for every frontend framework;
@@ -507,6 +509,7 @@ export interface SupabaseMcpContext<Database = unknown> {
   hasScope(scope: string): boolean;
   hasScopes(scopes: readonly string[]): boolean;
   traceId?: string;
+  state?: SupabaseMcpState;
   json(value: unknown): CallToolResult;
 }
 ```
@@ -596,6 +599,29 @@ The default handler context does not expose `supabaseAdmin`. A builder who needs
 an internal operation must opt into a separately named privileged capability and
 supply an authorization predicate. This prevents an attractive nuisance in an
 end-user-facing starter.
+
+### 13.7 Credential-partitioned durable state
+
+Authenticated servers may explicitly configure a bounded namespace allowlist
+and deployment-secret HMAC key. The runtime derives an opaque partition from
+authentication mode, exact strategy, and the exact presented credential.
+Capability code receives only `get`, revision-checked `put`, and
+revision-checked `delete`; it never receives the partition, credential, HMAC
+key, or service-role client.
+
+The opt-in SQL stores JSON values in a private RLS-enabled table and exposes
+three `security invoker` RPCs granted only to `service_role`. Runtime and SQL
+both bound namespaces, keys, encoded values, revisions, and TTL. Raw JSON text
+is measured before database parsing, read text is measured before runtime
+parsing, expiry is deterministic missing state, and writes are atomic CAS.
+Each write opportunistically reclaims at most 16 expired rows using the expiry
+index and `FOR UPDATE SKIP LOCKED`; cleanup failure rolls back with the write.
+
+Credential rotation deliberately creates a new partition. That false negative
+is safer than correlating or accidentally sharing state across credentials.
+Applications remain responsible for domain concurrency and authorization;
+durable state does not weaken RLS, Files-style version CAS, or another
+data-plane precondition.
 
 ## 14. OAuth metadata routing: resolved implementation spike
 
@@ -724,6 +750,10 @@ reads.
 - OAuth metadata and challenge generation;
 - invalid, expired, and insufficient-scope tokens;
 - no privileged client in default context;
+- no credential, HMAC key, state partition, or privileged state client in the
+  handler context, errors, or responses;
+- state isolation across users, rotated credentials, API keys, namespaces, and
+  keys; atomic CAS/delete races; TTL and encoded-size boundaries;
 - result helpers preserve MCP content and structured content;
 - error redaction.
 
