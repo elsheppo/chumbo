@@ -239,9 +239,9 @@ examples of all result patterns.
 
 ## Opt into small durable state
 
-Most Supa MCP servers should remain stateless. When a capability genuinely
-needs request-to-request coordination—such as proving that an editor read a
-document before writing it—generate one allowlisted state namespace:
+Most Supa MCP servers should remain stateless. An authenticated capability that
+genuinely needs request-to-request coordination can explicitly generate one
+allowlisted namespace:
 
 ```sh
 npx supa-mcp setup \
@@ -258,62 +258,30 @@ supabase secrets set \
   SUPA_MCP_STATE_HMAC_KEY="replace-with-at-least-32-random-bytes"
 ```
 
-Authenticated capability code then receives a deliberately small API:
+Capability code then receives only `get`, revision-checked `put`, and
+revision-checked `delete`:
 
 ```ts
-const observed = await ctx.state?.get(
+const receipt = await ctx.state?.get(
   "file-ide.observations",
-  "/research/notes.md",
-);
-
-const advanced = await ctx.state?.put(
-  "file-ide.observations",
-  "/research/notes.md",
-  {
-    value: { versionId: "version-2" },
-    expectedRevision: observed?.revision ?? null,
-  },
+  `project:${projectId}:document:${documentId}`,
 );
 ```
 
-The runtime derives an opaque partition from the exact authenticated credential
-using a deployment-secret HMAC. Application code chooses only a configured
-namespace and bounded object key; it cannot read or supply caller identity.
-Credential rotation therefore safely appears as missing state. State values,
-keys, TTLs, and namespaces are bounded, and writes/deletes use atomic revisions.
-Each write also reclaims at most 16 expired rows through the expiry index, so
-unreachable rotated-credential partitions are collected in bounded batches.
+The runtime derives an opaque partition from the exact credential with a
+deployment-secret HMAC and keeps its service-role state client closure-confined.
+Public mode never receives state. Same-project storage is the default; advanced
+compositions can set `state.supabase.env` to keep receipts in a separate
+Supabase project without moving authentication or `ctx.supabase` there.
 
-The implementation uses a service-role client internally because the state
-table is private and its RPCs are denied to `anon` and `authenticated`. That
-client is operationally broad, but it is closure-confined: it is never placed
-on `ctx`, returned to a capability, or included in errors. Public mode never
-receives state.
+State CAS protects coordination records, not application rows. Use immutable,
+scoped resource IDs, keep the capability's total keyspace bounded, and retain
+RLS or an atomic application-level version precondition for real mutations.
 
-By default, state RPCs use the same Supabase environment as authentication and
-the request-scoped client. A composition that verifies identity in one project
-but owns state in another can override only the private state store:
-
-```ts
-createSupabaseMcp({
-  supabase: { env: identityProjectEnv },
-  state: {
-    hmacKey: stateHmacKey,
-    namespaces: { "file-ide.observations": { ttlSeconds: 86_400 } },
-    supabase: { env: stateOwnerProjectEnv },
-  },
-  // ...
-});
-```
-
-Token verification and `ctx.supabase` continue to use `identityProjectEnv`;
-only the closure-confined admin client for state RPCs uses
-`stateOwnerProjectEnv`. Credentials never cross between those lanes.
-
-This is not a resident Durable Object or actor runtime. A future actor layer
-could add mailboxes, serialized command execution, alarms, and Realtime
-delivery on top of this revisioned storage substrate after a real adopter
-proves those needs.
+See [Observation before action](./docs/patterns/observation-before-action) for
+the complete executable read-before-edit pattern, safe cross-database ordering,
+credential-rotation behavior, and split-project runbook. This is coordination
+storage—not a resident actor or Durable Object runtime.
 
 ## Optional depth when the application needs it
 
@@ -323,6 +291,7 @@ that starting point:
 
 - [Many MCPs from one function](./docs/patterns/many-mcps-one-function)
 - [Authenticated tools with RLS](./docs/patterns/authenticated-tools)
+- [Observation before action](./docs/patterns/observation-before-action)
 - [Different capability surfaces](./docs/patterns/privileged-capabilities)
 - [Interactive MCP Apps on Supabase](./docs/patterns/mcp-apps-on-supabase)
 - [Clean client-facing URLs](./docs/reference/clean-urls)

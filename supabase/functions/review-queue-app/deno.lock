@@ -565,7 +565,7 @@
       "integrity": "sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw=="
     },
     "supa-mcp@0.7.0_zod@4.2.0_@supabase+supabase-js@2.105.4": {
-      "integrity": "sha512-KqWn+m3i2bb/GDsZ8yHbdsZT/pKAS0TWz5WmsJvmDy2516zNlrK36iUyQ8k+E6LbnsoW967NCmGQ3nq5fS00oA==",
+      "integrity": "sha512-GWw76MPFVJxeyzsti2wx7ZkOEQPtKCeMceKyPtS/PcjCdGnrFYpm5E8N7wUQ0jwovnbc8d98JMcnBr0kQ7s61Q==",
       "dependencies": [
         "@modelcontextprotocol/ext-apps",
         "@modelcontextprotocol/server",
