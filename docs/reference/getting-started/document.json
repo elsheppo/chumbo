@@ -1,7 +1,7 @@
 {
   "slug": "getting-started",
   "kind": "reference",
-  "title": "Start a Supa MCP server",
+  "title": "Start a Chumbo server",
   "summary": "Generate, implement, deploy, and verify one end-user MCP in an existing Supabase project.",
   "officialDocs": [
     "https://supabase.com/docs/guides/functions",

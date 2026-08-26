@@ -5,7 +5,7 @@ exact credential observed across otherwise stateless Edge Function requests.
 The motivating case is guarded editing: a caller may change a document only
 after reading a version that is still current.
 
-This pattern is optional. Ordinary Supa MCP servers should continue to use the
+This pattern is optional. Ordinary Chumbo servers should continue to use the
 request-scoped Supabase client and remain stateless.
 
 ## The contract
@@ -26,7 +26,7 @@ There are two independent revisions:
 - `resourceVersion` belongs to the application document or row. The
   application database must compare it atomically while performing the
   mutation.
-- `state.revision` belongs only to the durable observation receipt. Supa MCP
+- `state.revision` belongs only to the durable observation receipt. Chumbo
   uses it to prevent concurrent receipt updates from silently overwriting one
   another.
 
@@ -42,7 +42,7 @@ derived from immutable application identity:
 const receiptKey = `project:${projectId}:document:${documentId}`;
 ```
 
-Do not derive an unbounded keyspace directly from arbitrary tool input. Supa
+Do not derive an unbounded keyspace directly from arbitrary tool input. Chumbo
 MCP bounds every namespace, key, value, revision, and TTL, but capability code
 still owns total live cardinality. A safe capability creates receipts only for
 real, authorized resources and uses one stable key per resource.
@@ -83,7 +83,7 @@ reread or retry; never silently bypass the observation requirement.
 
 ## Identity semantics
 
-Supa MCP partitions state by the exact authenticated credential, authentication
+Chumbo partitions state by the exact authenticated credential, authentication
 mode, and strategy. Different credentials for the same user do not share
 receipts. Credential refresh therefore requires a new read. Conversely, two
 agents deliberately sharing one credential also share its receipt partition;
@@ -119,7 +119,7 @@ provide resident actors, automatic serialized command execution, queues,
 alarms, leases, or messaging. Concurrent requests are expected; state CAS and
 the domain's atomic precondition decide the winners.
 
-The living example deliberately keeps this policy outside the Supa MCP starter
+The living example deliberately keeps this policy outside the Chumbo starter
 template. It records full-document observations, rejects blind and stale edits,
 and proves that only one concurrent mutation can win.
 

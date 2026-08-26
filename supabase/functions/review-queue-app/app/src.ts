@@ -1,4 +1,4 @@
-import { createAppWorkspace } from "supa-mcp/app";
+import { createAppWorkspace } from "chumbo/app";
 import "./style.css";
 
 type ReviewStatus = "pending" | "approved" | "rejected";
@@ -31,7 +31,7 @@ const refreshButton = document.querySelector("#refresh") as HTMLButtonElement;
 const expandButton = document.querySelector("#expand") as HTMLButtonElement;
 
 const workspace = createAppWorkspace(
-  { name: "Supa MCP Review Queue", version: "0.1.0" },
+  { name: "Chumbo Review Queue", version: "0.1.0" },
   { root },
 );
 const { app } = workspace;
