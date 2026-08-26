@@ -14,6 +14,9 @@ import { spawnSync } from "node:child_process";
 
 const repository = dirname(dirname(fileURLToPath(import.meta.url)));
 const fixture = await mkdtemp(join(tmpdir(), "supa-mcp-smoke-"));
+const packageVersion = JSON.parse(
+  await readFile(join(repository, "package.json"), "utf8"),
+).version;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -264,7 +267,7 @@ try {
   await writeFile(
     join(fixture, "package.json"),
     `${JSON.stringify(
-      { type: "module", dependencies: { "supa-mcp": "0.6.6" } },
+      { type: "module", dependencies: { "supa-mcp": packageVersion } },
       null,
       2,
     )}\n`,

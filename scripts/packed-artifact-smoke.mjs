@@ -14,6 +14,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = await mkdtemp(join(repository, ".packed-artifact-smoke-"));
+const packageVersion = JSON.parse(
+  await readFile(join(repository, "package.json"), "utf8"),
+).version;
 
 function run(command, args, options = {}) {
   return execFileSync(command, args, {
@@ -153,7 +156,7 @@ createSupabaseMcp({
     `${JSON.stringify(
       {
         type: "module",
-        dependencies: { "supa-mcp": "0.6.6" },
+        dependencies: { "supa-mcp": packageVersion },
       },
       null,
       2,

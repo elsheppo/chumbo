@@ -2,13 +2,33 @@ project_id = "supa-mcp-example"
 
 [api]
 enabled = true
-port = 54321
+port = 57421
 schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
+
+[db]
+port = 57422
+shadow_port = 57420
+major_version = 17
+
+[studio]
+enabled = true
+port = 57423
+
+[local_smtp]
+enabled = true
+port = 57424
+
+[analytics]
+enabled = false
 
 [auth]
 enabled = true
 site_url = "http://127.0.0.1:3000"
+
+[edge_runtime]
+enabled = true
+inspector_port = 57483
 
 [functions.mcp]
 verify_jwt = false
