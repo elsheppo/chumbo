@@ -9,7 +9,7 @@ import {
   textResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "supa-mcp";
+} from "chumbo";
 import { z } from "zod";
 
 export function registerCapabilities(

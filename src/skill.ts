@@ -18,9 +18,9 @@ export const AGENTS_POINTER_START = "<!-- supa-mcp:skill:start -->";
 export const AGENTS_POINTER_END = "<!-- supa-mcp:skill:end -->";
 
 export const AGENTS_POINTER = `${AGENTS_POINTER_START}
-## Supa MCP agent skill
+## Chumbo agent skill
 
-For designing, implementing, reviewing, or testing Supa MCP capabilities, read
+For designing, implementing, reviewing, or testing Chumbo capabilities, read
 and follow \`skills/supa-mcp/SKILL.md\`.
 ${AGENTS_POINTER_END}`;
 
@@ -247,7 +247,7 @@ function inspectPointer(source: string): PointerInspection {
       state: "invalid",
       source,
       reason:
-        "AGENTS.md has incomplete, reversed, or duplicate Supa MCP markers.",
+        "AGENTS.md has incomplete, reversed, or duplicate Chumbo markers.",
     };
   }
   const start = starts[0]!;
@@ -411,7 +411,7 @@ async function planInitialInstall(
           pointer.block === AGENTS_POINTER ? "unchanged" : "conflict",
           pointer.block === AGENTS_POINTER
             ? {}
-            : { reason: "The existing Supa MCP managed pointer differs." },
+            : { reason: "The existing Chumbo managed pointer differs." },
         ),
       );
     } else {
@@ -632,7 +632,7 @@ export async function planSkill(
   if (!bundle.version.trim())
     throw new Error("The bundled skill has no version.");
   if (!("SKILL.md" in bundle.files)) {
-    throw new Error("The bundled Supa MCP skill has no SKILL.md.");
+    throw new Error("The bundled Chumbo skill has no SKILL.md.");
   }
   for (const path of Object.keys(bundle.files)) assertManagedPath(path);
 
@@ -662,7 +662,7 @@ export async function planSkill(
         availableVersion: bundle.version,
         state: "not_installed",
         files: [],
-        message: "The Supa MCP project skill is not installed.",
+        message: "The Chumbo project skill is not installed.",
       };
     }
     return planInitialInstall(projectRoot, bundle);

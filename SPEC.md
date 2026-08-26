@@ -1,8 +1,8 @@
-# supa-mcp: Product and Implementation Specification
+# chumbo: Product and Implementation Specification
 
 Status: Guided setup and living reference implemented\
 Date: 2026-08-20\
-Current package version: `0.7.0`\
+Current package version: `0.8.0`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the
@@ -10,7 +10,7 @@ official SDK provides it
 
 ## 1. Executive decision
 
-`supa-mcp` will be a small TypeScript package and initializer that
+`chumbo` will be a small TypeScript package and initializer that
 adds an end-user-facing MCP server to an existing Supabase application.
 
 The product promise is:
@@ -33,8 +33,8 @@ database-to-tools generator.
 
 The stable expansion model is one library, not product-tier architecture:
 
-> Supa MCP makes one Supabase-native MCP easy and supports increasingly
-> advanced patterns—including many MCPs from one function—through the same
+> Chumbo makes one Supabase-native MCP easy and supports increasingly
+> advanced patterns – including many MCPs from one function – through the same
 > library.
 
 Advanced patterns live in the open-source reference project first. They become
@@ -171,13 +171,13 @@ not sufficient evidence.
 Primary command:
 
 ```sh
-npx supa-mcp setup
+npx chumbo setup
 ```
 
 Non-interactive equivalent:
 
 ```sh
-npx supa-mcp setup \
+npx chumbo setup \
   --function mcp \
   --auth oauth \
   --server-name my-app \
@@ -231,7 +231,7 @@ import {
   structuredResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "supa-mcp";
+} from "chumbo";
 import { z } from "zod";
 
 const app = createSupabaseMcp({
@@ -280,7 +280,7 @@ Supabase client construction.
 ### 8.3 Run locally
 
 ```sh
-npx supa-mcp dev
+npx chumbo dev
 ```
 
 The command may delegate to the installed Supabase CLI rather than wrapping its
@@ -298,7 +298,7 @@ deno test supabase/functions/mcp
 ### 8.4 Diagnose
 
 ```sh
-npx supa-mcp doctor
+npx chumbo doctor
 ```
 
 `doctor` should check, without exposing secrets:
@@ -313,7 +313,7 @@ npx supa-mcp doctor
 - `WWW-Authenticate` challenge shape;
 - whether the endpoint advertises the expected protocol version;
 - optional live `tools/list` call when credentials are supplied;
-- whether a remote response was produced by Supa MCP or by an upstream gateway;
+- whether a remote response was produced by Chumbo or by an upstream gateway;
 - deployed runtime version, auth mode, API-key strategy, and advertised resource
   URL through non-secret response metadata;
 - common RLS symptom: authenticated call succeeds but returns no rows;
@@ -333,16 +333,19 @@ section.
 ### 8.5 Install the project agent skill
 
 ```sh
-npx supa-mcp skill install
-npx supa-mcp skill status
-npx supa-mcp skill update
+npx chumbo skill install
+npx chumbo skill status
+npx chumbo skill update
 ```
 
 The optional skill is versioned inside the npm artifact and installed at
-`skills/supa-mcp/`. It teaches a coding agent to translate application
-operations into coherent MCP capabilities, choose explicit result contracts,
-preserve request-scoped authority, and verify the protocol boundary. It is not
-a copy of Supabase documentation or an automatic schema-to-tools generator.
+`skills/supa-mcp/`. The legacy installation path remains stable so existing
+managed skill installations can update without splitting ownership or losing
+their manifest history; the skill itself teaches Chumbo's current API and
+commands. It translates application operations into coherent MCP capabilities,
+chooses explicit result contracts, preserves request-scoped authority, and
+verifies the protocol boundary. It is not a copy of Supabase documentation or
+an automatic schema-to-tools generator.
 
 The installer appends one marked pointer to the root `AGENTS.md` while
 preserving all existing content. A managed manifest records the installed
@@ -381,11 +384,11 @@ published package. Generated code should remain readable and removable.
 
 ## 10. Package shape
 
-Keep one repository and one npm package for `0.1.0` unless implementation
-evidence forces a split.
+Keep one repository and one npm package unless implementation evidence forces a
+split.
 
 ```text
-supa-mcp/
+chumbo/
 ├── src/
 │   ├── runtime.ts
 │   ├── types.ts
@@ -415,10 +418,8 @@ Expected exports:
 }
 ```
 
-The executable may be named `supa-mcp` and expose `init`, `doctor`,
-and `dev` subcommands. Confirm GitHub and npm namespace availability before the
-first public release; current web search found no exact-name collision but does
-not reserve the name.
+The canonical executable is `chumbo` and exposes `setup`, `doctor`, `dev`, and
+`skill` subcommands. The package also retains `supa-mcp` as a transition alias.
 
 ## 11. Runtime architecture
 
@@ -469,7 +470,7 @@ Supabase owns:
 - JWT signing and discovery;
 - request-scoped Supabase Data API behavior and RLS enforcement.
 
-`supa-mcp` owns:
+`chumbo` owns:
 
 - composing the web-standard MCP handler with Supabase request identity;
 - protected-resource metadata and OAuth challenge configuration for the Edge
@@ -1031,7 +1032,7 @@ Resolved:
 4. Host the optional minimal consent UI as a second Supabase Edge Function.
 5. Keep one combined runtime/CLI package; the packed artifact is 27 KB and its
    clean-consumer proof passes.
-6. Use the unscoped `supa-mcp` name and position it explicitly as an
+6. Use the unscoped `chumbo` name and position it explicitly as an
    end-user application MCP, not the Supabase management MCP.
 
 Still to verify before release:

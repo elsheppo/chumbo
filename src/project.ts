@@ -163,13 +163,13 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
       ? `  state: {\n    hmacKey: stateHmacKey,\n    namespaces: { ${JSON.stringify(options.stateNamespace)}: { ttlSeconds: 86400 } },\n  },\n`
       : "",
     STATE_README: options.stateNamespace
-      ? `\nThis function opts into credential-partitioned durable state in the ${JSON.stringify(options.stateNamespace)} namespace. Apply the generated migration, then set a unique deployment HMAC secret before starting or deploying:\n\n\`\`\`sh\nsupabase db push\nsupabase secrets set SUPA_MCP_STATE_HMAC_KEY=\"replace-with-at-least-32-random-bytes\"\n\`\`\`\n\nThe runtime keeps its service-role client private. Capability code sees only \`ctx.state.get\`, revision-checked \`put\`, and revision-checked \`delete\`.\n`
+      ? `\nThis function opts into credential-partitioned durable state in the ${JSON.stringify(options.stateNamespace)} namespace. Apply the generated migration, then set a unique deployment HMAC secret before starting or deploying:\n\n\`\`\`sh\nsupabase db push\nsupabase secrets set CHUMBO_STATE_HMAC_KEY=\"replace-with-at-least-32-random-bytes\"\n\`\`\`\n\nThe runtime keeps its service-role client private. Capability code sees only \`ctx.state.get\`, revision-checked \`put\`, and revision-checked \`delete\`.\n`
       : "",
     STATE_SETUP: options.stateNamespace
-      ? 'const stateHmacKey = Deno.env.get("SUPA_MCP_STATE_HMAC_KEY");\nif (!stateHmacKey) throw new Error("SUPA_MCP_STATE_HMAC_KEY is not configured");\n'
+      ? 'const stateHmacKey = Deno.env.get("CHUMBO_STATE_HMAC_KEY");\nif (!stateHmacKey) throw new Error("CHUMBO_STATE_HMAC_KEY is not configured");\n'
       : "",
     STATE_TEST_SETUP: options.stateNamespace
-      ? 'Deno.env.set("SUPA_MCP_STATE_HMAC_KEY", "generated-state-test-hmac-key-32-bytes");\nDeno.env.set("SUPABASE_SECRET_KEY", Deno.env.get("SUPABASE_SECRET_KEY") ?? "generated-secret-key");\n'
+      ? 'Deno.env.set("CHUMBO_STATE_HMAC_KEY", "generated-state-test-hmac-key-32-bytes");\nDeno.env.set("SUPABASE_SECRET_KEY", Deno.env.get("SUPABASE_SECRET_KEY") ?? "generated-secret-key");\n'
       : "",
     SERVER_NAME: options.serverName,
   };
