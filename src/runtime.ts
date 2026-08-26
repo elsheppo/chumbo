@@ -488,17 +488,25 @@ export function createSupabaseMcpInternal<Database = unknown>(
       : undefined;
   const runtimeHeaders = {
     "access-control-expose-headers":
-      "x-supa-mcp-version, x-supa-mcp-auth-mode, x-supa-mcp-auth-strategy, x-supa-mcp-resource-url",
+      "x-chumbo-version, x-chumbo-auth-mode, x-chumbo-auth-strategy, x-chumbo-resource-url, x-supa-mcp-version, x-supa-mcp-auth-mode, x-supa-mcp-auth-strategy, x-supa-mcp-resource-url",
+    "x-chumbo-version": PACKAGE_VERSION,
+    "x-chumbo-auth-mode": auth.mode,
+    "x-chumbo-resource-url": resourceUrl.href,
     "x-supa-mcp-version": PACKAGE_VERSION,
     "x-supa-mcp-auth-mode": auth.mode,
     "x-supa-mcp-resource-url": resourceUrl.href,
     ...(auth.mode === "api-key"
       ? {
+          "x-chumbo-auth-strategy":
+            typeof auth.key === "string" ? "static" : "verifier",
           "x-supa-mcp-auth-strategy":
             typeof auth.key === "string" ? "static" : "verifier",
         }
       : auth.mode === "multi"
-        ? { "x-supa-mcp-auth-strategy": "composed" }
+        ? {
+            "x-chumbo-auth-strategy": "composed",
+            "x-supa-mcp-auth-strategy": "composed",
+          }
         : {}),
   };
 

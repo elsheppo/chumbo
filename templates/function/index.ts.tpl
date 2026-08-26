@@ -1,4 +1,4 @@
-import { createSupabaseMcp } from "supa-mcp";
+import { createSupabaseMcp } from "chumbo";
 import { registerCapabilities } from "./capabilities.ts";
 
 const projectUrl = Deno.env.get("SUPABASE_URL");

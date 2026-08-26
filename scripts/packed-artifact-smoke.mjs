@@ -48,6 +48,30 @@ try {
   const tarball = join(fixture, packed.filename);
   run("tar", ["-xzf", tarball, "-C", fixture]);
   const packageRoot = join(fixture, "package");
+  const packedPackage = JSON.parse(
+    await readFile(join(packageRoot, "package.json"), "utf8"),
+  );
+  if (
+    packedPackage.name !== "chumbo" ||
+    packedPackage.version !== packageVersion
+  ) {
+    throw new Error(
+      `Packed identity mismatch: ${packedPackage.name}@${packedPackage.version}`,
+    );
+  }
+  if (
+    packedPackage.bin?.chumbo !== "dist/cli.js" ||
+    packedPackage.bin?.["supa-mcp"] !== "dist/cli.js"
+  ) {
+    throw new Error("Packed CLI does not expose both chumbo and supa-mcp");
+  }
+  const cliHelp = run(process.execPath, [
+    join(packageRoot, "dist", "cli.js"),
+    "--help",
+  ]);
+  if (!cliHelp.includes(`chumbo ${packageVersion}`)) {
+    throw new Error("Packed CLI help does not identify Chumbo and its version");
+  }
   const declarationFiles = (await filesUnder(join(packageRoot, "dist"))).filter(
     (path) => path.endsWith(".d.ts"),
   );
@@ -134,7 +158,7 @@ createSupabaseMcp({
 
   const nodeModules = join(fixture, "node_modules");
   await mkdir(nodeModules);
-  await cp(packageRoot, join(nodeModules, "supa-mcp"), { recursive: true });
+  await cp(packageRoot, join(nodeModules, "chumbo"), { recursive: true });
   for (const dependency of [
     "@modelcontextprotocol/server",
     "@supabase/server",
@@ -154,7 +178,7 @@ createSupabaseMcp({
     `${JSON.stringify(
       {
         type: "module",
-        dependencies: { "supa-mcp": packageVersion },
+        dependencies: { chumbo: packageVersion },
       },
       null,
       2,
@@ -169,7 +193,7 @@ createSupabaseMcp({
   durableStateLimits,
   type SupabaseMcpContext,
   type SupabaseMcpState,
-} from "supa-mcp";
+} from "chumbo";
 
 function stateFrom(context: SupabaseMcpContext): SupabaseMcpState | undefined {
   return context.state;
@@ -208,7 +232,7 @@ if (typeof app.fetch !== "function" || durableStateLimits.keyBytes !== 512) {
   run("deno", ["run", "--config", join(fixture, "deno.json"), denoConsumer]);
 
   console.log(
-    `Packed artifact passed Node ESM, strict TypeScript, Deno runtime/type, and ${declarationFiles.length}-file declaration graph checks.`,
+    `Packed artifact passed package identity, dual CLI, Node ESM, strict TypeScript, Deno runtime/type, and ${declarationFiles.length}-file declaration graph checks.`,
   );
 } finally {
   await rm(fixture, { recursive: true, force: true });

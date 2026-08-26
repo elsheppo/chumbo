@@ -9,7 +9,7 @@ Edit `capabilities.ts` to expose your app, then let the setup command re-check
 the project and report the remaining actions:
 
 ```sh
-npx supa-mcp setup --resume --function {{FUNCTION_NAME}}
+npx chumbo setup --resume --function {{FUNCTION_NAME}}
 ```
 
 Design each result for its actual consumer: use `textResult` for an agent,
@@ -33,17 +33,17 @@ before registering or calling tools.
 
 ```sh
 supabase functions deploy {{FUNCTION_NAME}} --no-verify-jwt
-npx supa-mcp doctor \
+npx chumbo doctor \
   --function {{FUNCTION_NAME}} \
   --url https://YOUR_PROJECT.supabase.co/functions/v1/{{FUNCTION_NAME}}
 ```
 
 To give clients a clean URL, configure the Edge Function's advertised identity
-and proxy the entire route tree—including its `/.well-known/...` suffixes—to
+and proxy the entire route tree – including its `/.well-known/...` suffixes – to
 the Supabase function:
 
 ```sh
-npx supa-mcp setup \
+npx chumbo setup \
   --resume \
   --function {{FUNCTION_NAME}} \
   --public-url https://yourapp.com/mcp
@@ -55,8 +55,8 @@ the clean URL after the proxy is live.
 For agents and CI, both continuation and diagnostics have stable JSON output:
 
 ```sh
-npx supa-mcp setup --resume --function {{FUNCTION_NAME}} --yes --json
-npx supa-mcp doctor --function {{FUNCTION_NAME}} --url https://YOUR_PROJECT.supabase.co/functions/v1/{{FUNCTION_NAME}} --json
+npx chumbo setup --resume --function {{FUNCTION_NAME}} --yes --json
+npx chumbo doctor --function {{FUNCTION_NAME}} --url https://YOUR_PROJECT.supabase.co/functions/v1/{{FUNCTION_NAME}} --json
 ```
 
 For OAuth mode, enable Supabase OAuth Server, configure your application's

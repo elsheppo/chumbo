@@ -294,6 +294,8 @@ export function createSupabaseMcpStateFactory(
           "HMAC",
           await cryptoKey,
           framed([
+            // Stable domain separator: changing it would orphan existing
+            // credential partitions after a package or product rename.
             "supa-mcp-state-v1",
             identity.authentication.mode,
             identity.authentication.strategy,

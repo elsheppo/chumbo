@@ -1,7 +1,10 @@
 {
   "projectRef": "dxrpeagddrpbezbkgvdv",
   "region": "ca-central-1",
+  "packageName": "supa-mcp",
   "packageVersion": "0.6.6",
+  "sourcePackageName": "supa-mcp",
+  "sourcePackageVersion": "0.7.0",
   "docsMcpUrl": "https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp",
   "oauthConsentUrl": "https://elsheppo.github.io/supa-mcp/oauth/consent.html",
   "oauthConsentHost": "temporary-github-pages",
