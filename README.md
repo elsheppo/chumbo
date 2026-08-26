@@ -4,14 +4,10 @@
 
 **MCP made easy on Supabase.**
 
-Chumbo turns capabilities from an existing Supabase application into a
-Streamable HTTP MCP server running as a Supabase Edge Function. Your application
-keeps its Auth, Postgres data, Row Level Security, Storage, and authorization
-model. MCP becomes another interface to the product you already built.
-
-This package is for application builders exposing their own product to users
-and agents. It is not the official Supabase management MCP used to administer
-Supabase projects.
+Chumbo turns an existing Supabase application into a Streamable HTTP MCP server
+running as a Supabase Edge Function. Your application keeps its Auth, Postgres
+data, Row Level Security, Storage, and authorization model. MCP becomes another
+interface to the product you already built.
 
 ```text
 MCP client
@@ -53,7 +49,8 @@ supabase/functions/mcp/
 ## Write one capability
 
 Edit the generated `capabilities.ts`. Chumbo uses the official MCP SDK's
-registration API; it does not introduce another tool framework.
+registration API, so your capabilities remain ordinary MCP tools, Resources,
+and prompts.
 
 ```ts
 import {
@@ -68,33 +65,28 @@ export function registerCapabilities(
   ctx: SupabaseMcpContext,
 ) {
   server.registerTool(
-    "list_projects",
+    "list_tasks",
     {
-      description: "List projects visible to the connected user.",
+      description: "List tasks visible to the connected user.",
       inputSchema: z.object({}),
     },
     async () => {
       const { data, error } = await ctx.supabase
-        .from("projects")
-        .select("id, name, status")
-        .order("name");
+        .from("tasks")
+        .select("id, title, status")
+        .order("title");
 
       if (error) throw error;
       if (!data?.length) {
-        return textResult(
-          "No projects are visible.\n\n→ Next: create_project starts one.",
-        );
+        return textResult("No tasks are visible to the connected user.");
       }
 
       return textResult(
         [
-          `## Projects – ${data.length}`,
+          `## Tasks – ${data.length}`,
           ...data.map(
-            (project) =>
-              `- **${project.name}** – ${project.status} · ID: ${project.id}`,
+            (task) => `- **${task.title}** – ${task.status} · ID: ${task.id}`,
           ),
-          "",
-          "→ Next: get_project reads one in full.",
         ].join("\n"),
       );
     },
@@ -106,9 +98,9 @@ The important part is `ctx.supabase`. In OAuth and bearer modes, it is a fresh
 client carrying the connected user's access token, so the same Postgres grants
 and RLS policies used by the rest of the application apply to every tool call.
 
-Chumbo does not infer tools from tables or prescribe an application schema.
-Builders define useful application operations and return only the information
-their consumers need.
+You choose the application operations worth exposing and shape each result for
+its real consumer. Chumbo handles the MCP and request-authority boundary around
+that application code.
 
 ## Run, deploy, and verify
 
@@ -141,12 +133,12 @@ https://PROJECT_REF.supabase.co/functions/v1/mcp
 
 ## Choose who can connect
 
-| Access mode | Use it when                                                                             | Request authority                                                   |
-| ----------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| **OAuth**   | Product users should connect their own accounts. Recommended for a user-facing product. | Supabase user token and existing RLS                                |
-| **API key** | You want the shortest authenticated start or already maintain application keys.         | Application-verified subject and scopes; no fictional Supabase user |
-| **Bearer**  | Your own client already holds a Supabase user access token.                             | Supabase user token and existing RLS                                |
-| **Public**  | The capability is intentionally anonymous.                                              | Supabase `anon` role plus a generated Postgres rate-limit guardrail |
+| Access mode | Use it when                                                                          | Request authority                                                   |
+| ----------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| **OAuth**   | Your users should connect their own accounts. Recommended for a user-facing product. | Supabase user token and existing RLS                                |
+| **API key** | You want the shortest authenticated start or already maintain application keys.      | Application-verified subject and scopes                             |
+| **Bearer**  | Your own client already holds a Supabase user access token.                          | Supabase user token and existing RLS                                |
+| **Public**  | The capability is intentionally anonymous.                                           | Supabase `anon` role plus a generated Postgres rate-limit guardrail |
 
 Run `npx chumbo setup` interactively, or choose directly:
 
@@ -186,28 +178,19 @@ Cursor, MCP Inspector, and other Streamable HTTP clients use the same endpoint.
 See [Connect your MCP client](./docs/reference/connect-clients) for exact setup
 and verified combinations.
 
-## Why this is production-shaped
+## What Chumbo handles
 
-- **One backend boundary.** Auth, RLS, Postgres, Storage, and Edge Functions
-  remain authoritative; Chumbo does not create a parallel control plane.
+- **Supabase-native authority.** Auth, RLS, Postgres, Storage, and Edge
+  Functions remain authoritative.
 - **Request isolation.** Every request receives a new MCP server, normalized
   principal, and Supabase client. Caller identity never lives in shared mutable
   module state.
-- **Deliberate authentication.** Supabase users retain an RLS-aware client.
-  Application keys retain an application-owned subject and scopes without
-  being converted into a fake user.
+- **Deliberate authentication.** Supabase users receive an RLS-aware client.
+  Application keys retain their application-owned subject and scopes.
 - **Rotation-safe verification.** OAuth and bearer requests use Supabase's
   public JWKS. Remote JWKS configuration is cached briefly per runtime to avoid
   adding a key-network round trip to every MCP request while still observing
   signing-key rotation quickly.
-- **Old and new project keys work.** Current publishable and secret keys are
-  preferred when configured. Established Edge Function projects that still
-  receive `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are detected
-  automatically, without exposing either credential.
-- **Honest, safe diagnostics.** Invalid credentials remain `invalid_token`.
-  Post-verification setup failures return `server_error`; `onError` reports the
-  `runtime` phase with a secret-safe configuration message for operators and
-  coding agents.
 - **Explicit result contracts.** Agent-facing text, typed data, hybrids, and
   large Resources are separate choices rather than automatic duplicated output.
 - **Protocol-native capabilities.** Tools, Resources, prompts, instructions,
@@ -215,9 +198,8 @@ and verified combinations.
 - **Deployable defaults.** Setup is previewable, resumable, conflict-aware, and
   usable non-interactively by agents and CI. `doctor` verifies the real remote
   MCP boundary.
-- **Works with an ordinary Supabase project.** The runtime needs no Chumbo
-  cloud service or separate application server. Public mode's default guardrail
-  is Postgres-backed.
+- **No required Chumbo service.** The runtime deploys into an ordinary Supabase
+  project. Public mode's default guardrail is Postgres-backed.
 
 ## Choose the result for its consumer
 
@@ -229,9 +211,9 @@ and verified combinations.
 | `resourceResult(text, link)`      | A concise reading card whose full body is served through MCP Resources  |
 | `errorResult(message, nextStep?)` | A failure that tells the agent how to recover                           |
 
-Do not mirror raw database rows as an MCP contract by default. Shape the result
-around the consumer's next reasoning or interaction step, preserve useful
-identifiers, and use Resources or pagination for large payloads.
+Shape each result around the consumer's next reasoning or interaction step.
+Preserve useful identifiers, omit internal fields, and use Resources or
+pagination for large payloads.
 
 [Model-facing results](./docs/patterns/model-facing-results) contains executable
 examples of all result patterns.
@@ -299,13 +281,12 @@ that starting point:
 These are composition patterns, not additional frameworks or required product
 architecture.
 
-## Living proof
+## Reference project
 
 This repository includes an open-source Supabase reference project. Its
-patterns run through the real MCP transport against local Postgres and a hosted
-deployment. The suite covers two-user RLS isolation, explicit result contracts,
-many row-defined MCP surfaces, composed user and application identities, and an
-authenticated MCP App rendered and mutated through Claude.
+patterns run through the real MCP transport against local Postgres. The suite
+covers two-user RLS isolation, explicit result contracts, many row-defined MCP
+surfaces, composed user and application identities, and interactive MCP Apps.
 
 The public documentation MCP is available at:
 
