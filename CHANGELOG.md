@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Make the hosted-reference gate follow its deployment receipt instead of the
+  repository package version, and remove the obsolete prototype OAuth consent
+  page from MCP health verification.
 - Align canonical repository links, public guides, and roadmap status with the
   Chumbo name while retaining legacy identifiers and hosted deployment facts
   that remain part of compatibility or current runtime truth.
