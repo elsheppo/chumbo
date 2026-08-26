@@ -3,7 +3,7 @@
   "specifiers": {
     "npm:@modelcontextprotocol/server@2.0.0": "2.0.0",
     "npm:@supabase/supabase-js@2.105.4": "2.105.4",
-    "npm:supa-mcp@0.6.6": "0.6.6_zod@4.2.0_@supabase+supabase-js@2.105.4",
+    "npm:supa-mcp@0.7.0": "0.7.0_zod@4.2.0_@supabase+supabase-js@2.105.4",
     "npm:zod@4.2.0": "4.2.0"
   },
   "npm": {
@@ -566,8 +566,8 @@
     "statuses@2.0.2": {
       "integrity": "sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw=="
     },
-    "supa-mcp@0.6.6_zod@4.2.0_@supabase+supabase-js@2.105.4": {
-      "integrity": "sha512-xWLU3Odvrayq3+yMCgBcXw2inuOQeJgIP95kQkJYX3qPPTP74SvdZyUfT+AWTawUUMXcDrU4a1j1RK9jpMSAhA==",
+    "supa-mcp@0.7.0_zod@4.2.0_@supabase+supabase-js@2.105.4": {
+      "integrity": "sha512-KqWn+m3i2bb/GDsZ8yHbdsZT/pKAS0TWz5WmsJvmDy2516zNlrK36iUyQ8k+E6LbnsoW967NCmGQ3nq5fS00oA==",
       "dependencies": [
         "@modelcontextprotocol/ext-apps",
         "@modelcontextprotocol/server",
@@ -620,7 +620,7 @@
       "npm:@modelcontextprotocol/server@2.0.0",
       "npm:@supabase/server@1.4.1",
       "npm:@supabase/supabase-js@2.105.4",
-      "npm:supa-mcp@0.6.6",
+      "npm:supa-mcp@0.7.0",
       "npm:zod@4.2.0"
     ]
   }
