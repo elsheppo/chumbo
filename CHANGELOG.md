@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Deploy all six hosted living-reference functions from merged Chumbo source,
+  record their active versions and bundle checksums, and verify both canonical
+  Chumbo and legacy compatibility runtime fingerprints.
 - Make the hosted-reference gate follow its deployment receipt instead of the
   repository package version, and remove the obsolete prototype OAuth consent
   page from MCP health verification.

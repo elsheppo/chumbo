@@ -1,10 +1,37 @@
 {
   "projectRef": "dxrpeagddrpbezbkgvdv",
   "region": "ca-central-1",
-  "packageName": "supa-mcp",
-  "packageVersion": "0.6.6",
+  "packageName": "chumbo",
+  "packageVersion": "0.8.0",
   "sourcePackageName": "chumbo",
   "sourcePackageVersion": "0.8.0",
+  "deploymentSourceCommit": "bf61edd4375a1a921272010c30ce2b0ca3b1f8fc",
+  "functions": {
+    "docs-mcp": {
+      "version": 7,
+      "sha256": "ec545133261e4ea5189d79f8ce255a9c8faff4ddd1584250158ac721f0b81148"
+    },
+    "authenticated-tools": {
+      "version": 5,
+      "sha256": "cb2e7650d879e198b0656da5fff0128e49884a5f2b31e2c5f25e2fe06914c24c"
+    },
+    "model-facing-results": {
+      "version": 5,
+      "sha256": "a540d68145d3d356a48de2bba8c94509b52937d465fad74e704e7b3ba054dede"
+    },
+    "many-mcps": {
+      "version": 5,
+      "sha256": "403ee1cdeb191fc530152ee33fdbfbeccb3e02506e1451e0fab3d4e3f4b269e1"
+    },
+    "privileged-capabilities": {
+      "version": 4,
+      "sha256": "be1ba88ea2268999c35a7d4c40617061df603c960c5cf14b9c996b4ddfeb1b2a"
+    },
+    "review-queue-app": {
+      "version": 5,
+      "sha256": "08d33c3e7d35cccaa555bbf85fd451de33db76a1f384c41c06a056b9709ffa2b"
+    }
+  },
   "docsMcpUrl": "https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp",
   "oauthConsentUrl": "https://elsheppo.github.io/supa-mcp/oauth/consent.html",
   "oauthConsentStatus": "obsolete-prototype-not-a-hosted-mcp-gate",
