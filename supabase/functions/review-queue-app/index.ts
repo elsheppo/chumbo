@@ -5,7 +5,7 @@ import {
   structuredResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "supa-mcp";
+} from "chumbo";
 import { z } from "zod";
 
 const APP_URI = "ui://supa-mcp/review-queue.html";
@@ -92,7 +92,7 @@ function queueText(queue: Queue): string {
   }
   const rows = pending
     .slice(0, 5)
-    .map((item) => `- **${item.title}** — ${item.summary}`)
+    .map((item) => `- **${item.title}** – ${item.summary}`)
     .join("\n");
   return `## Review queue\n\n${queue.pendingCount} pending item${
     queue.pendingCount === 1 ? "" : "s"
@@ -211,7 +211,7 @@ const resourceUrl = new URL(
 );
 
 const app = createSupabaseMcp<ReferenceDatabase>({
-  server: { name: "Supa MCP review queue app", version: "0.1.0" },
+  server: { name: "Chumbo review queue app", version: "0.1.0" },
   instructions:
     "Use open_review_queue when a user wants to inspect or decide application items visually. The interactive app owns UI mechanics; durable decisions remain server-authorized.",
   resourceUrl,

@@ -3,12 +3,12 @@
   "region": "ca-central-1",
   "packageName": "supa-mcp",
   "packageVersion": "0.6.6",
-  "sourcePackageName": "supa-mcp",
-  "sourcePackageVersion": "0.7.0",
+  "sourcePackageName": "chumbo",
+  "sourcePackageVersion": "0.8.0",
   "docsMcpUrl": "https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp",
   "oauthConsentUrl": "https://elsheppo.github.io/supa-mcp/oauth/consent.html",
   "oauthConsentHost": "temporary-github-pages",
-  "oauthConsentMigration": "Move to the Supa MCP website /oauth/consent route, update the Supabase Site URL and authorization path, then disable GitHub Pages.",
+  "oauthConsentMigration": "Replace the prototype GitHub Pages URL with an application-owned consent surface before the next hosted OAuth proof.",
   "oauthServer": {
     "enabled": true,
     "dynamicClientRegistration": true,
@@ -23,6 +23,6 @@
     "status": "connected-and-mutated",
     "pendingDemoRows": 1
   },
-  "source": "https://github.com/elsheppo/supa-mcp",
+  "source": "https://github.com/elsheppo/chumbo",
   "deployment": "public-reference"
 }

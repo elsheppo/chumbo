@@ -3,7 +3,7 @@
 Use this pattern when an MCP should expose the same user-owned application data
 as the product UI.
 
-Configure Supa MCP with OAuth for end-user connection flows or bearer mode when
+Configure Chumbo with OAuth for end-user connection flows or bearer mode when
 the client already possesses a Supabase user access token. Inside each handler,
 query through `ctx.supabase`. Do not accept a user ID as a tool argument and do
 not replace the request-scoped client with `service_role`.

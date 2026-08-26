@@ -7,7 +7,7 @@ import {
   type SupabaseMcpServer,
   type SupabaseMcpState,
   type SupabaseMcpStateValue,
-} from "supa-mcp";
+} from "chumbo";
 import { z } from "zod";
 
 const OBSERVATION_NAMESPACE = "reference.observations";
@@ -260,7 +260,7 @@ function register(server: SupabaseMcpServer, ctx: SupabaseMcpContext<any>) {
 }
 
 const app = createSupabaseMcp({
-  server: { name: "Observation before action", version: "0.7.0" },
+  server: { name: "Observation before action", version: "0.8.0" },
   resourceUrl,
   auth: { mode: "bearer" },
   state: {

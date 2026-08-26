@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Align canonical repository links, public guides, and roadmap status with the
+  Chumbo name while retaining legacy identifiers and hosted deployment facts
+  that remain part of compatibility or current runtime truth.
+- Make the living-reference suite retry only Supabase Auth's explicit
+  retryable transport failure and transient Postgres statement timeouts during
+  a fresh local-stack reset.
+
 ## 0.8.0 – 2026-08-26
 
 - Rename the package and CLI to Chumbo. `chumbo` becomes the canonical npm

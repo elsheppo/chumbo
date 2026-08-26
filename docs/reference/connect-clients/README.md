@@ -1,8 +1,8 @@
 # Connect your MCP client
 
-A deployed Supa MCP endpoint speaks Streamable HTTP at
+A deployed Chumbo endpoint speaks Streamable HTTP at
 `https://PROJECT_REF.supabase.co/functions/v1/<function>`. Connect it once
-`npx supa-mcp doctor --url <endpoint>` reports the runtime healthy.
+`npx chumbo doctor --url <endpoint>` reports the runtime healthy.
 
 **Claude Code**
 
@@ -15,13 +15,13 @@ API-key or bearer mode: add
 `--header "Authorization: Bearer <credential>"` to the same command.
 `claude mcp list` shows per-server connection health.
 
-**claude.ai and Claude Desktop** — Settings → Connectors → Add custom
+**claude.ai and Claude Desktop** – Settings → Connectors → Add custom
 connector, then paste the endpoint URL. Requires OAuth mode with dynamic
 client registration enabled, because the connector registers itself as an
 OAuth client against the project's Supabase Auth server. API-key and bearer
 endpoints are not connectable here; use them from clients that send headers.
 
-**Cursor** — add the server to `.cursor/mcp.json` (project) or
+**Cursor** – add the server to `.cursor/mcp.json` (project) or
 `~/.cursor/mcp.json` (global):
 
 ```json
@@ -37,7 +37,7 @@ endpoints are not connectable here; use them from clients that send headers.
 
 Omit `headers` for OAuth mode; Cursor initiates the OAuth flow itself.
 
-**MCP Inspector** — `npx @modelcontextprotocol/inspector`, transport
+**MCP Inspector** – `npx @modelcontextprotocol/inspector`, transport
 Streamable HTTP, paste the endpoint. The most direct way to watch requests
 and results while developing locally against
 `http://127.0.0.1:54321/functions/v1/mcp`.
@@ -57,7 +57,7 @@ instructions; promote them to verified by connecting once and recording the
 result here.
 
 If a client reports the server unreachable, run
-`npx supa-mcp doctor --url <endpoint>` first: it distinguishes a gateway 401
+`npx chumbo doctor --url <endpoint>` first: it distinguishes a gateway 401
 (missing `verify_jwt = false`) from an endpoint that is healthy but waiting
 for a credential.
 

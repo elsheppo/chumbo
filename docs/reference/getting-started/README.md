@@ -1,4 +1,4 @@
-# Start a Supa MCP server
+# Start a Chumbo server
 
 Five steps take an existing Supabase repository to an MCP client calling the
 application. Each step ends in an observable result.
@@ -6,7 +6,7 @@ application. Each step ends in an observable result.
 **1. Generate.** From the repository containing `supabase/config.toml`:
 
 ```sh
-npx supa-mcp setup
+npx chumbo setup
 ```
 
 Choose the access mode when prompted: OAuth for a product whose users connect
@@ -26,14 +26,14 @@ database row into both result lanes automatically.
 ```sh
 supabase functions serve mcp
 deno task --config supabase/functions/mcp/deno.json test
-npx supa-mcp doctor --url http://127.0.0.1:54321/functions/v1/mcp
+npx chumbo doctor --url http://127.0.0.1:54321/functions/v1/mcp
 ```
 
 **4. Deploy and verify.**
 
 ```sh
 supabase functions deploy mcp --no-verify-jwt
-npx supa-mcp doctor --url https://PROJECT_REF.supabase.co/functions/v1/mcp
+npx chumbo doctor --url https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
 
 Pass `--token` when the endpoint is authenticated to complete a full
@@ -41,7 +41,7 @@ Pass `--token` when the endpoint is authenticated to complete a full
 in the Supabase Dashboard.
 
 **5. Connect a client.** Point an MCP client at the deployed URL and call a
-tool as a real user — for example:
+tool as a real user – for example:
 
 ```sh
 claude mcp add --transport http my-app \
@@ -52,7 +52,7 @@ The [client connection guide](../connect-clients) covers Claude Code,
 claude.ai, Claude Desktop, Cursor, and MCP Inspector, with the verification
 status of each path.
 
-Supa MCP does not choose an application schema or authorization model. Queries
+Chumbo does not choose an application schema or authorization model. Queries
 run through the request-scoped Supabase client so the application's grants and
 RLS remain authoritative.
 
