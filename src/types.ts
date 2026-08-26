@@ -125,6 +125,13 @@ export interface SupabaseMcpDurableStateOptions {
   hmacKey: string;
   /** Exact namespace allowlist available to application capability code. */
   namespaces: Readonly<Record<string, SupabaseMcpStateNamespaceOptions>>;
+  /**
+   * Optional Supabase environment owning the private durable-state RPCs.
+   * Defaults to the application's ordinary Supabase environment.
+   */
+  supabase?: {
+    env?: Partial<SupabaseEnv>;
+  };
 }
 
 export interface SupabaseMcpStateValue<Value extends JsonValue = JsonValue> {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Allow opt-in durable state to name a separate Supabase environment for its
+  private RPC client while preserving same-project behavior by default. OAuth
+  verification and request-scoped data access remain on the application
+  environment, and cross-project credential separation is regression-tested.
 - Emit stable, matching JavaScript and declaration chunk names, and verify the
   actual packed artifact across Node ESM, strict TypeScript, and Deno rather
   than repairing declaration imports inside a generated-project smoke test.

@@ -290,6 +290,26 @@ client is operationally broad, but it is closure-confined: it is never placed
 on `ctx`, returned to a capability, or included in errors. Public mode never
 receives state.
 
+By default, state RPCs use the same Supabase environment as authentication and
+the request-scoped client. A composition that verifies identity in one project
+but owns state in another can override only the private state store:
+
+```ts
+createSupabaseMcp({
+  supabase: { env: identityProjectEnv },
+  state: {
+    hmacKey: stateHmacKey,
+    namespaces: { "file-ide.observations": { ttlSeconds: 86_400 } },
+    supabase: { env: stateOwnerProjectEnv },
+  },
+  // ...
+});
+```
+
+Token verification and `ctx.supabase` continue to use `identityProjectEnv`;
+only the closure-confined admin client for state RPCs uses
+`stateOwnerProjectEnv`. Credentials never cross between those lanes.
+
 This is not a resident Durable Object or actor runtime. A future actor layer
 could add mailboxes, serialized command execution, alarms, and Realtime
 delivery on top of this revisioned storage substrate after a real adopter
