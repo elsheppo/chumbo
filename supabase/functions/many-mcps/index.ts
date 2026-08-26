@@ -85,7 +85,7 @@ async function handle(request: Request): Promise<Response> {
   const app = createSupabaseMcp({
     server: {
       name: definition.server.name,
-      version: "0.6.6",
+      version: "0.7.0",
     },
     resourceUrl,
     auth: { mode: "public", rateLimit: true },

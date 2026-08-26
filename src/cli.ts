@@ -57,7 +57,8 @@ Setup options:
   --consent <mode>        none or minimal (default: none)
   --project-ref <ref>     Supabase project ref for deploy and endpoint discovery
   --public-url <url>      Clean URL clients will use, such as https://app.com/mcp
-  --apply-migrations      Apply the generated public limiter migration
+  --state-namespace <id>  Opt into credential-partitioned Postgres state
+  --apply-migrations      Apply explicitly generated database support
   --deploy                Deploy after generation and local checks
   --skip-checks           Do not run generated Deno checks
   --resume                Re-observe the current setup and continue safely
@@ -104,6 +105,7 @@ function parse(commandArgs: string[]) {
       resume: { type: "boolean" },
       "server-name": { type: "string" },
       "skip-checks": { type: "boolean" },
+      "state-namespace": { type: "string" },
       token: { type: "string" },
       url: { type: "string" },
       yes: { type: "boolean", short: "y" },
@@ -475,6 +477,7 @@ async function init(args: string[]): Promise<void> {
     auth,
     consent,
     patchConfig: !parsed.values["no-config"],
+    stateNamespace: parsed.values["state-namespace"],
   });
   const conflicts = files.filter((file) => file.status === "conflict");
   if (conflicts.length > 0) {
@@ -619,6 +622,18 @@ async function setup(args: string[]): Promise<void> {
   const functionName = parsed.values.function ?? "mcp";
   const existingInspection = await inspectGeneratedAuth(root, functionName);
   const existingAuth = existingInspection?.mode;
+  const requestedStateNamespace = parsed.values["state-namespace"];
+  if (
+    existingAuth &&
+    requestedStateNamespace &&
+    requestedStateNamespace !== existingInspection.stateNamespace
+  ) {
+    throw new Error(
+      "--state-namespace does not match the existing function configuration.",
+    );
+  }
+  const stateNamespace =
+    requestedStateNamespace ?? existingInspection?.stateNamespace;
   if (
     existingAuth &&
     parsed.values.auth &&
@@ -690,6 +705,7 @@ async function setup(args: string[]): Promise<void> {
       auth,
       consent,
       patchConfig: !parsed.values["no-config"],
+      stateNamespace,
     });
     files = addConsent
       ? fullPlan.filter(
@@ -730,7 +746,8 @@ async function setup(args: string[]): Promise<void> {
       endpoint,
       publicUrl,
       localChecks: "ready",
-      migrations: auth === "public" ? "ready" : "skipped",
+      migrations: auth === "public" || stateNamespace ? "ready" : "skipped",
+      durableState: Boolean(stateNamespace),
       apiKeyStrategy,
       localCheckCommand: existingLocalCheckCommand,
     });
@@ -797,9 +814,12 @@ async function setup(args: string[]): Promise<void> {
   }
 
   let migrations: "complete" | "ready" | "blocked" | "skipped" =
-    auth === "public" ? "ready" : "skipped";
+    auth === "public" || stateNamespace ? "ready" : "skipped";
   let migrationDetail: string | undefined;
-  if (auth === "public" && parsed.values["apply-migrations"]) {
+  if (
+    (auth === "public" || stateNamespace) &&
+    parsed.values["apply-migrations"]
+  ) {
     if (!machine) console.log("\nApplying pending Supabase migrations...");
     const result = await runCommand(
       "supabase",
@@ -809,7 +829,11 @@ async function setup(args: string[]): Promise<void> {
     );
     migrations = result.ok ? "complete" : "blocked";
     migrationDetail = result.ok
-      ? "The public rate-limit migration was applied."
+      ? stateNamespace && auth === "public"
+        ? "The public rate-limit and durable-state migrations were applied."
+        : stateNamespace
+          ? "The durable-state migration was applied."
+          : "The public rate-limit migration was applied."
       : result.detail;
   }
 
@@ -818,11 +842,11 @@ async function setup(args: string[]): Promise<void> {
   let deploymentAllowed =
     parsed.values.deploy &&
     localChecks !== "blocked" &&
-    (auth !== "public" || migrations === "complete");
+    (!(auth === "public" || stateNamespace) || migrations === "complete");
   if (parsed.values.deploy && !deploymentAllowed) {
     deployDetail =
-      auth === "public" && migrations !== "complete"
-        ? "Deployment paused: public mode requires --apply-migrations so the endpoint does not start in a 503 state."
+      (auth === "public" || stateNamespace) && migrations !== "complete"
+        ? "Deployment paused: the generated database support requires --apply-migrations before the endpoint starts."
         : "Deployment paused until local checks pass.";
   }
   let publicUrlConfigured = !publicUrl;
@@ -960,6 +984,7 @@ async function setup(args: string[]): Promise<void> {
     projectRef,
     checkDetail,
     migrationDetail,
+    durableState: Boolean(stateNamespace),
     deployDetail,
     verifyDetail,
     apiKeyStrategy,
@@ -1063,12 +1088,16 @@ async function status(args: string[]): Promise<void> {
     applied: localReady,
     planned: false,
     localChecks: localReady ? "complete" : "blocked",
+    // A public request necessarily exercises its database limiter. A stateful
+    // tools/list proves the HMAC/admin setup, but it need not call a state RPC,
+    // so remote discovery alone must not claim that migration is installed.
     migrations:
       auth === "public" && remoteVerified
         ? "complete"
-        : auth === "public"
+        : auth === "public" || inspection?.stateNamespace
           ? "ready"
           : "skipped",
+    durableState: Boolean(inspection?.stateNamespace),
     remoteVerified,
     remoteAttempted,
     remoteReady,

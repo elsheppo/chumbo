@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, parse, relative, resolve } from "node:path";
 import { PACKAGE_VERSION } from "./version.js";
+import { validateDurableStateNamespace } from "./state.js";
 
 export { PACKAGE_VERSION } from "./version.js";
 
@@ -17,6 +18,7 @@ export interface InitOptions {
   auth: "oauth" | "api-key" | "bearer" | "public";
   consent: "none" | "minimal";
   patchConfig: boolean;
+  stateNamespace?: string;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -116,6 +118,12 @@ async function classifyFile(
 
 export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
   const root = await findSupabaseProject(options.cwd);
+  if (options.stateNamespace) {
+    if (options.auth === "public") {
+      throw new Error("Durable state requires protected authentication");
+    }
+    validateDurableStateNamespace(options.stateNamespace);
+  }
   const functionDirectory = join(
     root,
     "supabase",
@@ -151,6 +159,18 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
       options.auth === "public"
         ? "\nPublic mode is intentionally anonymous and rate limited. Apply the generated migration before starting the function:\n\n```sh\nsupabase db push\n```\n"
         : "",
+    STATE_CONFIG: options.stateNamespace
+      ? `  state: {\n    hmacKey: stateHmacKey,\n    namespaces: { ${JSON.stringify(options.stateNamespace)}: { ttlSeconds: 86400 } },\n  },\n`
+      : "",
+    STATE_README: options.stateNamespace
+      ? `\nThis function opts into credential-partitioned durable state in the ${JSON.stringify(options.stateNamespace)} namespace. Apply the generated migration, then set a unique deployment HMAC secret before starting or deploying:\n\n\`\`\`sh\nsupabase db push\nsupabase secrets set SUPA_MCP_STATE_HMAC_KEY=\"replace-with-at-least-32-random-bytes\"\n\`\`\`\n\nThe runtime keeps its service-role client private. Capability code sees only \`ctx.state.get\`, revision-checked \`put\`, and revision-checked \`delete\`.\n`
+      : "",
+    STATE_SETUP: options.stateNamespace
+      ? 'const stateHmacKey = Deno.env.get("SUPA_MCP_STATE_HMAC_KEY");\nif (!stateHmacKey) throw new Error("SUPA_MCP_STATE_HMAC_KEY is not configured");\n'
+      : "",
+    STATE_TEST_SETUP: options.stateNamespace
+      ? 'Deno.env.set("SUPA_MCP_STATE_HMAC_KEY", "generated-state-test-hmac-key-32-bytes");\nDeno.env.set("SUPABASE_SECRET_KEY", Deno.env.get("SUPABASE_SECRET_KEY") ?? "generated-secret-key");\n'
+      : "",
     SERVER_NAME: options.serverName,
   };
   const templates = [
@@ -189,6 +209,24 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
         path,
         render(
           await loadTemplate("migrations/rate-limit.sql.tpl"),
+          replacements,
+        ),
+      ),
+    );
+  }
+
+  if (options.stateNamespace) {
+    const path = join(
+      root,
+      "supabase",
+      "migrations",
+      "20260826000000_create_supa_mcp_durable_state.sql",
+    );
+    files.push(
+      await classifyFile(
+        path,
+        render(
+          await loadTemplate("migrations/durable-state.sql.tpl"),
           replacements,
         ),
       ),
