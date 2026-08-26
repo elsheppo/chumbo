@@ -6,10 +6,14 @@ import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const manifest = JSON.parse(
-  await readFile(path.join(root, "package.json"), "utf8"),
+const deployment = JSON.parse(
+  await readFile(
+    path.join(root, "docs", "deployment", "hosted-reference.json"),
+    "utf8",
+  ),
 );
-const expectedRuntimeVersion = manifest.version;
+const expectedRuntimeName = deployment.packageName;
+const expectedRuntimeVersion = deployment.packageVersion;
 const projectUrl = (
   process.env.SUPA_MCP_REFERENCE_URL ??
   "https://dxrpeagddrpbezbkgvdv.supabase.co"
@@ -19,9 +23,6 @@ const publishableKey =
   process.env.SUPA_MCP_REFERENCE_PUBLISHABLE_KEY ??
   process.env.SUPA_MCP_REFERENCE_ANON_KEY;
 const serviceRoleKey = process.env.SUPA_MCP_REFERENCE_SERVICE_ROLE_KEY;
-const consentUrl =
-  process.env.SUPA_MCP_REFERENCE_CONSENT_URL ??
-  "https://elsheppo.github.io/supa-mcp/oauth/consent.html";
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -81,7 +82,7 @@ async function mcp(endpoint, method, params = {}, bearer) {
         _meta: {
           "io.modelcontextprotocol/protocolVersion": "2026-07-28",
           "io.modelcontextprotocol/clientInfo": {
-            name: "supa-mcp-hosted-smoke",
+            name: "chumbo-hosted-smoke",
             version: "1.0.0",
           },
           "io.modelcontextprotocol/clientCapabilities": {},
@@ -106,41 +107,26 @@ function assert(condition, message) {
 }
 
 function assertRuntimeVersion(response, endpoint) {
-  const actual = response.headers.get("x-supa-mcp-version");
+  const canonicalHeader =
+    expectedRuntimeName === "chumbo"
+      ? "x-chumbo-version"
+      : "x-supa-mcp-version";
+  const actual = response.headers.get(canonicalHeader);
   assert(
     actual === expectedRuntimeVersion,
-    `Hosted ${endpoint} runs supa-mcp ${actual ?? "unknown"}; expected ${expectedRuntimeVersion}.`,
+    `Hosted ${endpoint} runs ${expectedRuntimeName} ${actual ?? "unknown"}; expected ${expectedRuntimeVersion}.`,
   );
+  if (expectedRuntimeName === "chumbo") {
+    assert(
+      response.headers.get("x-supa-mcp-version") === expectedRuntimeVersion,
+      `Hosted ${endpoint} is missing the matching legacy x-supa-mcp-version compatibility header.`,
+    );
+  }
 }
 
 const expected = await expectedDocuments();
 const verifiedFunctions = new Set(["docs-mcp"]);
 const verifiedSurfaces = new Set(["docs-mcp"]);
-
-const consentResponse = await fetch(consentUrl);
-assert(
-  consentResponse.ok,
-  `Hosted OAuth consent page returned HTTP ${consentResponse.status}.`,
-);
-assert(
-  consentResponse.headers.get("content-type")?.includes("text/html"),
-  "Hosted OAuth consent page is not served as HTML.",
-);
-const consentHtml = await consentResponse.text();
-assert(
-  consentHtml.includes("Approve this connection?"),
-  "Hosted OAuth consent page has the wrong content.",
-);
-assert(
-  consentHtml.includes('name="robots" content="noindex"'),
-  "Hosted OAuth consent page is missing its noindex directive.",
-);
-assert(
-  !consentHtml.includes("__SUPABASE_") &&
-    !consentHtml.includes("sb_secret_") &&
-    !consentHtml.includes("service_role"),
-  "Hosted OAuth consent page contains an unresolved placeholder or private credential.",
-);
 
 const claudePreflight = await fetch(`${functionsUrl}/review-queue-app`, {
   method: "OPTIONS",
@@ -343,8 +329,8 @@ if (publishableKey && serviceRoleKey) {
   });
   const suffix = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
   const credentials = ["alice", "bob"].map((name) => ({
-    email: `hosted-app-${name}-${suffix}@supa-mcp.test`,
-    password: `Supa-MCP-${crypto.randomUUID()}-aA1!`,
+    email: `hosted-app-${name}-${suffix}@chumbo.test`,
+    password: `Chumbo-${crypto.randomUUID()}-aA1!`,
   }));
   const users = [];
 
@@ -548,7 +534,7 @@ console.log(
       functions: verifiedFunctions.size,
       surfaces: verifiedSurfaces.size,
       authenticatedApp,
-      consentHost: "verified",
+      oauthConsent: "not-a-hosted-mcp-gate",
     },
     null,
     2,

@@ -7,8 +7,8 @@
   "sourcePackageVersion": "0.8.0",
   "docsMcpUrl": "https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp",
   "oauthConsentUrl": "https://elsheppo.github.io/supa-mcp/oauth/consent.html",
-  "oauthConsentHost": "temporary-github-pages",
-  "oauthConsentMigration": "Replace the prototype GitHub Pages URL with an application-owned consent surface before the next hosted OAuth proof.",
+  "oauthConsentStatus": "obsolete-prototype-not-a-hosted-mcp-gate",
+  "oauthConsentMigration": "Configure an application-owned consent surface only when a real OAuth product flow needs one.",
   "oauthServer": {
     "enabled": true,
     "dynamicClientRegistration": true,
@@ -20,7 +20,7 @@
     "host": "Claude",
     "connector": "Supa MCP review queue",
     "identity": "claude-host@supa-mcp.test",
-    "status": "connected-and-mutated",
+    "status": "historical-connected-and-mutated",
     "pendingDemoRows": 1
   },
   "source": "https://github.com/elsheppo/chumbo",
