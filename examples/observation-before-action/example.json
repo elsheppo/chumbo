@@ -1,0 +1,9 @@
+{
+  "slug": "observation-before-action-example",
+  "kind": "example",
+  "title": "Guarded document editing",
+  "summary": "An authenticated MCP records a credential-partitioned observation receipt and requires the document's atomically checked version before editing.",
+  "pattern": "observation-before-action",
+  "endpointPath": "/functions/v1/observation-before-action",
+  "officialDocs": []
+}

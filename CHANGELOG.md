@@ -15,6 +15,9 @@
   deployment-secret HMAC credential partitioning, bounded JSON/TTL/key inputs,
   and atomic get/CAS-put/CAS-delete Postgres RPCs. Public and ordinary
   stateless scaffolds remain unchanged.
+- Add an executable advanced observation-before-action pattern that separates
+  receipt CAS from authoritative resource CAS and proves blind, stale, and
+  concurrent edit behavior without changing the generated stateless path.
 - Add `--state-namespace` setup generation, private service-role-only SQL, a
   secret-safe runtime context, and local Postgres isolation/race/expiry proof.
 - Reclaim unreachable expired credential partitions in index-backed batches of

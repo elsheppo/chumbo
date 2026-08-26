@@ -306,11 +306,11 @@ function normalizeError(error: unknown): Error {
 function runtimeVariable(name: string): string | undefined {
   const runtimeGlobal = globalThis as typeof globalThis & {
     Deno?: { env?: { get(variable: string): string | undefined } };
+    process?: { env?: Record<string, string | undefined> };
   };
   const denoValue = runtimeGlobal.Deno?.env?.get(name);
   if (denoValue) return denoValue;
-  if (typeof process !== "undefined" && process.env) return process.env[name];
-  return undefined;
+  return runtimeGlobal.process?.env?.[name];
 }
 
 function runtimeKeyMap(

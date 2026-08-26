@@ -34,6 +34,7 @@ if (!status()) {
   // Keep those out of public CI logs while preserving startup errors.
   run("supabase", ["start"], { stdio: ["ignore", "ignore", "inherit"] });
 }
+run("pnpm", ["run", "build"]);
 run("pnpm", ["run", "reference:app"]);
 run("supabase", ["db", "reset", "--local"]);
 
@@ -47,6 +48,8 @@ const env = {
   SUPABASE_PUBLISHABLE_KEY: local.PUBLISHABLE_KEY,
   SUPABASE_SECRET_KEY: local.SECRET_KEY,
   SUPABASE_JWKS_URL: `${local.API_URL}/auth/v1/.well-known/jwks.json`,
+  SUPA_MCP_STATE_HMAC_KEY:
+    "local-reference-observation-state-key-at-least-32-bytes",
 };
 
 run("node", ["scripts/sync-reference-content.mjs"], { env });
@@ -55,6 +58,7 @@ for (const name of [
   "authenticated-tools",
   "model-facing-results",
   "many-mcps",
+  "observation-before-action",
   "privileged-capabilities",
   "review-queue-app",
 ]) {
@@ -62,8 +66,10 @@ for (const name of [
     "deno",
     [
       "check",
+      "--no-lock",
+      "--unstable-sloppy-imports",
       "--config",
-      "supabase/deno.json",
+      "supabase/deno.reference.json",
       `supabase/functions/${name}/index.ts`,
     ],
     { env },
@@ -73,8 +79,10 @@ run(
   "deno",
   [
     "test",
+    "--no-lock",
+    "--unstable-sloppy-imports",
     "--config",
-    "supabase/deno.json",
+    "supabase/deno.reference.json",
     "--allow-env",
     "--allow-net=127.0.0.1,localhost",
     "--allow-read=supabase/functions/review-queue-app/dist/review-queue.html",
@@ -84,5 +92,5 @@ run(
 );
 
 console.log(
-  "\nLiving reference project verified from migrations, seed, Git content, and published supa-mcp.",
+  "\nLiving reference project verified from migrations, seed, Git content, and the local release candidate.",
 );

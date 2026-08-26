@@ -623,6 +623,19 @@ Applications remain responsible for domain concurrency and authorization;
 durable state does not weaken RLS, Files-style version CAS, or another
 data-plane precondition.
 
+State revision and resource version are separate concurrency domains. State CAS
+protects only the receipt row. A guarded mutation must first validate the
+receipt, then atomically compare the observed resource version while changing
+the application row, and only after success advance or invalidate the receipt.
+If those stores are separate and receipt advancement fails after the domain
+write, require a reread; never advance a receipt before the domain write.
+
+Per-record bounds do not create a global storage quota. Capabilities must derive
+keys from real, authorized, immutable resource identities and maintain a
+bounded live keyspace rather than mapping arbitrary caller input directly into
+object keys. The living observation-before-action pattern is the executable
+reference for these requirements.
+
 ## 14. OAuth metadata routing: resolved implementation spike
 
 The highest-priority technical uncertainty was how the Supabase gateway routes
