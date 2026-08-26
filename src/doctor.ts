@@ -42,7 +42,7 @@ function modernRequest(method: string): string {
       _meta: {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientInfo": {
-          name: "supa-mcp-doctor",
+          name: "chumbo-doctor",
           version: PACKAGE_VERSION,
         },
         "io.modelcontextprotocol/clientCapabilities": {},
@@ -83,7 +83,7 @@ export async function runDoctor(
     detail: gatewayConfigured
       ? "function handles authentication and MCP challenges"
       : section
-        ? `set verify_jwt = false in [functions.${options.functionName}] so requests reach Supa MCP`
+        ? `set verify_jwt = false in [functions.${options.functionName}] so requests reach Chumbo`
         : `missing [functions.${options.functionName}] configuration`,
   });
 
@@ -113,15 +113,17 @@ export async function runDoctor(
   );
   const pinnedRuntime = dependencySources.some(
     (source) =>
-      /supa-mcp@\d+\.\d+\.\d+/.test(source) ||
-      /["']supa-mcp["']\s*:\s*["'](?:npm:)?\d+\.\d+\.\d+["']/.test(source),
+      /(?:chumbo|supa-mcp)@\d+\.\d+\.\d+/.test(source) ||
+      /["'](?:chumbo|supa-mcp)["']\s*:\s*["'](?:npm:)?(?:chumbo@|supa-mcp@)?\d+\.\d+\.\d+["']/.test(
+        source,
+      ),
   );
   checks.push({
     name: "dependencies",
     ok: pinnedRuntime,
     detail: pinnedRuntime
       ? "runtime import is pinned"
-      : "pin supa-mcp to an exact version in index.ts, deno.json, or package.json",
+      : "pin chumbo to an exact version in index.ts, deno.json, or package.json",
   });
 
   if (!options.url) return checks;
@@ -135,10 +137,18 @@ export async function runDoctor(
     headers,
     body: modernRequest("tools/list"),
   });
-  const runtimeVersion = response.headers.get("x-supa-mcp-version");
-  const runtimeAuth = response.headers.get("x-supa-mcp-auth-mode");
-  const runtimeStrategy = response.headers.get("x-supa-mcp-auth-strategy");
-  const runtimeResourceUrl = response.headers.get("x-supa-mcp-resource-url");
+  const runtimeVersion =
+    response.headers.get("x-chumbo-version") ??
+    response.headers.get("x-supa-mcp-version");
+  const runtimeAuth =
+    response.headers.get("x-chumbo-auth-mode") ??
+    response.headers.get("x-supa-mcp-auth-mode");
+  const runtimeStrategy =
+    response.headers.get("x-chumbo-auth-strategy") ??
+    response.headers.get("x-supa-mcp-auth-strategy");
+  const runtimeResourceUrl =
+    response.headers.get("x-chumbo-resource-url") ??
+    response.headers.get("x-supa-mcp-resource-url");
   const observedAuth = [
     "oauth",
     "api-key",
@@ -165,8 +175,8 @@ export async function runDoctor(
     name: "runtime-reached",
     ok: Boolean(runtimeVersion),
     detail: runtimeVersion
-      ? `supa-mcp ${runtimeVersion}`
-      : "response did not identify the Supa MCP runtime",
+      ? `chumbo ${runtimeVersion}`
+      : "response did not identify the Chumbo runtime",
     blocking: false,
   });
   if (runtimeVersion) {
@@ -239,7 +249,7 @@ export async function runDoctor(
       name: auth === "api-key" ? "api-key-gate" : "bearer-gate",
       ok: response.status === 401,
       detail: runtimeVersion
-        ? `HTTP ${response.status} from Supa MCP`
+        ? `HTTP ${response.status} from Chumbo`
         : `HTTP ${response.status}; responding layer is unconfirmed`,
     });
     if (!options.token) return checks;
@@ -267,7 +277,7 @@ export async function runDoctor(
       name: "multi-auth-gate",
       ok: response.status === 401,
       detail: runtimeVersion
-        ? `HTTP ${response.status} from Supa MCP`
+        ? `HTTP ${response.status} from Chumbo`
         : `HTTP ${response.status}; responding layer is unconfirmed`,
     });
     if (options.token) {

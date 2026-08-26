@@ -73,7 +73,7 @@ server
 ```
 
 Then keep the existing moderation RPC or API authoritative for the mutation.
-The capability surface and data plane agree without making Supa MCP define an
+The capability surface and data plane agree without making Chumbo define an
 administrator role.
 
 ## Fictional API-key users versus application principals

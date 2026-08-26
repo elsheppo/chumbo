@@ -35,15 +35,15 @@ import {
   type SkillPlan,
 } from "./skill.js";
 
-const HELP = `supa-mcp ${PACKAGE_VERSION}
+const HELP = `chumbo ${PACKAGE_VERSION}
 
 Usage:
-  supa-mcp setup [options]   Guided, resumable installation
-  supa-mcp status [options]  Read-only setup status
-  supa-mcp init [options]    Generate files only
-  supa-mcp doctor [options]  Check local or deployed setup
-  supa-mcp dev [options]     Serve the function locally
-  supa-mcp skill <action>    Install, inspect, or update the project agent skill
+  chumbo setup [options]   Guided, resumable installation
+  chumbo status [options]  Read-only setup status
+  chumbo init [options]    Generate files only
+  chumbo doctor [options]  Check local or deployed setup
+  chumbo dev [options]     Serve the function locally
+  chumbo skill <action>    Install, inspect, or update the project agent skill
 
 Skill actions:
   skill install           Install the versioned skill into this project
@@ -74,9 +74,9 @@ Shared options:
   --help                  Show this help
 
 Agent quickstart:
-  supa-mcp setup --auth oauth --yes --json
-  supa-mcp status --json
-  supa-mcp skill install --yes --json
+  chumbo setup --auth oauth --yes --json
+  chumbo status --json
+  chumbo skill install --yes --json
 `;
 
 interface CommandResult {
@@ -294,14 +294,14 @@ function skillNextCommand(
   state: SkillPlan["state"],
 ): string | undefined {
   if (state === "not_installed") {
-    return "npx supa-mcp skill install --yes --json";
+    return "npx chumbo skill install --yes --json";
   }
   if (
     state === "update_available" ||
     (action === "install" && state === "current")
   ) {
     return state === "update_available"
-      ? "npx supa-mcp skill update --yes --json"
+      ? "npx chumbo skill update --yes --json"
       : undefined;
   }
   return undefined;
@@ -335,7 +335,7 @@ function formatSkillPlan(plan: SkillPlan): string {
   return plan.files
     .map(
       (file) =>
-        `${file.status.padEnd(9)} ${file.relativePath}${file.reason ? ` — ${file.reason}` : ""}`,
+        `${file.status.padEnd(9)} ${file.relativePath}${file.reason ? ` – ${file.reason}` : ""}`,
     )
     .join("\n");
 }
@@ -346,24 +346,24 @@ function printSkillReport(
   message?: string,
 ): void {
   if (status === "complete") {
-    console.log(`Supa MCP skill ${plan.availableVersion} is installed.`);
+    console.log(`Chumbo skill ${plan.availableVersion} is installed.`);
     console.log(`Agent entrypoint: ${SKILL_RELATIVE_DIRECTORY}/SKILL.md`);
     return;
   }
   if (status === "current") {
-    console.log(`Supa MCP skill ${plan.availableVersion} is current.`);
+    console.log(`Chumbo skill ${plan.availableVersion} is current.`);
     return;
   }
   if (status === "update_available") {
     console.log(
-      `Supa MCP skill ${plan.installedVersion ?? "unknown"} can update to ${plan.availableVersion}.`,
+      `Chumbo skill ${plan.installedVersion ?? "unknown"} can update to ${plan.availableVersion}.`,
     );
-    console.log("Run: npx supa-mcp skill update");
+    console.log("Run: npx chumbo skill update");
     return;
   }
   if (status === "not_installed") {
-    console.log("The Supa MCP project skill is not installed.");
-    console.log("Run: npx supa-mcp skill install");
+    console.log("The Chumbo project skill is not installed.");
+    console.log("Run: npx chumbo skill install");
     return;
   }
   if (plan.files.length > 0) {
@@ -386,7 +386,7 @@ async function skill(args: string[]): Promise<void> {
     extra.length > 0
   ) {
     throw new Error(
-      "Use `supa-mcp skill install`, `supa-mcp skill status`, or `supa-mcp skill update`.",
+      "Use `chumbo skill install`, `chumbo skill status`, or `chumbo skill update`.",
     );
   }
   const action = actionValue as SkillAction;
@@ -495,7 +495,7 @@ async function init(args: string[]): Promise<void> {
       auth,
       files: fileSummary(files, root),
       nextCommand: needsConfirmation
-        ? `npx supa-mcp init --function ${functionName} --auth ${auth} --yes --json`
+        ? `npx chumbo init --function ${functionName} --auth ${auth} --yes --json`
         : undefined,
     });
     return;
@@ -517,13 +517,13 @@ async function init(args: string[]): Promise<void> {
       functionName,
       auth,
       files: fileSummary(files, root),
-      nextCommand: `npx supa-mcp setup --resume --function ${functionName} --auth ${auth} --yes --json`,
+      nextCommand: `npx chumbo setup --resume --function ${functionName} --auth ${auth} --yes --json`,
     });
     return;
   }
-  console.log(`Created Supa MCP function '${functionName}'.`);
+  console.log(`Created Chumbo function '${functionName}'.`);
   console.log(
-    `\nContinue with:\n  supa-mcp setup --resume --function ${functionName}`,
+    `\nContinue with:\n  chumbo setup --resume --function ${functionName}`,
   );
 }
 
@@ -581,7 +581,7 @@ function remoteEvidence(
     resourceUrlVerified:
       passed("runtime-resource-url") || passed("advertised-resource-url"),
     ...(runtimeCheck
-      ? { runtimeVersion: runtimeCheck.detail.replace(/^supa-mcp\s+/, "") }
+      ? { runtimeVersion: runtimeCheck.detail.replace(/^chumbo\s+/, "") }
       : {}),
     ...(runtimeReached ? { authMode: auth } : {}),
     ...(observedStrategy ? { apiKeyStrategy: observedStrategy } : {}),
@@ -598,7 +598,7 @@ function verificationDetail(
     return "The deployed endpoint accepted a credential and returned MCP capabilities.";
   }
   if (!evidence.runtimeReached) {
-    return "The endpoint answered, but the Supa MCP runtime was not confirmed. Check the deployed function and verify_jwt setting, then retry.";
+    return "The endpoint answered, but the Chumbo runtime was not confirmed. Check the deployed function and verify_jwt setting, then retry.";
   }
   if (
     auth !== "public" &&

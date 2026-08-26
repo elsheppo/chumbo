@@ -1,6 +1,6 @@
 # Identity, scopes, and RLS
 
-Supa MCP normalizes a verified request into `ctx`, but it does not replace the
+Chumbo normalizes a verified request into `ctx`, but it does not replace the
 application's authorization model. Authentication selects the principal and
 request-scoped client; capability scopes shape discovery; the application's
 grants, RLS, RPCs, or APIs remain authoritative for data access.
@@ -74,7 +74,7 @@ const app = createSupabaseMcp({
 });
 ```
 
-The example scope names belong to that application. Supa MCP does not define
+The example scope names belong to that application. Chumbo does not define
 owner, moderator, administrator, tenant, or plan roles.
 
 ## Capability discovery

@@ -158,6 +158,11 @@ describe("OAuth resource server", () => {
     expect(response.headers.get("www-authenticate")).toContain(
       `${RESOURCE_URL}/.well-known/oauth-protected-resource`,
     );
+    expect(response.headers.get("x-chumbo-version")).toBe(PACKAGE_VERSION);
+    expect(response.headers.get("x-chumbo-auth-mode")).toBe("oauth");
+    expect(response.headers.get("x-chumbo-resource-url")).toBe(RESOURCE_URL);
+    expect(response.headers.get("x-chumbo-auth-strategy")).toBeNull();
+    // Legacy headers remain during the package rename transition.
     expect(response.headers.get("x-supa-mcp-version")).toBe(PACKAGE_VERSION);
     expect(response.headers.get("x-supa-mcp-auth-mode")).toBe("oauth");
     expect(response.headers.get("x-supa-mcp-resource-url")).toBe(RESOURCE_URL);
@@ -286,6 +291,8 @@ describe("request context", () => {
     expect((await app.fetch(request("tools/list"))).status).toBe(401);
     const rejected = await app.fetch(request("tools/list", "wrong"));
     expect(rejected.status).toBe(401);
+    expect(rejected.headers.get("x-chumbo-auth-mode")).toBe("api-key");
+    expect(rejected.headers.get("x-chumbo-auth-strategy")).toBe("static");
     expect(rejected.headers.get("x-supa-mcp-auth-mode")).toBe("api-key");
     expect(rejected.headers.get("x-supa-mcp-auth-strategy")).toBe("static");
     const response = await app.fetch(
@@ -332,6 +339,7 @@ describe("request context", () => {
     const response = await app.fetch(request("tools/list", "member-key"));
     expect(sawAdmin).toBe(true);
     expect(response.status, await response.clone().text()).toBe(200);
+    expect(response.headers.get("x-chumbo-auth-strategy")).toBe("verifier");
     expect(response.headers.get("x-supa-mcp-auth-strategy")).toBe("verifier");
     expect((await response.json()).result.tools).toMatchObject([
       { name: "write" },
@@ -382,6 +390,8 @@ describe("request context", () => {
     const userResponse = await app.fetch(
       request("tools/call", "alice", { name: "identity", arguments: {} }),
     );
+    expect(userResponse.headers.get("x-chumbo-auth-mode")).toBe("multi");
+    expect(userResponse.headers.get("x-chumbo-auth-strategy")).toBe("composed");
     expect(userResponse.headers.get("x-supa-mcp-auth-mode")).toBe("multi");
     expect(userResponse.headers.get("x-supa-mcp-auth-strategy")).toBe(
       "composed",

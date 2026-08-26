@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const repository = dirname(dirname(fileURLToPath(import.meta.url)));
-const fixture = await mkdtemp(join(tmpdir(), "supa-mcp-smoke-"));
+const fixture = await mkdtemp(join(tmpdir(), "chumbo-smoke-"));
 const packageVersion = JSON.parse(
   await readFile(join(repository, "package.json"), "utf8"),
 ).version;
@@ -57,7 +57,7 @@ try {
   ) {
     throw new Error(`Unexpected skill plan: ${skillPlan.stdout}`);
   }
-  await readFile(join(fixture, "skills", "supa-mcp", "SKILL.md")).then(
+  await readFile(join(fixture, "skills", "chumbo", "SKILL.md")).then(
     () => {
       throw new Error("skill install --plan wrote files");
     },
@@ -153,7 +153,7 @@ try {
   }
   if (
     setupReport.agentHandoff?.skillInstallCommand !==
-    "npx supa-mcp skill install --yes --json"
+    "npx chumbo skill install --yes --json"
   ) {
     throw new Error(`Setup omitted the optional agent skill: ${setup.stdout}`);
   }
@@ -241,7 +241,7 @@ try {
     throw new Error(`Status JSON is missing next actions: ${status.stdout}`);
   }
 
-  const localPackage = join(fixture, "node_modules", "supa-mcp");
+  const localPackage = join(fixture, "node_modules", "chumbo");
   await mkdir(localPackage, { recursive: true });
   await cp(join(repository, "dist"), join(localPackage, "dist"), {
     recursive: true,
@@ -267,7 +267,7 @@ try {
   await writeFile(
     join(fixture, "package.json"),
     `${JSON.stringify(
-      { type: "module", dependencies: { "supa-mcp": packageVersion } },
+      { type: "module", dependencies: { chumbo: packageVersion } },
       null,
       2,
     )}\n`,
@@ -286,7 +286,7 @@ try {
     );
     const denoPath = join(functionDirectory, "deno.json");
     const denoConfig = JSON.parse(await readFile(denoPath, "utf8"));
-    delete denoConfig.imports["supa-mcp"];
+    delete denoConfig.imports["chumbo"];
     denoConfig.nodeModulesDir = "manual";
     await writeFile(denoPath, `${JSON.stringify(denoConfig, null, 2)}\n`);
     run("deno", ["task", "check"], { cwd: functionDirectory });

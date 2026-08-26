@@ -1,19 +1,19 @@
 ---
-name: supa-mcp
-description: Design, implement, review, and test end-user-facing MCP capabilities in Supabase Edge Functions using Supa MCP. Use when translating application operations into tools, Resources, prompts, auth-aware capability surfaces, result contracts, or protocol-level tests. Not for administering Supabase projects.
+name: chumbo
+description: Design, implement, review, and test end-user-facing MCP capabilities in Supabase Edge Functions using Chumbo. Use when translating application operations into tools, Resources, prompts, auth-aware capability surfaces, result contracts, or protocol-level tests. Not for administering Supabase projects.
 ---
 
-# Supa MCP capability design
+# Chumbo capability design
 
 Build an MCP surface that expresses the application's real operations and
-preserves its existing authority model. Supa MCP owns the protocol and
+preserves its existing authority model. Chumbo owns the protocol and
 request-context boundary; the application still owns its capabilities, data
 contracts, identities, scopes, and authorization.
 
 ## Work from the application inward
 
 Before changing code, inspect the product operation, existing Edge Functions or
-APIs, schema, grants, RLS policies, authentication, installed `supa-mcp`
+APIs, schema, grants, RLS policies, authentication, installed `chumbo`
 version, and current capability tests. Do not infer a tool surface from table
 names alone.
 
@@ -83,11 +83,11 @@ wrong abstraction.
 ## Current package behavior
 
 The project's installed dependency and types are the runtime truth. When an API
-detail is uncertain and the public Supa MCP docs MCP is configured and
+detail is uncertain and the public Chumbo docs MCP is configured and
 reachable, query
 `https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp`: search first,
 then read the linked Resource and inspect its `packageVersion` metadata. Do not
 apply an API documented by a newer version unless upgrading the project is in
 scope. If the docs MCP is unavailable, continue from installed exports and
 project documentation. Do not invent package APIs from this skill or replace
-current Supa MCP documentation with general Supabase documentation.
+current Chumbo documentation with general Supabase documentation.
