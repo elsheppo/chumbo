@@ -557,6 +557,107 @@ describe("request context", () => {
     );
     await app.fetch(request("tools/list", "alice"));
     expect(contextKeys).not.toContain("supabaseAdmin");
+    expect(contextKeys).not.toContain("state");
+  });
+
+  it("exposes only the capability-limited state API on protected requests", async () => {
+    const deps = dependencies({ alice: identity("alice") });
+    deps.createAdminClient = () =>
+      ({
+        adminMarker: "must-never-escape",
+        async rpc() {
+          return { data: [], error: null };
+        },
+      }) as unknown as SupabaseClient;
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "stateful", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "bearer" },
+        state: {
+          hmacKey: "runtime-state-key-at-least-thirty-two-bytes",
+          namespaces: { observations: { ttlSeconds: 60 } },
+        },
+        register(server, context) {
+          server.registerTool(
+            "context_surface",
+            { inputSchema: z.object({}) },
+            async () =>
+              structuredResult({
+                contextKeys: Object.keys(context).sort(),
+                stateKeys: Object.keys(context.state ?? {}).sort(),
+                serializedState: JSON.stringify(context.state),
+              }),
+          );
+        },
+      },
+      deps,
+    );
+
+    const response = await app.fetch(
+      request("tools/call", "alice", {
+        name: "context_surface",
+        arguments: {},
+      }),
+    );
+    const value = (await response.json()).result.structuredContent;
+    expect(value.contextKeys).toContain("state");
+    expect(value.contextKeys).not.toContain("supabaseAdmin");
+    expect(value.stateKeys).toEqual(["delete", "get", "put"]);
+    expect(value.serializedState).not.toContain("alice");
+    expect(value.serializedState).not.toContain("hmac");
+    expect(value.serializedState).not.toContain("adminMarker");
+  });
+
+  it("rejects durable state in public mode before serving requests", () => {
+    expect(() =>
+      createSupabaseMcpInternal(
+        {
+          server: { name: "public-state", version: "1.0.0" },
+          resourceUrl: RESOURCE_URL,
+          auth: { mode: "public" },
+          state: {
+            hmacKey: "runtime-state-key-at-least-thirty-two-bytes",
+            namespaces: { observations: { ttlSeconds: 60 } },
+          },
+          register() {},
+        },
+        dependencies(),
+      ),
+    ).toThrow("protected authentication");
+  });
+
+  it("redacts privileged state setup failures from responses and logs", async () => {
+    const errors: string[] = [];
+    const deps = dependencies({ alice: identity("alice") });
+    deps.createAdminClient = () => {
+      throw new Error(
+        "service-role=secret-admin-value token=alice hmac=secret-state-key",
+      );
+    };
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "stateful", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "bearer" },
+        state: {
+          hmacKey: "runtime-state-key-at-least-thirty-two-bytes",
+          namespaces: { observations: { ttlSeconds: 60 } },
+        },
+        register() {},
+        onError(event) {
+          errors.push(event.error.message);
+        },
+      },
+      deps,
+    );
+
+    const response = await app.fetch(request("tools/list", "alice"));
+    expect(response.status).toBe(500);
+    const body = await response.text();
+    expect(body).not.toContain("alice");
+    expect(body).not.toContain("secret");
+    expect(errors).toEqual(["Durable state is unavailable."]);
   });
 
   it("supports an explicitly public stateless server", async () => {

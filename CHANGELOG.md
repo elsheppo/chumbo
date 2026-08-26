@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add opt-in authenticated durable state with configured namespace allowlists,
+  deployment-secret HMAC credential partitioning, bounded JSON/TTL/key inputs,
+  and atomic get/CAS-put/CAS-delete Postgres RPCs. Public and ordinary
+  stateless scaffolds remain unchanged.
+- Add `--state-namespace` setup generation, private service-role-only SQL, a
+  secret-safe runtime context, and local Postgres isolation/race/expiry proof.
+- Reclaim unreachable expired credential partitions in index-backed batches of
+  at most 16 rows during writes, with concurrent writers using `SKIP LOCKED`.
 - Keep the canonical living-reference import maps and deployment record aligned
   with the published package version, and fail ordinary checks when they drift.
 - Verify hosted Edge Function runtime fingerprints during the living-reference

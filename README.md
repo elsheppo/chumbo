@@ -237,6 +237,64 @@ identifiers, and use Resources or pagination for large payloads.
 [Model-facing results](./docs/patterns/model-facing-results) contains executable
 examples of all result patterns.
 
+## Opt into small durable state
+
+Most Supa MCP servers should remain stateless. When a capability genuinely
+needs request-to-request coordination—such as proving that an editor read a
+document before writing it—generate one allowlisted state namespace:
+
+```sh
+npx supa-mcp setup \
+  --auth oauth \
+  --state-namespace file-ide.observations
+```
+
+This adds one opt-in migration and state configuration. Apply the migration and
+set a unique deployment secret of at least 32 random bytes:
+
+```sh
+supabase db push
+supabase secrets set \
+  SUPA_MCP_STATE_HMAC_KEY="replace-with-at-least-32-random-bytes"
+```
+
+Authenticated capability code then receives a deliberately small API:
+
+```ts
+const observed = await ctx.state?.get(
+  "file-ide.observations",
+  "/research/notes.md",
+);
+
+const advanced = await ctx.state?.put(
+  "file-ide.observations",
+  "/research/notes.md",
+  {
+    value: { versionId: "version-2" },
+    expectedRevision: observed?.revision ?? null,
+  },
+);
+```
+
+The runtime derives an opaque partition from the exact authenticated credential
+using a deployment-secret HMAC. Application code chooses only a configured
+namespace and bounded object key; it cannot read or supply caller identity.
+Credential rotation therefore safely appears as missing state. State values,
+keys, TTLs, and namespaces are bounded, and writes/deletes use atomic revisions.
+Each write also reclaims at most 16 expired rows through the expiry index, so
+unreachable rotated-credential partitions are collected in bounded batches.
+
+The implementation uses a service-role client internally because the state
+table is private and its RPCs are denied to `anon` and `authenticated`. That
+client is operationally broad, but it is closure-confined: it is never placed
+on `ctx`, returned to a capability, or included in errors. Public mode never
+receives state.
+
+This is not a resident Durable Object or actor runtime. A future actor layer
+could add mailboxes, serialized command execution, alarms, and Realtime
+delivery on top of this revisioned storage substrate after a real adopter
+proves those needs.
+
 ## Optional depth when the application needs it
 
 The ordinary path remains one Edge Function with builder-authored capabilities.

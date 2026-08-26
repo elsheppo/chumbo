@@ -58,6 +58,11 @@ architecture on the ordinary one-MCP path.
   Give errors and empty states a useful next step when one exists.
 - Public mode stays intentionally simple but must retain its generated
   Postgres-backed rate-limit guardrail.
+- Credential-partitioned durable state is an authenticated, explicit opt-in.
+  Capability code receives only bounded get/CAS-put/CAS-delete operations for
+  configured namespaces; the service-role client and caller partition never
+  enter the handler context. This is state coordination, not an actor runtime
+  or replacement for application-owned data-plane concurrency.
 - Setup must remain resumable, idempotent, and agent-friendly. `--json` never
   prompts, never leaks tokens, and returns stable step IDs and next actions.
 

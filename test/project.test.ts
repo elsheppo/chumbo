@@ -36,6 +36,21 @@ describe("release version", () => {
     );
     expect(PACKAGE_VERSION).toBe(manifest.version);
   });
+
+  it("keeps the generated and living-reference durable-state SQL identical", async () => {
+    const template = await readFile(
+      new URL("../templates/migrations/durable-state.sql.tpl", import.meta.url),
+      "utf8",
+    );
+    const reference = await readFile(
+      new URL(
+        "../supabase/migrations/20260826042151_create_supa_mcp_durable_state.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(reference).toBe(template);
+  });
 });
 
 describe("config patching", () => {
@@ -216,6 +231,91 @@ describe("initializer", () => {
       mode: "api-key",
       apiKeyStrategy: "static",
     });
+  });
+
+  it("keeps durable state opt-in and generates its complete protected setup", async () => {
+    const statelessRoot = await fixture();
+    const explicitStatelessRoot = await fixture();
+    const common = {
+      functionName: "mcp",
+      serverName: "State fixture",
+      auth: "oauth" as const,
+      consent: "none" as const,
+      patchConfig: true,
+    };
+    const stateless = await planInit({ cwd: statelessRoot, ...common });
+    const explicitStateless = await planInit({
+      cwd: explicitStatelessRoot,
+      ...common,
+      stateNamespace: undefined,
+    });
+    expect(
+      stateless.map((file) => ({
+        relative: file.path.slice(statelessRoot.length),
+        content: file.content,
+        status: file.status,
+      })),
+    ).toEqual(
+      explicitStateless.map((file) => ({
+        relative: file.path.slice(explicitStatelessRoot.length),
+        content: file.content,
+        status: file.status,
+      })),
+    );
+    expect(stateless.some((file) => file.path.includes("durable_state"))).toBe(
+      false,
+    );
+
+    const stateRoot = await fixture();
+    const stateful = await planInit({
+      cwd: stateRoot,
+      ...common,
+      stateNamespace: "file-ide.observations",
+    });
+    const entrypoint = stateful.find((file) => file.path.endsWith("index.ts"));
+    expect(entrypoint?.content).toContain("SUPA_MCP_STATE_HMAC_KEY");
+    expect(entrypoint?.content).toContain(
+      'namespaces: { "file-ide.observations": { ttlSeconds: 86400 } }',
+    );
+    const generatedTest = stateful.find((file) =>
+      file.path.endsWith("index_test.ts"),
+    );
+    expect(generatedTest?.content).toContain(
+      'Deno.env.set("SUPA_MCP_STATE_HMAC_KEY"',
+    );
+    expect(generatedTest?.content).toContain(
+      'Deno.env.set("SUPABASE_SECRET_KEY"',
+    );
+    const migration = stateful.find((file) =>
+      file.path.endsWith("create_supa_mcp_durable_state.sql"),
+    );
+    expect(migration?.content).toContain(
+      "alter table private.supa_mcp_state enable row level security",
+    );
+    expect(migration?.content).toContain("security invoker");
+    expect(migration?.content).toContain("to service_role");
+    expect(migration?.content).toContain("from public, anon, authenticated");
+    await applyPlan(stateful);
+    expect(await inspectGeneratedAuth(stateRoot, "mcp")).toEqual({
+      mode: "oauth",
+      stateNamespace: "file-ide.observations",
+    });
+
+    await expect(
+      planInit({
+        cwd: await fixture(),
+        ...common,
+        stateNamespace: "../escape",
+      }),
+    ).rejects.toThrow("namespaces");
+    await expect(
+      planInit({
+        cwd: await fixture(),
+        ...common,
+        auth: "public",
+        stateNamespace: "observations",
+      }),
+    ).rejects.toThrow("protected authentication");
   });
 });
 
