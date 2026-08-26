@@ -11,4 +11,6 @@ coverage/
 .supabase-home/
 supabase/.branches/
 supabase/.temp/
+examples/multi-tenant/supabase/.branches/
+examples/multi-tenant/supabase/.temp/
 .private/

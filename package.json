@@ -1,6 +1,6 @@
 {
   "name": "supa-mcp",
-  "version": "0.6.6",
+  "version": "0.7.0",
   "description": "Turn a Supabase app into a polished end-user MCP server.",
   "type": "module",
   "license": "MIT",
@@ -64,7 +64,7 @@
     "test": "vitest run",
     "test:generated": "node scripts/generated-smoke.mjs",
     "test:packed": "node scripts/packed-artifact-smoke.mjs",
-    "test:rls": "vitest run test/rls.integration.test.ts",
+    "test:rls": "node scripts/rls-integration-check.mjs",
     "test:state-integration": "node scripts/state-integration-check.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
