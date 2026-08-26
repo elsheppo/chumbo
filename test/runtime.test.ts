@@ -609,6 +609,114 @@ describe("request context", () => {
     expect(value.serializedState).not.toContain("adminMarker");
   });
 
+  it("keeps OAuth verification and durable-state storage in separate Supabase environments", async () => {
+    const authEnv = {
+      url: "https://auth-project.supabase.co",
+      publishableKeys: { current: "auth-publishable-key" },
+    };
+    const stateEnv = {
+      url: "https://state-project.supabase.co",
+      secretKeys: { current: "state-secret-key" },
+    };
+    const verificationEnvs: unknown[] = [];
+    const contextEnvs: unknown[] = [];
+    const adminEnvs: unknown[] = [];
+    const stateRpcArgs: unknown[] = [];
+    const deps = dependencies({ alice: identity("alice") });
+    deps.verifyToken = async (token, env) => {
+      verificationEnvs.push(env);
+      if (token !== "alice") throw new Error("rejected token");
+      return identity("alice");
+    };
+    deps.createClient = (_token, env) => {
+      contextEnvs.push(env);
+      return {} as SupabaseClient;
+    };
+    deps.createAdminClient = (env) => {
+      adminEnvs.push(env);
+      return {
+        async rpc(_name: string, args: unknown) {
+          stateRpcArgs.push(args);
+          return { data: [], error: null };
+        },
+      } as unknown as SupabaseClient;
+    };
+
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "split-state", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "oauth" },
+        supabase: { env: authEnv },
+        state: {
+          hmacKey: "runtime-state-key-at-least-thirty-two-bytes",
+          namespaces: { observations: { ttlSeconds: 60 } },
+          supabase: { env: stateEnv },
+        },
+        register(server, context) {
+          server.registerTool(
+            "state_probe",
+            { inputSchema: z.object({}) },
+            async () =>
+              structuredResult({
+                state: await context.state?.get("observations", "document"),
+              }),
+          );
+        },
+      },
+      deps,
+    );
+
+    const response = await app.fetch(
+      request("tools/call", "alice", {
+        name: "state_probe",
+        arguments: {},
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(verificationEnvs).toEqual([authEnv]);
+    expect(contextEnvs).toEqual([authEnv]);
+    expect(adminEnvs).toEqual([stateEnv]);
+    expect(JSON.stringify(verificationEnvs)).not.toContain("state-secret-key");
+    expect(JSON.stringify(adminEnvs)).not.toContain("auth-publishable-key");
+    expect(JSON.stringify(stateRpcArgs)).not.toContain("alice");
+  });
+
+  it("defaults durable-state storage to the application Supabase environment", async () => {
+    const applicationEnv = { url: "https://same-project.supabase.co" };
+    const adminEnvs: unknown[] = [];
+    const deps = dependencies({ alice: identity("alice") });
+    deps.createAdminClient = (env) => {
+      adminEnvs.push(env);
+      return {
+        async rpc() {
+          return { data: [], error: null };
+        },
+      } as unknown as SupabaseClient;
+    };
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "same-project-state", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "bearer" },
+        supabase: { env: applicationEnv },
+        state: {
+          hmacKey: "runtime-state-key-at-least-thirty-two-bytes",
+          namespaces: { observations: { ttlSeconds: 60 } },
+        },
+        register(server) {
+          server.registerTool("ping", { inputSchema: z.object({}) }, async () =>
+            structuredResult({ pong: true }),
+          );
+        },
+      },
+      deps,
+    );
+
+    expect((await app.fetch(request("tools/list", "alice"))).status).toBe(200);
+    expect(adminEnvs).toEqual([applicationEnv]);
+  });
+
   it("rejects durable state in public mode before serving requests", () => {
     expect(() =>
       createSupabaseMcpInternal(

@@ -895,7 +895,9 @@ export function createSupabaseMcpInternal<Database = unknown>(
               credential: identity.token,
               authentication: identity.authentication,
             },
-            dependencies.createAdminClient(options.supabase?.env),
+            dependencies.createAdminClient(
+              options.state?.supabase?.env ?? options.supabase?.env,
+            ),
           );
         } catch {
           throw new SupabaseMcpStateUnavailableError();
