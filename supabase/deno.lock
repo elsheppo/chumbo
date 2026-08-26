@@ -3,11 +3,11 @@
   "specifiers": {
     "npm:@modelcontextprotocol/server@2.0.0": "2.0.0",
     "npm:@supabase/supabase-js@2.105.4": "2.105.4",
-    "npm:supa-mcp@0.7.0": "0.7.0_zod@4.2.0_@supabase+supabase-js@2.105.4",
+    "npm:chumbo@0.8.0": "0.8.0_zod@4.2.0_@supabase+supabase-js@2.105.4",
     "npm:zod@4.2.0": "4.2.0"
   },
   "npm": {
-    "@hono/node-server@2.1.1_hono@4.13.4": {
+    "@hono/node-server@2.1.1_hono@4.13.5": {
       "integrity": "sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==",
       "dependencies": [
         "hono"
@@ -19,7 +19,7 @@
         "zod"
       ]
     },
-    "@modelcontextprotocol/ext-apps@1.7.5_@modelcontextprotocol+sdk@1.30.0__zod@4.2.0__hono@4.13.4__ajv@8.20.0__express@5.2.1_zod@4.2.0": {
+    "@modelcontextprotocol/ext-apps@1.7.5_@modelcontextprotocol+sdk@1.30.0__zod@4.2.0__hono@4.13.5__ajv@8.20.0__express@5.2.1_zod@4.2.0": {
       "integrity": "sha512-TjPH2S2y5UEGKhmI6+XGFuqfqOV4ppe1x6DA3txnUaEWkgtA4G5vo14jGKFZmegdkZ1H4QMLyujLvoU1BEdnAg==",
       "dependencies": [
         "@modelcontextprotocol/sdk",
@@ -27,7 +27,7 @@
         "zod"
       ]
     },
-    "@modelcontextprotocol/sdk@1.30.0_zod@4.2.0_hono@4.13.4_ajv@8.20.0_express@5.2.1": {
+    "@modelcontextprotocol/sdk@1.30.0_zod@4.2.0_hono@4.13.5_ajv@8.20.0_express@5.2.1": {
       "integrity": "sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==",
       "dependencies": [
         "@hono/node-server",
@@ -162,6 +162,16 @@
       "dependencies": [
         "call-bind-apply-helpers",
         "get-intrinsic"
+      ]
+    },
+    "chumbo@0.8.0_zod@4.2.0_@supabase+supabase-js@2.105.4": {
+      "integrity": "sha512-a/80QvfGtOlqPBuY74FY17hPd1d80xpy2dmyuEyIgSBxuQMwCFSNjP3eemEsJxsYS5sf4HqZ8MQg5SEFDs6uuw==",
+      "dependencies": [
+        "@modelcontextprotocol/ext-apps",
+        "@modelcontextprotocol/server",
+        "@supabase/server",
+        "@supabase/supabase-js",
+        "zod"
       ]
     },
     "content-disposition@1.1.0": {
@@ -345,8 +355,8 @@
         "function-bind"
       ]
     },
-    "hono@4.13.4": {
-      "integrity": "sha512-AGEwKIyRMHRv1t8Wjwa3LHxQ61X5CqrdFT+4BRNTpqS5aJNnpl5WLjADb7vFlJzI/8uK7T5QLVApCMQKNa3LgQ=="
+    "hono@4.13.5": {
+      "integrity": "sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw=="
     },
     "http-errors@2.0.1": {
       "integrity": "sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==",
@@ -566,16 +576,6 @@
     "statuses@2.0.2": {
       "integrity": "sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw=="
     },
-    "supa-mcp@0.7.0_zod@4.2.0_@supabase+supabase-js@2.105.4": {
-      "integrity": "sha512-GWw76MPFVJxeyzsti2wx7ZkOEQPtKCeMceKyPtS/PcjCdGnrFYpm5E8N7wUQ0jwovnbc8d98JMcnBr0kQ7s61Q==",
-      "dependencies": [
-        "@modelcontextprotocol/ext-apps",
-        "@modelcontextprotocol/server",
-        "@supabase/server",
-        "@supabase/supabase-js",
-        "zod"
-      ]
-    },
     "toidentifier@1.0.1": {
       "integrity": "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="
     },
@@ -620,7 +620,7 @@
       "npm:@modelcontextprotocol/server@2.0.0",
       "npm:@supabase/server@1.4.1",
       "npm:@supabase/supabase-js@2.105.4",
-      "npm:supa-mcp@0.7.0",
+      "npm:chumbo@0.8.0",
       "npm:zod@4.2.0"
     ]
   }

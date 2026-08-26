@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectRef = "dxrpeagddrpbezbkgvdv";
 const projectUrl = `https://${projectRef}.supabase.co`;
-const publicUrl = "https://elsheppo.github.io/supa-mcp/oauth/consent.html";
+const publicUrl = "https://elsheppo.github.io/chumbo/oauth/consent.html";
 const wrapper = path.join(root, "scripts", "supabase-reference");
 
 const keys = JSON.parse(

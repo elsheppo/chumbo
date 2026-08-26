@@ -6,7 +6,7 @@ import {
   structuredResult,
   textResult,
   type SupabaseMcpServer,
-} from "supa-mcp";
+} from "chumbo";
 import { z } from "zod";
 
 const projectUrl = Deno.env.get("SUPABASE_URL");
@@ -56,10 +56,10 @@ function register(server: SupabaseMcpServer) {
       ];
       return renderResult({ examples }, ({ examples }) =>
         [
-          `## Tested examples — ${examples.length}`,
+          `## Tested examples – ${examples.length}`,
           "",
           ...examples.map(
-            (example) => `- **${example.name}** — ${example.status}`,
+            (example) => `- **${example.name}** – ${example.status}`,
           ),
           "",
           "→ Next: call show_empty_state or show_recoverable_error to inspect the other branches.",
@@ -135,7 +135,7 @@ function register(server: SupabaseMcpServer) {
 }
 
 const app = createSupabaseMcp({
-  server: { name: "Model-facing result examples", version: "0.7.0" },
+  server: { name: "Model-facing result examples", version: "0.8.0" },
   resourceUrl,
   auth: { mode: "public", rateLimit: true },
   register,

@@ -1,4 +1,4 @@
-# chumbo: Product and Implementation Specification
+# Chumbo: Product and Implementation Specification
 
 Status: Guided setup and living reference implemented\
 Date: 2026-08-20\
@@ -28,8 +28,9 @@ The package will compose, not replace:
 - Supabase OAuth 2.1 Server as the authorization server;
 - Supabase Edge Functions as the protected MCP resource server runtime.
 
-The project is not another MCP SDK, not a Supabase management MCP, and not a
-database-to-tools generator.
+Chumbo owns the reusable boundary between an existing Supabase application and
+its end-user-facing MCP: protocol wiring, request-scoped identity, guided
+setup, diagnostics, result contracts, and optional advanced patterns.
 
 The stable expansion model is one library, not product-tier architecture:
 
@@ -83,18 +84,17 @@ actions allowed by the application's existing permissions.
 
 ## 4. Positioning
 
-The official Supabase MCP lets an agent operate Supabase infrastructure. This
-project lets an application's end users operate the application built on
-Supabase.
+Chumbo is the MCP layer for Supabase apps. It helps application builders expose
+their own product capabilities to users and agents through one Supabase-native
+MCP endpoint.
 
 Recommended public language:
 
 > Add an end-user MCP server to your Supabase app, with OAuth and RLS already
 > wired.
 
-Avoid generic positioning such as "the Supabase MCP SDK." That phrase collides
-with Supabase's project-management MCP and obscures the end-user application use
-case.
+Lead with what builders can create and deploy. Explain neighboring categories
+only when a concrete comparison helps the reader make a decision.
 
 ## 5. Goals
 

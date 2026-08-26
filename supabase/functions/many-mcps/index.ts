@@ -3,7 +3,7 @@ import {
   createSupabaseMcp,
   structuredResult,
   type SupabaseMcpServer,
-} from "supa-mcp";
+} from "chumbo";
 import { z } from "zod";
 
 interface ServerRow {
@@ -85,7 +85,7 @@ async function handle(request: Request): Promise<Response> {
   const app = createSupabaseMcp({
     server: {
       name: definition.server.name,
-      version: "0.7.0",
+      version: "0.8.0",
     },
     resourceUrl,
     auth: { mode: "public", rateLimit: true },
