@@ -30,7 +30,7 @@ the first two.
     strategy.
 11. Exercise populated, empty, missing, conflicting, failed, and Resource
     branches that materially differ.
-12. When deployment is in scope, run `npx supa-mcp doctor` and a public hosted
+12. When deployment is in scope, run `npx chumbo doctor` and a public hosted
     smoke against the deployed URL.
 
 Do not manufacture every case for every tool. Select the cases that could
