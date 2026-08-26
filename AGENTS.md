@@ -1,21 +1,20 @@
-# Supa MCP agent guide
+# Chumbo agent guide
 
 ## What this repository is
 
-Supa MCP turns an existing Supabase application into an end-user-facing MCP
+Chumbo turns an existing Supabase application into an end-user-facing MCP
 server. The package provides a TypeScript runtime, a guided CLI, and generated
-Supabase Edge Function templates. It is not the official Supabase management
-MCP, a database-to-tools generator, or a replacement authorization system.
+Supabase Edge Function templates.
 
-The happy path is deliberately small: a builder runs `npx supa-mcp setup`,
+The happy path is deliberately small: a builder runs `npx chumbo setup`,
 implements application capabilities in the generated `capabilities.ts`,
 deploys one Edge Function, and lets existing Supabase or application auth
 govern access.
 
 ## Keep the value clear
 
-Supa MCP makes one Supabase-native MCP easy and supports increasingly advanced
-patterns—including many MCPs from one function—through the same library. The
+Chumbo makes one Supabase-native MCP easy and supports increasingly advanced
+patterns – including many MCPs from one function – through the same library. The
 default path stays small: one builder's app exposes builder-authored
 capabilities to that app's users. Advanced patterns must remain optional and
 must not burden that setup.
@@ -27,7 +26,7 @@ living Supabase reference project whose tested patterns show how to compose
 that same API with Supabase-native capabilities.
 
 Do not impose application architecture merely because an advanced pattern can
-use it. In particular, Supa MCP does not prescribe:
+use it. In particular, Chumbo does not prescribe:
 
 - downstream API proxying, credential storage, or credential brokerage;
 - database introspection that guesses and generates an application's tools;
@@ -35,11 +34,22 @@ use it. In particular, Supa MCP does not prescribe:
 - domain-specific tool behavior or purpose-written renderers.
 
 Row-defined servers, path-based resolution, queued work, Storage resources,
-Cron, Realtime, and search are valid Supa MCP patterns when they use the same
+Cron, Realtime, and search are valid Chumbo patterns when they use the same
 public library and come with executable evidence. Keep application intelligence
 in generated `capabilities.ts` or pattern code. Promote an abstraction into the
 package API only when it simplifies real adopters without imposing a new
 architecture on the ordinary one-MCP path.
+
+## Brand voice
+
+- Chumbo is the brand. "The MCP layer for Supabase apps" is the category, and
+  "MCP made easy on Supabase" is the core promise.
+- Lead with what builders can create and deploy. Avoid defensive comparisons
+  to neighboring products unless the distinction helps a concrete decision.
+- Public prose does not use em dashes. Use a spaced en dash – like this – when
+  a sentence needs a dash.
+- Keep the name warm and memorable while the supporting language stays
+  concrete, technically credible, and free of inflated AI claims.
 
 ## Product contracts
 
