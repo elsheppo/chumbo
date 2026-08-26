@@ -1,11 +1,10 @@
-![Supa MCP — Deploy a production MCP for your Supabase app without building another backend.](./docs/assets/supa-mcp-readme-header-v3.png)
+![Chumbo – MCP made easy on Supabase.](./docs/assets/chumbo-readme-header.png)
 
-# Supa MCP
+# Chumbo
 
-**Deploy a production MCP for your Supabase app—without building another
-backend.**
+**MCP made easy on Supabase.**
 
-Supa MCP turns capabilities from an existing Supabase application into a
+Chumbo turns capabilities from an existing Supabase application into a
 Streamable HTTP MCP server running as a Supabase Edge Function. Your application
 keeps its Auth, Postgres data, Row Level Security, Storage, and authorization
 model. MCP becomes another interface to the product you already built.
@@ -29,7 +28,7 @@ your capabilities, Postgres data, and RLS policies
 From a repository that already contains `supabase/config.toml`:
 
 ```sh
-npx supa-mcp setup
+npx chumbo setup
 ```
 
 Setup asks who may connect, previews every file it will write, generates the
@@ -53,7 +52,7 @@ supabase/functions/mcp/
 
 ## Write one capability
 
-Edit the generated `capabilities.ts`. Supa MCP uses the official MCP SDK's
+Edit the generated `capabilities.ts`. Chumbo uses the official MCP SDK's
 registration API; it does not introduce another tool framework.
 
 ```ts
@@ -61,7 +60,7 @@ import {
   textResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "supa-mcp";
+} from "chumbo";
 import { z } from "zod";
 
 export function registerCapabilities(
@@ -89,10 +88,10 @@ export function registerCapabilities(
 
       return textResult(
         [
-          `## Projects — ${data.length}`,
+          `## Projects – ${data.length}`,
           ...data.map(
             (project) =>
-              `- **${project.name}** — ${project.status} · ID: ${project.id}`,
+              `- **${project.name}** – ${project.status} · ID: ${project.id}`,
           ),
           "",
           "→ Next: get_project reads one in full.",
@@ -107,7 +106,7 @@ The important part is `ctx.supabase`. In OAuth and bearer modes, it is a fresh
 client carrying the connected user's access token, so the same Postgres grants
 and RLS policies used by the rest of the application apply to every tool call.
 
-Supa MCP does not infer tools from tables or prescribe an application schema.
+Chumbo does not infer tools from tables or prescribe an application schema.
 Builders define useful application operations and return only the information
 their consumers need.
 
@@ -118,7 +117,7 @@ Run the generated checks and exercise MCP discovery locally:
 ```sh
 supabase functions serve mcp
 deno task --config supabase/functions/mcp/deno.json test
-npx supa-mcp doctor --url http://127.0.0.1:54321/functions/v1/mcp
+npx chumbo doctor --url http://127.0.0.1:54321/functions/v1/mcp
 ```
 
 Then deploy and probe the hosted endpoint:
@@ -126,13 +125,13 @@ Then deploy and probe the hosted endpoint:
 ```sh
 supabase functions deploy mcp --no-verify-jwt
 
-npx supa-mcp doctor \
+npx chumbo doctor \
   --url https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
 
 The generated function sets `verify_jwt = false` at the Supabase gateway so the
 function can issue the MCP OAuth challenge itself. Protected servers still
-authenticate the request inside the Supa MCP runtime.
+authenticate the request inside the Chumbo runtime.
 
 Your MCP URL is:
 
@@ -149,13 +148,13 @@ https://PROJECT_REF.supabase.co/functions/v1/mcp
 | **Bearer**  | Your own client already holds a Supabase user access token.                             | Supabase user token and existing RLS                                |
 | **Public**  | The capability is intentionally anonymous.                                              | Supabase `anon` role plus a generated Postgres rate-limit guardrail |
 
-Run `npx supa-mcp setup` interactively, or choose directly:
+Run `npx chumbo setup` interactively, or choose directly:
 
 ```sh
-npx supa-mcp setup --auth oauth
-npx supa-mcp setup --auth api-key
-npx supa-mcp setup --auth bearer
-npx supa-mcp setup --auth public
+npx chumbo setup --auth oauth
+npx chumbo setup --auth api-key
+npx chumbo setup --auth bearer
+npx chumbo setup --auth public
 ```
 
 Start with OAuth for an end-user product and API key for a prototype or trusted
@@ -190,7 +189,7 @@ and verified combinations.
 ## Why this is production-shaped
 
 - **One backend boundary.** Auth, RLS, Postgres, Storage, and Edge Functions
-  remain authoritative; Supa MCP does not create a parallel control plane.
+  remain authoritative; Chumbo does not create a parallel control plane.
 - **Request isolation.** Every request receives a new MCP server, normalized
   principal, and Supabase client. Caller identity never lives in shared mutable
   module state.
@@ -216,7 +215,7 @@ and verified combinations.
 - **Deployable defaults.** Setup is previewable, resumable, conflict-aware, and
   usable non-interactively by agents and CI. `doctor` verifies the real remote
   MCP boundary.
-- **Works with an ordinary Supabase project.** The runtime needs no Supa MCP
+- **Works with an ordinary Supabase project.** The runtime needs no Chumbo
   cloud service or separate application server. Public mode's default guardrail
   is Postgres-backed.
 
@@ -239,12 +238,12 @@ examples of all result patterns.
 
 ## Opt into small durable state
 
-Most Supa MCP servers should remain stateless. An authenticated capability that
+Most Chumbo servers should remain stateless. An authenticated capability that
 genuinely needs request-to-request coordination can explicitly generate one
 allowlisted namespace:
 
 ```sh
-npx supa-mcp setup \
+npx chumbo setup \
   --auth oauth \
   --state-namespace file-ide.observations
 ```
@@ -255,7 +254,7 @@ set a unique deployment secret of at least 32 random bytes:
 ```sh
 supabase db push
 supabase secrets set \
-  SUPA_MCP_STATE_HMAC_KEY="replace-with-at-least-32-random-bytes"
+  CHUMBO_STATE_HMAC_KEY="replace-with-at-least-32-random-bytes"
 ```
 
 Capability code then receives only `get`, revision-checked `put`, and
@@ -281,7 +280,7 @@ RLS or an atomic application-level version precondition for real mutations.
 See [Observation before action](./docs/patterns/observation-before-action) for
 the complete executable read-before-edit pattern, safe cross-database ordering,
 credential-rotation behavior, and split-project runbook. This is coordination
-storage—not a resident actor or Durable Object runtime.
+storage – not a resident actor or Durable Object runtime.
 
 ## Optional depth when the application needs it
 
@@ -295,7 +294,7 @@ that starting point:
 - [Different capability surfaces](./docs/patterns/privileged-capabilities)
 - [Interactive MCP Apps on Supabase](./docs/patterns/mcp-apps-on-supabase)
 - [Clean client-facing URLs](./docs/reference/clean-urls)
-- Project-local capability guidance with `npx supa-mcp skill install`
+- Project-local capability guidance with `npx chumbo skill install`
 
 These are composition patterns, not additional frameworks or required product
 architecture.
@@ -314,7 +313,7 @@ The public documentation MCP is available at:
 https://dxrpeagddrpbezbkgvdv.supabase.co/functions/v1/docs-mcp
 ```
 
-Its tools search Supa MCP's own guides and return complete documents through
+Its tools search Chumbo's own guides and return complete documents through
 MCP Resources. It links to official Supabase documentation for the platform
 underneath instead of reproducing it.
 
@@ -337,8 +336,8 @@ pnpm reference:check
 - [Roadmap](./ROADMAP.md)
 - [Changelog](./CHANGELOG.md)
 
-For automation, use `npx supa-mcp setup --plan --json` to inspect changes and
-`--yes --json` to apply them without prompts. Run `npx supa-mcp --help` for the
+For automation, use `npx chumbo setup --plan --json` to inspect changes and
+`--yes --json` to apply them without prompts. Run `npx chumbo --help` for the
 complete command reference.
 
 ## Development

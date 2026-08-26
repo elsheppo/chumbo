@@ -62,7 +62,7 @@ Register the full content as a Resource and return only a reading card:
 ```ts
 server.registerResource(
   "editorial-guide",
-  "supa-mcp://directory/editorial-guide",
+  "chumbo://directory/editorial-guide",
   {
     title: "Directory editorial guide",
     mimeType: "text/markdown",
@@ -76,7 +76,7 @@ server.registerResource(
 return resourceResult("Open the editorial guide before reviewing.", {
   type: "resource_link",
   name: "editorial-guide",
-  uri: "supa-mcp://directory/editorial-guide",
+  uri: "chumbo://directory/editorial-guide",
   title: "Directory editorial guide",
   mimeType: "text/markdown",
 });
