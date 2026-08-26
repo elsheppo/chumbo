@@ -68,7 +68,7 @@ Add moderation capabilities only to the identity that can use them. Do not
 generate one tool per table or introspect the schema into a generic CRUD bag.
 
 Scopes are capability vocabulary, not application roles. Prefer
-`directory:read` and `directory:moderate` over teaching Supa MCP what an
+`directory:read` and `directory:moderate` over teaching Chumbo what an
 "owner" or "admin" means. The application resolves which verified principals
 receive those scopes.
 

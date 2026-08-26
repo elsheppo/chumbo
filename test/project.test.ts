@@ -20,7 +20,7 @@ import {
 } from "../src/setup.js";
 
 async function fixture(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "supa-mcp-"));
+  const root = await mkdtemp(join(tmpdir(), "chumbo-"));
   await mkdir(join(root, "supabase"), { recursive: true });
   await writeFile(
     join(root, "supabase", "config.toml"),
@@ -86,7 +86,7 @@ describe("initializer", () => {
     expect(plan.some((file) => file.status === "update")).toBe(true);
     expect(
       plan.find((file) => file.path.endsWith("deno.json"))?.content,
-    ).toContain(`npm:supa-mcp@${PACKAGE_VERSION}`);
+    ).toContain(`npm:chumbo@${PACKAGE_VERSION}`);
     await expect(
       readFile(join(root, "supabase", "functions", "mcp", "index.ts")),
     ).rejects.toThrow();
@@ -273,7 +273,7 @@ describe("initializer", () => {
       stateNamespace: "file-ide.observations",
     });
     const entrypoint = stateful.find((file) => file.path.endsWith("index.ts"));
-    expect(entrypoint?.content).toContain("SUPA_MCP_STATE_HMAC_KEY");
+    expect(entrypoint?.content).toContain("CHUMBO_STATE_HMAC_KEY");
     expect(entrypoint?.content).toContain(
       'namespaces: { "file-ide.observations": { ttlSeconds: 86400 } }',
     );
@@ -281,7 +281,7 @@ describe("initializer", () => {
       file.path.endsWith("index_test.ts"),
     );
     expect(generatedTest?.content).toContain(
-      'Deno.env.set("SUPA_MCP_STATE_HMAC_KEY"',
+      'Deno.env.set("CHUMBO_STATE_HMAC_KEY"',
     );
     expect(generatedTest?.content).toContain(
       'Deno.env.set("SUPABASE_SECRET_KEY"',
@@ -440,7 +440,7 @@ describe("doctor", () => {
     }
   });
 
-  it("checks an application API-key gate and authenticated discovery", async () => {
+  it("checks an application API-key gate through legacy runtime headers", async () => {
     const root = await fixture();
     await applyPlan(
       await planInit({
@@ -512,7 +512,7 @@ describe("doctor", () => {
     }
   });
 
-  it("distinguishes a gateway 401 from a response proven to come from Supa MCP", async () => {
+  it("distinguishes a gateway 401 from a response proven to come from Chumbo", async () => {
     const root = await fixture();
     await applyPlan(
       await planInit({
@@ -563,7 +563,7 @@ describe("doctor", () => {
     );
     await writeFile(
       join(functionDir, "index.ts"),
-      `import { createSupabaseMcp } from "npm:supa-mcp@${PACKAGE_VERSION}";\nimport { auth } from "./auth.ts";\n`,
+      `import { createSupabaseMcp } from "npm:chumbo@${PACKAGE_VERSION}";\nimport { auth } from "./auth.ts";\n`,
     );
     expect(await inspectGeneratedAuth(root, "composed-mcp")).toBeUndefined();
     vi.stubGlobal(
@@ -574,9 +574,9 @@ describe("doctor", () => {
           {
             status: 401,
             headers: {
-              "x-supa-mcp-version": PACKAGE_VERSION,
-              "x-supa-mcp-auth-mode": "api-key",
-              "x-supa-mcp-auth-strategy": "verifier",
+              "x-chumbo-version": PACKAGE_VERSION,
+              "x-chumbo-auth-mode": "api-key",
+              "x-chumbo-auth-strategy": "verifier",
             },
           },
         ),
@@ -617,7 +617,7 @@ describe("doctor", () => {
     );
     await writeFile(
       join(functionDir, "index.ts"),
-      `import { createSupabaseMcp } from "npm:supa-mcp@${PACKAGE_VERSION}";\n` +
+      `import { createSupabaseMcp } from "npm:chumbo@${PACKAGE_VERSION}";\n` +
         'createSupabaseMcp({ auth: { mode: "multi", strategies: [{ mode: "oauth" }, { mode: "api-key", tokenPrefix: "app_", verify() {} }] } });\n',
     );
     expect(await inspectGeneratedAuth(root, "composed-mcp")).toBeUndefined();
@@ -637,9 +637,9 @@ describe("doctor", () => {
             { jsonrpc: "2.0", id: "authenticated", result: { tools: [] } },
             {
               headers: {
-                "x-supa-mcp-version": PACKAGE_VERSION,
-                "x-supa-mcp-auth-mode": "multi",
-                "x-supa-mcp-auth-strategy": "composed",
+                "x-chumbo-version": PACKAGE_VERSION,
+                "x-chumbo-auth-mode": "multi",
+                "x-chumbo-auth-strategy": "composed",
               },
             },
           );
@@ -651,9 +651,9 @@ describe("doctor", () => {
             headers: {
               "www-authenticate":
                 'Bearer resource_metadata="https://example.com/mcp/.well-known/oauth-protected-resource"',
-              "x-supa-mcp-version": PACKAGE_VERSION,
-              "x-supa-mcp-auth-mode": "multi",
-              "x-supa-mcp-auth-strategy": "composed",
+              "x-chumbo-version": PACKAGE_VERSION,
+              "x-chumbo-auth-mode": "multi",
+              "x-chumbo-auth-strategy": "composed",
             },
           },
         );
@@ -700,7 +700,7 @@ describe("doctor", () => {
     );
     await writeFile(
       join(functionDir, "index.ts"),
-      `import { createSupabaseMcp } from "npm:supa-mcp@${PACKAGE_VERSION}";\n` +
+      `import { createSupabaseMcp } from "npm:chumbo@${PACKAGE_VERSION}";\n` +
         'createSupabaseMcp({ resourceUrl: "https://example.com/mcp", auth: { mode: "bearer" } });\n',
     );
 
@@ -879,7 +879,7 @@ describe("guided setup", () => {
       report.steps.find((step) => step.id === "connect_client")?.status,
     ).toBe("ready");
     expect(formatSetupReport(report)).toContain(
-      "Your Supa MCP is deployed and responding.",
+      "Your Chumbo is deployed and responding.",
     );
   });
 
@@ -914,13 +914,13 @@ describe("guided setup", () => {
       documentationServerUrl: SUPA_MCP_DOCUMENTATION_SERVER_URL,
       prompt:
         "Inspect this project and implement the authenticated-tools pattern.",
-      skillInstallCommand: "npx supa-mcp skill install --yes --json",
+      skillInstallCommand: "npx chumbo skill install --yes --json",
     });
     expect(formatSetupReport(report)).toContain(
       `MCP docs: ${SUPA_MCP_DOCUMENTATION_SERVER_URL}`,
     );
     expect(formatSetupReport(report)).toContain(
-      "Agent skill (optional): npx supa-mcp skill install",
+      "Agent skill (optional): npx chumbo skill install",
     );
   });
 

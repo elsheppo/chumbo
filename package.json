@@ -1,7 +1,7 @@
 {
-  "name": "supa-mcp",
-  "version": "0.7.0",
-  "description": "Turn a Supabase app into a polished end-user MCP server.",
+  "name": "chumbo",
+  "version": "0.8.0",
+  "description": "MCP made easy on Supabase.",
   "type": "module",
   "license": "MIT",
   "author": "Shep Bryan",
@@ -26,6 +26,7 @@
     "node": ">=22"
   },
   "bin": {
+    "chumbo": "dist/cli.js",
     "supa-mcp": "dist/cli.js"
   },
   "exports": {

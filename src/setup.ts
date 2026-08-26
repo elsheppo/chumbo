@@ -236,7 +236,7 @@ export function buildSetupReport(
         : "Review and apply the generated file plan.",
       command: options.applied
         ? undefined
-        : `npx supa-mcp setup --function ${options.functionName} --auth ${options.auth} --yes --json`,
+        : `npx chumbo setup --function ${options.functionName} --auth ${options.auth} --yes --json`,
     },
     {
       id: "local_checks",
@@ -279,7 +279,7 @@ export function buildSetupReport(
       status: options.remoteVerified ? "complete" : "needs_user_action",
       detail:
         "Set a unique deployment secret of at least 32 random bytes. It partitions state by exact credential and is never exposed to capabilities.",
-      command: `supabase secrets set ${shellQuote("SUPA_MCP_STATE_HMAC_KEY=replace-with-at-least-32-random-bytes")} --yes${options.projectRef ? ` --project-ref ${options.projectRef}` : ""}`,
+      command: `supabase secrets set ${shellQuote("CHUMBO_STATE_HMAC_KEY=replace-with-at-least-32-random-bytes")} --yes${options.projectRef ? ` --project-ref ${options.projectRef}` : ""}`,
     });
   }
 
@@ -386,8 +386,8 @@ export function buildSetupReport(
           ? "Probe the deployed endpoint and its authentication contract."
           : "Pass --url or --project-ref so doctor can probe the deployed endpoint."),
     command: endpoint
-      ? `npx supa-mcp doctor --function ${options.functionName} --url ${endpoint}${options.auth === "api-key" ? ` --token <${apiKeyStrategy === "static" ? "MCP_API_KEY" : "APPLICATION_API_KEY"}>` : options.auth === "bearer" ? " --token <USER_JWT>" : ""} --json`
-      : `npx supa-mcp doctor --function ${options.functionName} --url <MCP_URL> --json`,
+      ? `npx chumbo doctor --function ${options.functionName} --url ${endpoint}${options.auth === "api-key" ? ` --token <${apiKeyStrategy === "static" ? "MCP_API_KEY" : "APPLICATION_API_KEY"}>` : options.auth === "bearer" ? " --token <USER_JWT>" : ""} --json`
+      : `npx chumbo doctor --function ${options.functionName} --url <MCP_URL> --json`,
   });
 
   if (endpointVerified) {
@@ -417,12 +417,12 @@ export function buildSetupReport(
     files: options.files,
     steps,
     nextActions,
-    resumeCommand: `npx supa-mcp setup --resume --function ${options.functionName} --auth ${options.auth} --yes --json`,
+    resumeCommand: `npx chumbo setup --resume --function ${options.functionName} --auth ${options.auth} --yes --json`,
     agentHandoff: {
       documentationServerUrl: SUPA_MCP_DOCUMENTATION_SERVER_URL,
       prompt:
         "Inspect this project and implement the authenticated-tools pattern.",
-      skillInstallCommand: "npx supa-mcp skill install --yes --json",
+      skillInstallCommand: "npx chumbo skill install --yes --json",
     },
     ...(options.verification ? { verification: options.verification } : {}),
   };
@@ -437,12 +437,12 @@ export function formatSetupReport(report: SetupReport): string {
   const lines = [
     "",
     report.status === "complete"
-      ? "Your Supa MCP is live and verified."
+      ? "Your Chumbo is live and verified."
       : report.verification?.runtimeReached
-        ? "Your Supa MCP is deployed and responding."
+        ? "Your Chumbo is deployed and responding."
         : report.status === "planned" || report.status === "needs_confirmation"
           ? "Setup plan ready."
-          : "Your Supa MCP scaffold is ready.",
+          : "Your Chumbo scaffold is ready.",
   ];
   if (completed.length > 0) {
     lines.push("", "Done:");

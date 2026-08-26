@@ -2,7 +2,16 @@
 
 ## Unreleased
 
-## 0.7.0 — 2026-08-26
+## 0.8.0 – 2026-08-26
+
+- Rename the package and CLI to Chumbo. `chumbo` becomes the canonical npm
+  package and command, while the `supa-mcp` binary remains available as a
+  transition alias.
+- Generate new projects against `chumbo`, introduce Chumbo-branded runtime
+  diagnostics, and retain established technical identifiers where changing
+  them would break deployed projects or durable state continuity.
+
+## 0.7.0 – 2026-08-26
 
 - Allow opt-in durable state to name a separate Supabase environment for its
   private RPC client while preserving same-project behavior by default. OAuth
@@ -38,7 +47,7 @@
 - Document current and established Supabase Edge key compatibility plus the
   distinction between invalid credentials and runtime configuration failures.
 
-## 0.6.6 — 2026-08-25
+## 0.6.6 – 2026-08-25
 
 - Treat an empty modern publishable- or secret-key dictionary as absent so an
   established project can fall through to its singular or legacy key. This
@@ -47,7 +56,7 @@
 - Add an assembled OAuth regression for that exact mixed-generation runtime
   environment.
 
-## 0.6.5 — 2026-08-25
+## 0.6.5 – 2026-08-25
 
 - Normalize platform-injected `SUPABASE_PUBLISHABLE_KEYS` and
   `SUPABASE_SECRET_KEYS` JSON dictionaries into the explicit runtime
@@ -60,7 +69,7 @@
 - Exercise the fully assembled OAuth request against the same modern plural-key
   environment supplied by current Supabase Edge projects.
 
-## 0.6.4 — 2026-08-25
+## 0.6.4 – 2026-08-25
 
 - Accept both current Supabase publishable/secret-key configuration and the
   legacy `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` variables still
@@ -73,14 +82,14 @@
 - Add fully assembled OAuth request proofs for modern and legacy project key
   configurations, plus a missing-key diagnostic and secret-exclusion case.
 
-## 0.6.3 — 2026-08-25
+## 0.6.3 – 2026-08-25
 
 - Cache remote Supabase JWKS snapshots for one minute per Edge runtime instead
   of rebuilding a network-backed resolver for every authenticated request.
   Failed fetches are evicted immediately, responses are bounded to 64 KiB, and
   inline platform JWKS behavior is unchanged.
 
-## 0.6.2 — 2026-08-22
+## 0.6.2 – 2026-08-22
 
 - Add `supa-mcp/app`, a small browser-side MCP Apps workspace helper that
   applies host theme/font tokens and safe areas, replaces content-driven iframe
@@ -88,7 +97,7 @@
   contract, and exposes optional fullscreen negotiation without imposing a UI
   kit.
 
-## 0.6.1 — 2026-08-20
+## 0.6.1 – 2026-08-20
 
 - Bundle an optional project-local Supa MCP agent skill that teaches
   application-oriented capability boundaries, explicit result contracts,
@@ -102,7 +111,7 @@
 - Mention the optional skill in guided setup without installing it
   automatically.
 
-## 0.6.0 — 2026-08-20
+## 0.6.0 – 2026-08-20
 
 - Replace automatic JSON-to-text duplication with explicit result contracts:
   `textResult`, `structuredResult`, `renderResult`, and `resourceResult`.
@@ -115,7 +124,7 @@
   `supa-mcp://docs/{kind}/{slug}`. Documentation tools now return compact
   reading cards and resource links instead of duplicated bodies.
 
-## 0.5.0 — 2026-08-20
+## 0.5.0 – 2026-08-20
 
 - Add composed authentication so one MCP endpoint can accept Supabase OAuth
   users and application-owned API keys without collapsing their authority or
@@ -131,7 +140,7 @@
   privileged application identities receive different tools, resources,
   prompts, and server instructions from the same endpoint.
 
-## 0.4.0 — 2026-08-18
+## 0.4.0 – 2026-08-18
 
 - Add `instructions` to `createSupabaseMcp`: server-level usage guidance
   returned in the `initialize` result, as a static string or a per-request
@@ -143,7 +152,7 @@
   documents for the five-step quickstart, access-mode selection, and MCP
   client connection with a verification-status matrix.
 
-## 0.3.2 — 2026-08-17
+## 0.3.2 – 2026-08-17
 
 - Make `status` and `doctor` distinguish endpoint reachability, responses proven
   to come from Supa MCP, access-gate behavior, and authenticated MCP discovery.
@@ -157,7 +166,7 @@
 - Keep an uncredentialed but protected endpoint in a ready-to-test state instead
   of reporting a blocking failure or claiming authenticated verification.
 
-## 0.3.1 — 2026-08-15
+## 0.3.1 – 2026-08-15
 
 - Connect guided setup to the live Supa MCP documentation server with an
   agent-ready handoff and a concrete authenticated-tools implementation prompt.
@@ -168,7 +177,7 @@
 - Align the CLI banner, doctor identity, and generated Deno runtime pin with
   the published package version, with a regression test preventing drift.
 
-## 0.3.0 — 2026-08-15
+## 0.3.0 – 2026-08-15
 
 - Make the model-facing text lane first-class. `content[].text` is the portable
   model-facing channel; because some clients do not surface
@@ -181,11 +190,11 @@
   rows, one-line rows for flat objects, explicit `(none)` empties).
 - `jsonResult(value)` with no text now emits `toMarkdown(value)` instead of
   a raw JSON dump. Passing `text` still replaces the rendering verbatim, but
-  is discouraged: it hides the payload from the model — use `renderResult`.
+  is discouraged: it hides the payload from the model – use `renderResult`.
 - `errorResult(message, nextStep?)` can append a `→ Next:` recovery line so
   errors never leave the model at a dead end.
 
-## 0.2.0 — 2026-08-14
+## 0.2.0 – 2026-08-14
 
 - Add a first-class `api-key` auth mode with a one-secret generated default.
 - Add application-owned API-key verification with isolated admin lookup,
@@ -194,7 +203,7 @@
   API-key path without mistaking it for public access or Supabase user auth.
 - Include `ctx.subject` in the request context and generated identity examples.
 
-## 0.1.0 — 2026-08-13
+## 0.1.0 – 2026-08-13
 
 - Launch Supa MCP as an end-user MCP runtime and guided setup experience for
   existing Supabase applications.
