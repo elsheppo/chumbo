@@ -92,5 +92,5 @@ run(
 );
 
 console.log(
-  "\nLiving reference project verified from migrations, seed, Git content, and the local release candidate.",
+  "\nLiving reference project verified from migrations, seed, Git content, and the local source package.",
 );

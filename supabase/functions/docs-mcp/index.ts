@@ -4,7 +4,7 @@ import {
   resourceResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "supa-mcp";
+} from "chumbo";
 import {
   ResourceTemplate,
   type ResourceLink,
@@ -140,9 +140,9 @@ function register(
       },
     }),
     {
-      title: "Supa MCP document",
+      title: "Chumbo document",
       description:
-        "A complete Supa MCP-owned reference, pattern, example, or troubleshooting document.",
+        "A complete Chumbo-owned reference, pattern, example, or troubleshooting document.",
       mimeType: "text/markdown",
       cacheHint: { cacheScope: "public", ttlMs: 60_000 },
     },
@@ -168,9 +168,9 @@ function register(
   server.registerTool(
     "search_docs",
     {
-      title: "Search Supa MCP docs",
+      title: "Search Chumbo docs",
       description:
-        "Search Supa MCP-owned setup guidance, patterns, examples, and troubleshooting. Returns source-linked results; use official Supabase docs for the underlying platform.",
+        "Search Chumbo-owned setup guidance, patterns, examples, and troubleshooting. Returns source-linked results; use Supabase docs for the underlying platform.",
       inputSchema: z.object({
         query: z.string().min(1).describe("What you want to build or resolve."),
         kind: z
@@ -211,7 +211,7 @@ function register(
           content: [
             {
               type: "text" as const,
-              text: `No Supa MCP documentation matched “${query}”.\n\n→ Next: broaden the query or call get_setup_steps for the supported starting paths.`,
+              text: `No Chumbo documentation matched “${query}”.\n\n→ Next: broaden the query or call get_setup_steps for the supported starting paths.`,
             },
           ],
         };
@@ -222,11 +222,11 @@ function register(
           {
             type: "text" as const,
             text: [
-              `## Supa MCP docs — ${matches.length} match${matches.length === 1 ? "" : "es"}`,
+              `## Chumbo docs – ${matches.length} match${matches.length === 1 ? "" : "es"}`,
               "",
               ...matches.map(
                 (match) =>
-                  `- **${match.title}** (${match.kind}/${match.slug}) — ${match.summary}`,
+                  `- **${match.title}** (${match.kind}/${match.slug}) – ${match.summary}`,
               ),
               "",
               "→ Next: read the most relevant linked resource.",
@@ -241,9 +241,9 @@ function register(
   server.registerTool(
     "get_reference",
     {
-      title: "Get Supa MCP reference guidance",
+      title: "Get Chumbo reference guidance",
       description:
-        "Read one Supa MCP-owned reference document by slug, such as auth-modes, connect-clients, or getting-started.",
+        "Read one Chumbo-owned reference document by slug, such as auth-modes, connect-clients, or getting-started.",
       inputSchema: documentInputSchema,
     },
     async ({ slug }) => {
@@ -251,7 +251,7 @@ function register(
       return document
         ? resourceResult(documentCard(document), documentLink(document))
         : errorResult(
-            `No Supa MCP reference named “${slug}” exists.`,
+            `No Chumbo reference named “${slug}” exists.`,
             "call search_docs with kind “reference” to list relevant guidance.",
           );
     },
@@ -260,9 +260,9 @@ function register(
   server.registerTool(
     "get_pattern",
     {
-      title: "Get a Supa MCP pattern",
+      title: "Get a Chumbo pattern",
       description:
-        "Read one tested Supa MCP implementation pattern, including its runnable example and source links.",
+        "Read one tested Chumbo implementation pattern, including its runnable example and source links.",
       inputSchema: documentInputSchema,
     },
     async ({ slug }) => {
@@ -270,7 +270,7 @@ function register(
       return document
         ? resourceResult(documentCard(document), documentLink(document))
         : errorResult(
-            `No Supa MCP pattern named “${slug}” exists.`,
+            `No Chumbo pattern named “${slug}” exists.`,
             "call search_docs with the capability you want to build.",
           );
     },
@@ -281,7 +281,7 @@ function register(
     {
       title: "Get a runnable example",
       description:
-        "Read one executable Supa MCP example with its endpoint, source, tests, and expected behavior.",
+        "Read one executable Chumbo example with its endpoint, source, tests, and expected behavior.",
       inputSchema: documentInputSchema,
     },
     async ({ slug }) => {
@@ -289,7 +289,7 @@ function register(
       return document
         ? resourceResult(documentCard(document), documentLink(document))
         : errorResult(
-            `No Supa MCP example named “${slug}” exists.`,
+            `No Chumbo example named “${slug}” exists.`,
             "call search_docs with kind “example” to list relevant examples.",
           );
     },
@@ -318,7 +318,7 @@ function register(
       }
       if (pattern && !selected) {
         return errorResult(
-          `No Supa MCP pattern named “${pattern}” exists.`,
+          `No Chumbo pattern named “${pattern}” exists.`,
           "call search_docs to find a supported pattern slug.",
         );
       }
@@ -331,7 +331,7 @@ function register(
               "",
               base.summary,
               ...(selected
-                ? ["", `Pattern: ${selected.title} — ${selected.summary}`]
+                ? ["", `Pattern: ${selected.title} – ${selected.summary}`]
                 : []),
               "",
               "→ Next: read the linked resources and implement their tested sequence.",
@@ -347,8 +347,8 @@ function register(
 
 const app = createSupabaseMcp<ReferenceDatabase>({
   server: {
-    name: "Supa MCP documentation",
-    version: "0.7.0",
+    name: "Chumbo documentation",
+    version: "0.8.0",
   },
   resourceUrl,
   auth: { mode: "public", rateLimit: true },

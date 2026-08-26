@@ -12,4 +12,4 @@ revoke all on table public.reference_api_keys from anon, authenticated;
 grant select, insert, delete on table public.reference_api_keys to service_role;
 
 comment on table public.reference_api_keys is
-  'Living-reference credentials used only to prove composed Supa MCP authentication.';
+  'Living-reference credentials used only to prove composed Chumbo authentication.';

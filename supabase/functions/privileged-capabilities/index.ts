@@ -3,7 +3,7 @@ import {
   renderResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "supa-mcp";
+} from "chumbo";
 import { z } from "zod";
 
 interface ReferenceDatabase {
@@ -66,7 +66,7 @@ function register(
       renderResult(
         { items: [{ id: "example-1", title: "Reference item" }] },
         ({ items }) =>
-          `## Catalog\n\n${items.map((item) => `- **${item.title}** — ${item.id}`).join("\n")}\n\n→ Next: choose an item to inspect in your application.`,
+          `## Catalog\n\n${items.map((item) => `- **${item.title}** – ${item.id}`).join("\n")}\n\n→ Next: choose an item to inspect in your application.`,
       ),
   );
 
@@ -128,7 +128,7 @@ function register(
 }
 
 const app = createSupabaseMcp<ReferenceDatabase>({
-  server: { name: "Supa MCP privileged capabilities", version: "0.7.0" },
+  server: { name: "Chumbo privileged capabilities", version: "0.8.0" },
   instructions: (ctx) =>
     ctx.hasScope("catalog:publish")
       ? "You may read the catalog and preview owner-only publications. Mutations still require an explicit tool call."

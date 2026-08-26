@@ -121,5 +121,5 @@ if (failures.length) {
 }
 
 console.log(
-  `Release candidate aligns with ${expectedName} ${expected}; repository reference remains ${sourcePackageName} ${sourcePackageVersion}, and hosted truth remains ${deployment.packageName} ${deployment.packageVersion}.`,
+  `Release surfaces align with ${expectedName} ${expected}; repository reference uses ${sourcePackageName} ${sourcePackageVersion}, and hosted truth remains ${deployment.packageName} ${deployment.packageVersion}.`,
 );
