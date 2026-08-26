@@ -195,6 +195,19 @@ try {
     "--auth",
     "api-key",
   ]);
+  run("node", [
+    join(repository, "dist", "cli.js"),
+    "init",
+    "--yes",
+    "--function",
+    "state-mcp",
+    "--server-name",
+    "Generated state smoke",
+    "--auth",
+    "api-key",
+    "--state-namespace",
+    "observations",
+  ]);
   const doctor = run("node", [
     join(repository, "dist", "cli.js"),
     "doctor",
@@ -237,7 +250,12 @@ try {
     runtimeWrapper,
     `// @deno-types="${pathToFileURL(localTypes).href}"\nexport * from "${pathToFileURL(join(repository, "dist", "index.js")).href}";\n`,
   );
-  for (const functionName of ["mcp", "public-mcp", "api-key-mcp"]) {
+  for (const functionName of [
+    "mcp",
+    "public-mcp",
+    "api-key-mcp",
+    "state-mcp",
+  ]) {
     const functionDirectory = join(
       fixture,
       "supabase",
