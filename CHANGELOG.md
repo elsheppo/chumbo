@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Emit stable, matching JavaScript and declaration chunk names, and verify the
+  actual packed artifact across Node ESM, strict TypeScript, and Deno rather
+  than repairing declaration imports inside a generated-project smoke test.
 - Add opt-in authenticated durable state with configured namespace allowlists,
   deployment-secret HMAC credential partitioning, bounded JSON/TTL/key inputs,
   and atomic get/CAS-put/CAS-delete Postgres RPCs. Public and ordinary

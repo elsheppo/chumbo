@@ -4,6 +4,7 @@ export default defineConfig({
   entry: ["src/index.ts", "src/app.ts", "src/testing.ts", "src/cli.ts"],
   format: "esm",
   dts: true,
+  hash: false,
   clean: true,
   sourcemap: true,
   target: "es2022",

@@ -52,7 +52,7 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "check": "pnpm run release:check && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:generated",
+    "check": "pnpm run release:check && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:packed && pnpm run test:generated",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "reference:app": "vite build --config supabase/functions/review-queue-app/app/vite.config.ts",
@@ -63,6 +63,7 @@
     "release:check": "node scripts/release-alignment-check.mjs",
     "test": "vitest run",
     "test:generated": "node scripts/generated-smoke.mjs",
+    "test:packed": "node scripts/packed-artifact-smoke.mjs",
     "test:rls": "vitest run test/rls.integration.test.ts",
     "test:state-integration": "node scripts/state-integration-check.mjs",
     "test:watch": "vitest",
