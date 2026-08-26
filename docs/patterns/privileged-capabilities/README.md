@@ -1,12 +1,12 @@
 # Different capability surfaces on one endpoint
 
 Use this pattern when an application has more than one legitimate way to
-connect to the same MCP—for example, interactive Supabase users and
-application-owned API keys—and those identities should discover different
+connect to the same MCP – for example, interactive Supabase users and
+application-owned API keys – and those identities should discover different
 capabilities.
 
 This is an authentication and capability-composition pattern, not a role
-system. Supa MCP does not define `owner`, `admin`, or any application table.
+system. Chumbo does not define `owner`, `admin`, or any application table.
 The example uses a readable user/owner distinction, but builders choose their
 own identities and scope vocabulary.
 

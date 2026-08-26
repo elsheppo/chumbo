@@ -1,5 +1,5 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
-import { structuredResult, type SupabaseMcpContext } from "supa-mcp";
+import { structuredResult, type SupabaseMcpContext } from "chumbo";
 import { z } from "zod";
 
 interface ExampleDatabase {

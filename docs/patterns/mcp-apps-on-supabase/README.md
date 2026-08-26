@@ -26,14 +26,14 @@ already authorized.
 This keeps ownership clear:
 
 - the host owns iframe isolation and connector credentials;
-- Supa MCP owns HTTP, authentication, request context, scopes, and Resources;
+- Chumbo owns HTTP, authentication, request context, scopes, and Resources;
 - Supabase Postgres and RLS own durable application authorization;
 - the builder owns the View, result contract, and business behavior;
 - the official MCP Apps SDK owns browser-side host communication.
 
 ## Server registration
 
-An app starts with an ordinary Supa MCP tool and Resource linked by a stable
+An app starts with an ordinary Chumbo tool and Resource linked by a stable
 `ui://` URI:
 
 ```ts
@@ -105,11 +105,11 @@ predicate, and RLS policy even though the tool is intended only for the View.
 ## Stable workspace default
 
 An interactive App should behave like a small application surface, not a card
-whose iframe grows every time another row or image renders. Supa MCP packages a
+whose iframe grows every time another row or image renders. Chumbo packages a
 thin browser helper for that host-specific work:
 
 ```ts
-import { createAppWorkspace } from "supa-mcp/app";
+import { createAppWorkspace } from "chumbo/app";
 
 const workspace = createAppWorkspace(
   { name: "My review queue", version: "0.1.0" },
@@ -141,7 +141,7 @@ host. The host always makes the final presentation decision.
 
 ## Bundle and deployment
 
-The living example uses `supa-mcp/app` over the official
+The living example uses `chumbo/app` over the official
 `@modelcontextprotocol/ext-apps` browser SDK and produces one HTML file with
 Vite and `vite-plugin-singlefile`.
 Supabase CLI bundles that file beside the function:
@@ -185,10 +185,10 @@ Use the smallest host the application already has:
 - serve it from an Edge Function only when the project has a Supabase custom
   domain, because hosted project URLs rewrite `text/html` to `text/plain`.
 
-The living reference temporarily publishes its small consent page through
-GitHub Pages. That is reference-project scaffolding, not a Supa MCP runtime
-dependency or recommended application architecture. When the Supa MCP website
-is deployed, the route moves there and the temporary Pages site is removed.
+The living reference's small GitHub Pages consent page is disposable
+reference-project scaffolding, not a Chumbo runtime dependency or recommended
+application architecture. A real application should host consent inside its
+existing authenticated product surface or another application-owned route.
 
 During this experiment, both an Edge Function HTML response and a public
 Storage HTML object on the default hosted project domain were observed arriving
@@ -198,7 +198,7 @@ either case, do not make a free-plan OAuth flow depend on the project domain
 acting as a general-purpose static website.
 
 The official MCP Apps server helpers currently target the older MCP SDK server
-package. The living example registers metadata directly against Supa MCP's v2
+package. The living example registers metadata directly against Chumbo's v2
 server rather than pulling two server SDK generations into one Edge Function.
 The browser View still uses the official Apps SDK.
 

@@ -74,7 +74,7 @@ for (const metadataFile of metadataFiles) {
     summary: metadata.summary,
     body_markdown: bodyMarkdown,
     source_path: sourcePath,
-    source_url: `https://github.com/elsheppo/supa-mcp/blob/main/${sourcePath}`,
+    source_url: `https://github.com/elsheppo/chumbo/blob/main/${sourcePath}`,
     package_version: manifest.version,
     metadata,
     content_hash: contentHash,
@@ -89,6 +89,25 @@ const admin = createClient(projectUrl, serviceRoleKey, {
     detectSessionInUrl: false,
   },
 });
+
+async function upsertDocument(document) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const { error } = await admin
+      .from("reference_documents")
+      .upsert(document, { onConflict: "slug" });
+    if (!error) return;
+    lastError = error;
+    if (
+      !error.message.includes("canceling statement due to statement timeout") ||
+      attempt === 3
+    ) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, attempt * 250));
+  }
+  throw new Error(`Could not sync ${document.slug}: ${lastError.message}`);
+}
 
 if (process.env.SUPA_MCP_REFERENCE_USE_LINKED_DB === "1") {
   const payload = JSON.stringify(documents).replaceAll("'", "''");
@@ -155,12 +174,7 @@ if (process.env.SUPA_MCP_REFERENCE_USE_LINKED_DB === "1") {
 }
 
 for (const document of documents) {
-  const { error } = await admin
-    .from("reference_documents")
-    .upsert(document, { onConflict: "slug" });
-  if (error) {
-    throw new Error(`Could not sync ${document.slug}: ${error.message}`);
-  }
+  await upsertDocument(document);
 }
 
 const { data: current, error: currentError } = await admin

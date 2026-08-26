@@ -1,7 +1,7 @@
 # Authenticated interactive review queue
 
 The living reference function at
-`supabase/functions/review-queue-app/index.ts` uses public `supa-mcp@0.7.0`.
+`supabase/functions/review-queue-app/index.ts` uses public `chumbo@0.8.0`.
 
 - `open_review_queue` is model-visible and points to a bundled `ui://`
   Resource.
@@ -37,29 +37,29 @@ request-scoped Supabase client and therefore retains the caller's RLS boundary.
 The real friction was concentrated at two seams:
 
 - the Apps server helpers still target an older MCP SDK generation, so the
-  example registers their small metadata contract directly on Supa MCP's v2
+  example registers their small metadata contract directly on Chumbo's v2
   server;
 - browser-native hosts perform CORS preflights before authentication, so the
   Edge Function must explicitly admit its known host origins and MCP headers.
 
 A third hosted-client prerequisite was proven separately from the Apps
 protocol fixture: Supabase Auth's OAuth 2.1 server must be enabled and the
-application must own a real sign-in and consent surface. Supa MCP publishes the
+application must own a real sign-in and consent surface. Chumbo publishes the
 protected-resource metadata and preserves the resulting identity; it does not
 manufacture the application's login experience.
 
 Neither seam changes the application model. The first is version glue. The
-second should eventually become a small opt-in Supa MCP HTTP configuration,
+second should eventually become a small opt-in Chumbo HTTP configuration,
 not a permissive default applied to every server.
 
-The `review_items` table is demonstration data, not a required Supa MCP schema.
+The `review_items` table is demonstration data, not a required Chumbo schema.
 Replace the fixture with the application object that actually benefits from an
 interactive review surface.
 
 ## Claude host proof
 
-The public reference is also connected as a Claude custom connector named
-`Supa MCP review queue`. This is a real OAuth and MCP Apps proof, not a bearer
+The public reference was connected under the legacy Claude custom connector
+name `Supa MCP review queue`. This is a real OAuth and MCP Apps proof, not a bearer
 token substituted into the host:
 
 1. Claude registered itself through Supabase dynamic client registration.

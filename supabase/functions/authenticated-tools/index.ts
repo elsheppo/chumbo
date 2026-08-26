@@ -4,7 +4,7 @@ import {
   renderResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
-} from "supa-mcp";
+} from "chumbo";
 import { z } from "zod";
 
 interface ProjectRow {
@@ -79,11 +79,11 @@ function register(server: SupabaseMcpServer, ctx: SupabaseMcpContext<any>) {
         projects.length === 0
           ? "You have no demonstration projects yet.\n\n→ Next: call create_project with a short name."
           : [
-              `## Your projects — ${projects.length}`,
+              `## Your projects – ${projects.length}`,
               "",
               ...projects.map(
                 (project) =>
-                  `- **${project.name}** — ${project.status} (${project.id})`,
+                  `- **${project.name}** – ${project.status} (${project.id})`,
               ),
               "",
               "→ Next: call create_project to add another, or use one of these IDs in your application.",
@@ -147,7 +147,7 @@ function register(server: SupabaseMcpServer, ctx: SupabaseMcpContext<any>) {
 }
 
 const app = createSupabaseMcp<DemoDatabase>({
-  server: { name: "Authenticated project tools", version: "0.7.0" },
+  server: { name: "Authenticated project tools", version: "0.8.0" },
   resourceUrl,
   auth: { mode: "bearer" },
   register,

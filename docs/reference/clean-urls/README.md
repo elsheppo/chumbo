@@ -10,7 +10,7 @@ A product-facing server can instead advertise a URL such as
 `https://yourapp.com/mcp` while the same Edge Function continues to run it:
 
 ```sh
-npx supa-mcp setup \
+npx chumbo setup \
   --resume \
   --project-ref PROJECT_REF \
   --public-url https://yourapp.com/mcp \
@@ -18,7 +18,7 @@ npx supa-mcp setup \
   --yes
 ```
 
-Supa MCP sets `MCP_PUBLIC_URL` so MCP and OAuth discovery advertise the clean
+Chumbo sets `MCP_PUBLIC_URL` so MCP and OAuth discovery advertise the clean
 URL. The application's Supabase Auth server remains the authorization issuer.
 The public route must proxy both `/mcp` and every path beneath it because those
 suffix paths serve the protected-resource metadata used during OAuth.
@@ -47,7 +47,7 @@ export default nextConfig;
 Deploy the site, then verify the route clients will actually use:
 
 ```sh
-npx supa-mcp doctor --url https://yourapp.com/mcp
+npx chumbo doctor --url https://yourapp.com/mcp
 ```
 
 ## Use a dedicated subdomain
@@ -77,7 +77,7 @@ export default {
 };
 ```
 
-Supa MCP cannot change a domain's DNS without access to its provider. Setup
+Chumbo cannot change a domain's DNS without access to its provider. Setup
 records the exact remaining route and `doctor` verifies it once it exists.
 
 Official platform reference:

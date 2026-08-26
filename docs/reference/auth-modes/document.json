@@ -2,7 +2,7 @@
   "slug": "auth-modes",
   "kind": "reference",
   "title": "Choose an access mode",
-  "summary": "Decide between OAuth, bearer, API-key, and public access for a Supa MCP endpoint, with the trade-offs that matter.",
+  "summary": "Decide between OAuth, bearer, API-key, and public access for a Chumbo endpoint, with the trade-offs that matter.",
   "officialDocs": [
     "https://supabase.com/docs/guides/auth",
     "https://supabase.com/docs/guides/database/postgres/row-level-security"
