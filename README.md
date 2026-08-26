@@ -237,6 +237,52 @@ identifiers, and use Resources or pagination for large payloads.
 [Model-facing results](./docs/patterns/model-facing-results) contains executable
 examples of all result patterns.
 
+## Opt into small durable state
+
+Most Supa MCP servers should remain stateless. An authenticated capability that
+genuinely needs request-to-request coordination can explicitly generate one
+allowlisted namespace:
+
+```sh
+npx supa-mcp setup \
+  --auth oauth \
+  --state-namespace file-ide.observations
+```
+
+This adds one opt-in migration and state configuration. Apply the migration and
+set a unique deployment secret of at least 32 random bytes:
+
+```sh
+supabase db push
+supabase secrets set \
+  SUPA_MCP_STATE_HMAC_KEY="replace-with-at-least-32-random-bytes"
+```
+
+Capability code then receives only `get`, revision-checked `put`, and
+revision-checked `delete`:
+
+```ts
+const receipt = await ctx.state?.get(
+  "file-ide.observations",
+  `project:${projectId}:document:${documentId}`,
+);
+```
+
+The runtime derives an opaque partition from the exact credential with a
+deployment-secret HMAC and keeps its service-role state client closure-confined.
+Public mode never receives state. Same-project storage is the default; advanced
+compositions can set `state.supabase.env` to keep receipts in a separate
+Supabase project without moving authentication or `ctx.supabase` there.
+
+State CAS protects coordination records, not application rows. Use immutable,
+scoped resource IDs, keep the capability's total keyspace bounded, and retain
+RLS or an atomic application-level version precondition for real mutations.
+
+See [Observation before action](./docs/patterns/observation-before-action) for
+the complete executable read-before-edit pattern, safe cross-database ordering,
+credential-rotation behavior, and split-project runbook. This is coordination
+storage—not a resident actor or Durable Object runtime.
+
 ## Optional depth when the application needs it
 
 The ordinary path remains one Edge Function with builder-authored capabilities.
@@ -245,6 +291,7 @@ that starting point:
 
 - [Many MCPs from one function](./docs/patterns/many-mcps-one-function)
 - [Authenticated tools with RLS](./docs/patterns/authenticated-tools)
+- [Observation before action](./docs/patterns/observation-before-action)
 - [Different capability surfaces](./docs/patterns/privileged-capabilities)
 - [Interactive MCP Apps on Supabase](./docs/patterns/mcp-apps-on-supabase)
 - [Clean client-facing URLs](./docs/reference/clean-urls)

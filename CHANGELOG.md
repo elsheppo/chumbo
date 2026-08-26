@@ -2,8 +2,37 @@
 
 ## Unreleased
 
-- Keep the canonical living-reference import maps and deployment record aligned
-  with the published package version, and fail ordinary checks when they drift.
+## 0.7.0 — 2026-08-26
+
+- Allow opt-in durable state to name a separate Supabase environment for its
+  private RPC client while preserving same-project behavior by default. OAuth
+  verification and request-scoped data access remain on the application
+  environment, and cross-project credential separation is regression-tested.
+- Emit stable, matching JavaScript and declaration chunk names, and verify the
+  actual packed artifact across Node ESM, strict TypeScript, and Deno rather
+  than repairing declaration imports inside a generated-project smoke test.
+- Add opt-in authenticated durable state with configured namespace allowlists,
+  deployment-secret HMAC credential partitioning, bounded JSON/TTL/key inputs,
+  and atomic get/CAS-put/CAS-delete Postgres RPCs. Public and ordinary
+  stateless scaffolds remain unchanged.
+- Add an executable advanced observation-before-action pattern that separates
+  receipt CAS from authoritative resource CAS and proves blind, stale, and
+  concurrent edit behavior without changing the generated stateless path.
+- Add `--state-namespace` setup generation, private service-role-only SQL, a
+  secret-safe runtime context, and local Postgres isolation/race/expiry proof.
+- Reclaim unreachable expired credential partitions in index-backed batches of
+  at most 16 rows during writes, with concurrent writers using `SKIP LOCKED`.
+- Make the required RLS integration gate target its multi-tenant example
+  schema and fail closed when that local stack is not running, instead of
+  allowing a skipped suite to look successful. Give that fixture dedicated
+  local ports so it can coexist with the living-reference stack, and allow the
+  real Auth fixture enough time to complete on a cold start without making
+  fixture provisioning compete with the concurrent RLS assertions. Ignore its
+  local CLI metadata just like the living-reference project's metadata, and
+  retry only the local Auth client's explicitly retryable transport failures.
+- Keep release-candidate imports aligned with the package version without
+  rewriting the hosted deployment record before a real deployment. Hosted
+  smoke remains the authority for detecting deployment drift.
 - Verify hosted Edge Function runtime fingerprints during the living-reference
   smoke instead of treating content synchronization as deployment proof.
 - Document current and established Supabase Edge key compatibility plus the

@@ -1,0 +1,12 @@
+{
+  "slug": "observation-before-action",
+  "kind": "pattern",
+  "title": "Observation before action",
+  "summary": "Require an authenticated caller to observe the current resource version before a guarded mutation, without turning stateless Edge Functions into an actor runtime.",
+  "example": "observation-before-action-example",
+  "officialDocs": [
+    "https://supabase.com/docs/guides/functions",
+    "https://supabase.com/docs/guides/database/functions",
+    "https://supabase.com/docs/guides/database/postgres/row-level-security"
+  ]
+}

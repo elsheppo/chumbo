@@ -5,6 +5,7 @@ import type {
 } from "@modelcontextprotocol/server";
 import type { JWTClaims, SupabaseEnv, UserClaims } from "@supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { JsonValue } from "./results.js";
 
 export interface SupabaseMcpApiKeyIdentity {
   /** Stable application-owned identity for audit logs and scope resolution. */
@@ -109,6 +110,67 @@ export interface SupabaseMcpPostgresRateLimit {
   functionName?: string;
 }
 
+export interface SupabaseMcpStateNamespaceOptions {
+  /** Default lifetime for values written in this namespace. */
+  ttlSeconds: number;
+  /** Optional ceiling for a caller-selected shorter or longer lifetime. */
+  maxTtlSeconds?: number;
+}
+
+export interface SupabaseMcpDurableStateOptions {
+  /**
+   * Deployment secret used only to derive an opaque per-credential partition.
+   * It is never exposed through SupabaseMcpContext.
+   */
+  hmacKey: string;
+  /** Exact namespace allowlist available to application capability code. */
+  namespaces: Readonly<Record<string, SupabaseMcpStateNamespaceOptions>>;
+  /**
+   * Optional Supabase environment owning the private durable-state RPCs.
+   * Defaults to the application's ordinary Supabase environment.
+   */
+  supabase?: {
+    env?: Partial<SupabaseEnv>;
+  };
+}
+
+export interface SupabaseMcpStateValue<Value extends JsonValue = JsonValue> {
+  readonly value: Value;
+  readonly revision: number;
+  readonly expiresAt: string;
+}
+
+export interface SupabaseMcpStatePutOptions<
+  Value extends JsonValue = JsonValue,
+> {
+  readonly value: Value;
+  /** Null creates missing state; a positive revision performs compare-and-swap. */
+  readonly expectedRevision: number | null;
+  /** Defaults to the configured namespace lifetime. */
+  readonly ttlSeconds?: number;
+}
+
+export interface SupabaseMcpStateDeleteOptions {
+  readonly expectedRevision: number;
+}
+
+export interface SupabaseMcpState {
+  get<Value extends JsonValue = JsonValue>(
+    namespace: string,
+    key: string,
+  ): Promise<SupabaseMcpStateValue<Value> | null>;
+  put<Value extends JsonValue>(
+    namespace: string,
+    key: string,
+    options: SupabaseMcpStatePutOptions<Value>,
+  ): Promise<SupabaseMcpStateValue<Value>>;
+  delete(
+    namespace: string,
+    key: string,
+    options: SupabaseMcpStateDeleteOptions,
+  ): Promise<boolean>;
+}
+
 export type SupabaseMcpServer = McpServer & {
   /**
    * Register capabilities only when the current request has every scope.
@@ -133,6 +195,11 @@ export interface SupabaseMcpContext<Database = unknown> {
   hasScope(scope: string): boolean;
   hasScopes(scopes: readonly string[]): boolean;
   readonly traceId: string;
+  /**
+   * Optional request-scoped, credential-partitioned state. Present only when
+   * protected authentication and durable state are both configured.
+   */
+  readonly state?: SupabaseMcpState;
 }
 
 export interface SupabaseMcpErrorEvent {
@@ -167,6 +234,8 @@ export interface CreateSupabaseMcpOptions<Database = unknown> {
       ) => string | undefined | Promise<string | undefined>);
   resourceUrl: string | URL;
   auth?: SupabaseMcpAuth<Database>;
+  /** Optional Postgres-backed state for authenticated MCP capabilities. */
+  state?: SupabaseMcpDurableStateOptions;
   access?: SupabaseMcpAccessOptions<Database>;
   register(
     server: SupabaseMcpServer,

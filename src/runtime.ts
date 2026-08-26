@@ -26,6 +26,10 @@ import type {
   SupabaseMcpServer,
   VerifiedSupabaseIdentity,
 } from "./types.js";
+import {
+  createSupabaseMcpStateFactory,
+  SupabaseMcpStateUnavailableError,
+} from "./state.js";
 import { PACKAGE_VERSION } from "./version.js";
 
 const IDENTITY_KEY = "createSupabaseMcpIdentity";
@@ -302,11 +306,11 @@ function normalizeError(error: unknown): Error {
 function runtimeVariable(name: string): string | undefined {
   const runtimeGlobal = globalThis as typeof globalThis & {
     Deno?: { env?: { get(variable: string): string | undefined } };
+    process?: { env?: Record<string, string | undefined> };
   };
   const denoValue = runtimeGlobal.Deno?.env?.get(name);
   if (denoValue) return denoValue;
-  if (typeof process !== "undefined" && process.env) return process.env[name];
-  return undefined;
+  return runtimeGlobal.process?.env?.[name];
 }
 
 function runtimeKeyMap(
@@ -444,8 +448,14 @@ export function createSupabaseMcpInternal<Database = unknown>(
   dependencies: RuntimeDependencies<Database>,
 ): SupabaseMcpApp {
   const auth = options.auth ?? { mode: "oauth" as const };
+  if (auth.mode === "public" && options.state) {
+    throw new Error("Durable state requires protected authentication");
+  }
   const strategies = protectedStrategies(auth);
   validateStrategies(strategies, auth.mode === "multi");
+  const stateFactory = options.state
+    ? createSupabaseMcpStateFactory(options.state)
+    : undefined;
   const oauthStrategy = strategies.find(
     (strategy) => strategy.mode === "oauth",
   );
@@ -877,6 +887,22 @@ export function createSupabaseMcpInternal<Database = unknown>(
     const traceId = dependencies.randomUUID();
     let context: SupabaseMcpContext<Database>;
     try {
+      let state: SupabaseMcpContext<Database>["state"];
+      if (stateFactory) {
+        try {
+          state = await stateFactory.create(
+            {
+              credential: identity.token,
+              authentication: identity.authentication,
+            },
+            dependencies.createAdminClient(
+              options.state?.supabase?.env ?? options.supabase?.env,
+            ),
+          );
+        } catch {
+          throw new SupabaseMcpStateUnavailableError();
+        }
+      }
       context = await buildContext(
         {
           request,
@@ -892,6 +918,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
           },
           authentication: identity.authentication,
           traceId,
+          ...(state ? { state } : {}),
         },
         identity.scopes,
       );

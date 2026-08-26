@@ -3,7 +3,7 @@
 This function exposes application capabilities to end users through MCP.
 {{ACCESS_DESCRIPTION}}
 {{API_KEY_SETUP}}
-{{PUBLIC_SETUP}}
+{{PUBLIC_SETUP}}{{STATE_README}}
 
 Edit `capabilities.ts` to expose your app, then let the setup command re-check
 the project and report the remaining actions:

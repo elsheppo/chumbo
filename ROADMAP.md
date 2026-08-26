@@ -5,7 +5,30 @@ a compatibility promise. A roadmap item ships only after a real application
 proves the abstraction and the public package, living reference, and hosted
 verification agree.
 
-## Proposed 0.7.0: external JWT identities
+## 0.7.0: opt-in durable MCP state
+
+- **Status:** Release candidate
+- **Motivating cases:** MCP capabilities that need small, durable coordination
+  across otherwise disposable Edge Function requests
+
+### Outcome
+
+Protected MCPs may opt into bounded, namespace-allowlisted state backed by
+private Postgres functions. Each exact caller credential receives a
+deployment-keyed HMAC partition, while capability code receives only `get`,
+revision-checked `put`, and revision-checked `delete`. Stateless behavior
+remains the default.
+
+Authentication and request-scoped application data stay on the application's
+Supabase environment. Builders may optionally configure `state.supabase.env`
+when the private state RPCs belong to a separate Supabase project; the
+service-role client remains closure-confined in both configurations.
+
+This release is coordination storage, not a resident actor or Durable Object
+runtime. It does not add leases, queues, alarms, actor messaging, generalized
+transactions, or background execution.
+
+## Proposed 0.8.0: external JWT identities
 
 - **Status:** Proposed advanced authentication pattern
 - **Motivating cases:** applications with an existing third-party identity
@@ -157,7 +180,7 @@ Current Supabase reference:
    a narrow application operation with no fictional Supabase user.
 7. **Dogfood from the public artifact.** Install the release candidate in a
    clean held-out Supabase project and verify a real remote MCP client before
-   publishing `0.7.0`.
+   publishing the external-JWT release.
 
 ### Release evidence
 
@@ -183,7 +206,7 @@ The release is not complete until tests prove:
 
 ### Non-goals
 
-Version `0.7.0` will not:
+The external-JWT release will not:
 
 - mint JWTs, host an identity provider, or implement login and consent pages
   for external issuers;
@@ -204,7 +227,7 @@ verifier behind the same normalized result contract. The default should remain
 declarative. A custom hook earns inclusion only if a real issuer cannot be
 represented safely with issuer, audience, JWKS, and claim mapping.
 
-## Proposed 0.8.0: durable MCP Tasks
+## Proposed 0.9.0: durable MCP Tasks
 
 - **Status:** Proposed next core capability after identity federation
 - **Motivating cases:** work that cannot or should not complete inside one Edge
@@ -268,11 +291,11 @@ machinery that builders should not rewrite.
 
 ### Non-goals
 
-Version `0.8.0` will not provide a general workflow engine, prescribe the
+The durable-Tasks release will not provide a general workflow engine, prescribe the
 worker runtime, or hide an application's business retries behind a false
 exactly-once guarantee.
 
-## Proposed 0.9.0: MCP Apps on Supabase
+## Proposed 0.10.0: MCP Apps on Supabase
 
 - **Status:** Hosted living pattern proven; reusable runtime surface under
   review
@@ -341,10 +364,10 @@ Supa MCP's runtime or deployment model.
 
 ### Non-goals
 
-Version `0.9.0` will not become an application builder, component library,
+The MCP Apps release will not become an application builder, component library,
 design system, browser automation suite, or general MCP testing product.
 
-## Proposed 0.10.0: production operations
+## Proposed 0.11.0: production operations
 
 - **Status:** Proposed runtime hardening
 - **Motivating cases:** builders need to understand who invoked a capability,
@@ -371,7 +394,7 @@ usage decisions possible without installing a second policy framework.
 
 ### Non-goals
 
-Version `0.10.0` will not ship a hosted observability product, silently collect
+The production-operations release will not ship a hosted observability product, silently collect
 telemetry, retain model prompts by default, or replace an application's billing
 and entitlement system.
 
@@ -385,6 +408,12 @@ promises or new core abstractions:
 - **Realtime capability updates:** notify a connected surface when a Resource
   changes or a durable Task completes, without treating Realtime as required
   transport machinery.
+- **Database-backed actors:** after two real adopters need more than bounded
+  CAS state, evaluate an actor layer with addressable mailboxes, per-actor
+  serialized transitions, transactional outbox results, Cron-backed alarms,
+  and private Realtime delivery. Edge Functions remain disposable workers;
+  Postgres owns durability and ordering. Do not label the current state API an
+  actor runtime or add queues/leases/messages before that evidence exists.
 - **Cron-triggered agent workflows:** scheduled SQL, database functions, or
   Edge Function calls that prepare work an MCP identity can later inspect.
 - **Many MCPs from one function:** continue hardening the existing row-defined
@@ -404,7 +433,7 @@ promises or new core abstractions:
   correct.
 - **External JWT data planes:** one third-party identity using Supabase RLS and
   one workload identity using a narrow application operation, as required by
-  the `0.7.0` release evidence.
+  the external-JWT release evidence.
 
 The promotion rule is deliberate:
 
@@ -423,10 +452,11 @@ it.
 ## Directional sequence
 
 ```text
-0.7  external identity federation
-0.8  durable agent work
-0.9  interactive MCP Apps
-0.10 production visibility and control hooks
+0.7  bounded durable MCP state
+0.8  external identity federation
+0.9  durable agent work
+0.10 interactive MCP Apps
+0.11 production visibility and control hooks
 ```
 
 The sequence is directional. A living pattern may advance without forcing a

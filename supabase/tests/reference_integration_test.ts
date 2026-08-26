@@ -3,6 +3,7 @@ import authenticatedApp from "../functions/authenticated-tools/index.ts";
 import docsApp from "../functions/docs-mcp/index.ts";
 import manyMcpsApp from "../functions/many-mcps/index.ts";
 import modelResultsApp from "../functions/model-facing-results/index.ts";
+import observationApp from "../functions/observation-before-action/index.ts";
 import privilegedApp from "../functions/privileged-capabilities/index.ts";
 import reviewQueueApp from "../functions/review-queue-app/index.ts";
 
@@ -98,6 +99,7 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
     "authenticated-tools",
     "model-facing-results",
     "many-mcps-one-function",
+    "observation-before-action",
     "privileged-capabilities",
     "mcp-apps-on-supabase",
   ]) {
@@ -296,6 +298,139 @@ Deno.test(
       ),
       ["Bob Project"],
       "Bob RLS slice",
+    );
+  },
+);
+
+Deno.test(
+  "observation receipts deny blind and stale edits while concurrent domain CAS has one winner",
+  async () => {
+    const admin = createClient(projectUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const credential = {
+      email: "observation@supa-mcp.test",
+      password: "reference-observation-password",
+    };
+    const { error: createError } = await admin.auth.admin.createUser({
+      ...credential,
+      email_confirm: true,
+    });
+    if (
+      createError &&
+      !createError.message.includes("already been registered")
+    ) {
+      throw createError;
+    }
+    const client = createClient(projectUrl, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: signIn, error: signInError } =
+      await client.auth.signInWithPassword(credential);
+    if (signInError) throw signInError;
+    const userId = signIn.user?.id;
+    const token = signIn.session?.access_token;
+    assert(userId && token, "observation test identity");
+
+    await admin.from("demo_guarded_documents").delete().eq("owner_id", userId);
+    const { data: inserted, error: insertError } = await admin
+      .from("demo_guarded_documents")
+      .insert({
+        owner_id: userId,
+        title: "Guarded launch note",
+        content: "Draft launch language.",
+      })
+      .select("id, version")
+      .single();
+    if (insertError) throw insertError;
+    assert(inserted, "guarded document fixture");
+
+    const url = `${projectUrl}/functions/v1/observation-before-action`;
+    const edit = (oldText: string, newText: string) =>
+      observationApp
+        .fetch(
+          mcpRequest(
+            url,
+            "tools/call",
+            {
+              name: "edit_document",
+              arguments: {
+                document_id: inserted.id,
+                old_text: oldText,
+                new_text: newText,
+              },
+            },
+            token,
+          ),
+        )
+        .then(json);
+    const read = () =>
+      observationApp
+        .fetch(
+          mcpRequest(
+            url,
+            "tools/call",
+            {
+              name: "read_document",
+              arguments: { document_id: inserted.id },
+            },
+            token,
+          ),
+        )
+        .then(json);
+
+    const blind = await edit("Draft", "Final");
+    assert(blind.result.isError, "edit without observation is denied");
+
+    const observed = await read();
+    equal(
+      observed.result.structuredContent.document.version,
+      1,
+      "read returns authoritative resource version",
+    );
+    const firstEdit = await edit("Draft", "Reviewed");
+    assert(!firstEdit.result.isError, "observed edit succeeds");
+    equal(
+      firstEdit.result.structuredContent.document.version,
+      2,
+      "successful edit advances resource version",
+    );
+    equal(
+      firstEdit.result.structuredContent.receiptAdvanced,
+      true,
+      "successful edit advances receipt after the domain write",
+    );
+
+    const { error: externalError } = await admin
+      .from("demo_guarded_documents")
+      .update({
+        content: "Externally revised launch language.",
+        version: 3,
+      })
+      .eq("id", inserted.id)
+      .eq("version", 2);
+    if (externalError) throw externalError;
+    const stale = await edit("Reviewed", "Published");
+    assert(stale.result.isError, "intervening mutation makes receipt stale");
+    assert(
+      stale.result.content[0].text.includes("read_document"),
+      "stale response instructs reread",
+    );
+
+    await read();
+    const race = await Promise.all([
+      edit("Externally revised", "First concurrent"),
+      edit("Externally revised", "Second concurrent"),
+    ]);
+    equal(
+      race.filter((result) => !result.result.isError).length,
+      1,
+      "one concurrent domain mutation wins",
+    );
+    equal(
+      race.filter((result) => result.result.isError).length,
+      1,
+      "one concurrent domain mutation is rejected",
     );
   },
 );
