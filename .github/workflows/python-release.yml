@@ -1,0 +1,56 @@
+name: Publish Python package
+
+on:
+  push:
+    tags:
+      - "python-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: 0.5.25
+          enable-cache: true
+          cache-dependency-glob: packages/python/uv.lock
+      - name: Sync locked Python environment
+        working-directory: packages/python
+        run: uv sync --locked
+      - name: Check Python package
+        working-directory: packages/python
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy
+          uv run pytest
+      - name: Build Python distributions
+        working-directory: packages/python
+        run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: packages/python/dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/chumbo
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
