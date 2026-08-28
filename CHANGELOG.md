@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.1 – 2026-08-28
+
+- Publish canonical `elsheppo/chumbo` repository, homepage, and issue links in
+  the npm package metadata.
 - Deploy all six hosted living-reference functions from merged Chumbo source,
   record their active versions and bundle checksums, and verify both canonical
   Chumbo and legacy compatibility runtime fingerprints.
