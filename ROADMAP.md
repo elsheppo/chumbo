@@ -436,6 +436,15 @@ promises or new core abstractions:
   role names, or an administration UI.
 - **Application-key pairing:** simple one-key onboarding and rotation for
   clients that cannot complete OAuth, proven through a real application.
+- **Explicit run-aware capabilities:** let an application mint one bounded,
+  opaque handle for a logical run or work order, carry it through controlled
+  request metadata or an explicit field on selected tools, and use the verified
+  digest as a lifecycle and state-key dimension. No handle means
+  invocation-only behavior. Never infer a run from an MCP session, credential,
+  connection, IP address, `traceparent`, or timing proximity. Keep run identity
+  distinct from authentication, invocation trace identity, and any future
+  Durable actor identity; early close, revocation, and distinct-run quotas
+  remain application-owned storage concerns.
 - **Custom domains and proxy routes:** deployment recipes for a clean MCP URL
   while keeping the authorization issuer and protected-resource metadata
   correct.
