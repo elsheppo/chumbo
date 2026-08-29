@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.0 – 2026-08-29
+
 - Add an optional builder-owned lifecycle-event sink for invoked tools,
   Resources, and prompts. Versioned events contain redacted request and
   capability metadata, distinguish terminal outcomes, preserve concurrent
