@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add an optional builder-owned lifecycle-event sink for invoked tools,
+  Resources, and prompts. Versioned events contain redacted request and
+  capability metadata, distinguish terminal outcomes, preserve concurrent
+  caller isolation, and fail open when the sink throws or rejects.
+
 ## 0.8.1 – 2026-08-28
 
 - Publish canonical `elsheppo/chumbo` repository, homepage, and issue links in

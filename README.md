@@ -102,6 +102,33 @@ You choose the application operations worth exposing and shape each result for
 its real consumer. Chumbo handles the MCP and request-authority boundary around
 that application code.
 
+## Observe capability execution
+
+Add `onEvent` when your application needs audit, usage, or operational data.
+Chumbo emits versioned `capability.started` and `capability.finished` events for
+invoked tools, Resources, and prompts. Each event contains the request trace,
+server and capability identity, normalized principal and authentication,
+timestamp, and terminal outcome. Arguments, results, credentials, and thrown
+exception text are excluded by construction.
+
+```ts
+const app = createSupabaseMcp({
+  // server, resourceUrl, auth, and register...
+  onEvent(event) {
+    return applicationEvents.write(event);
+  },
+  onError({ phase, error, traceId }) {
+    applicationLogger.error({ phase, error, traceId });
+  },
+});
+```
+
+The sink is optional and application-owned. Chumbo observes a returned
+promise for failure but does not await it, so a slow or unavailable sink never
+changes the MCP response. Use the deployment platform's background-work
+primitive when delivery must continue after the response. Sink failures reach
+`onError` with `phase: "events"` and never recursively produce another event.
+
 ## Run, deploy, and verify
 
 Run the generated checks and exercise MCP discovery locally:
