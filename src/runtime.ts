@@ -4,6 +4,7 @@ import {
   OAuthErrorCode,
   buildOAuthProtectedResourceMetadata,
   createMcpHandler,
+  isInputRequiredResult,
   requireBearerAuth,
   type AuthInfo,
   type McpServer as McpServerType,
@@ -19,8 +20,12 @@ import type {
   CreateSupabaseMcpOptions,
   RuntimeDependencies,
   SupabaseMcpApp,
-  SupabaseMcpContext,
   SupabaseMcpApiKeyAuth,
+  SupabaseMcpCapabilityKind,
+  SupabaseMcpContext,
+  SupabaseMcpErrorEvent,
+  SupabaseMcpLifecycleEvent,
+  SupabaseMcpLifecycleOutcome,
   SupabaseMcpProtectedAuth,
   SupabaseMcpPostgresRateLimit,
   SupabaseMcpServer,
@@ -195,6 +200,7 @@ function contextWithScopes<Database>(
 function scopedServer<Database>(
   server: McpServerType,
   context: SupabaseMcpContext<Database>,
+  lifecycle: LifecycleEmitter<Database> | undefined,
   requiredScopes: readonly string[] = [],
 ): SupabaseMcpServer {
   const required = normalizedScopes(requiredScopes);
@@ -202,7 +208,10 @@ function scopedServer<Database>(
     get(target, property) {
       if (property === "withScopes") {
         return (additional: readonly string[]) =>
-          scopedServer(target, context, [...required, ...additional]);
+          scopedServer(target, context, lifecycle, [
+            ...required,
+            ...additional,
+          ]);
       }
       const value = Reflect.get(target, property, target);
       if (typeof property !== "string" || typeof value !== "function") {
@@ -210,7 +219,10 @@ function scopedServer<Database>(
       }
       if (!REGISTRATION_METHODS.has(property)) return value.bind(target);
       return (...args: unknown[]) => {
-        const registration = Reflect.apply(value, target, args) as {
+        const registrationArgs = lifecycle
+          ? lifecycle.wrapRegistration(property, args, context)
+          : args;
+        const registration = Reflect.apply(value, target, registrationArgs) as {
           disable?(): void;
         };
         if (!context.hasScopes(required)) registration.disable?.();
@@ -218,6 +230,156 @@ function scopedServer<Database>(
       };
     },
   }) as SupabaseMcpServer;
+}
+
+interface LifecycleEmitter<Database> {
+  wrapRegistration(
+    method: string,
+    args: readonly unknown[],
+    context: SupabaseMcpContext<Database>,
+  ): unknown[];
+}
+
+function capabilityKind(method: string): SupabaseMcpCapabilityKind | undefined {
+  if (method === "registerTool") return "tool";
+  if (method === "registerPrompt") return "prompt";
+  if (method === "registerResource" || method === "registerResourceTemplate") {
+    return "resource";
+  }
+  return undefined;
+}
+
+function lifecycleOutcome(
+  kind: SupabaseMcpCapabilityKind,
+  result: unknown,
+): SupabaseMcpLifecycleOutcome {
+  if (isInputRequiredResult(result)) return "input-required";
+  if (
+    kind === "tool" &&
+    typeof result === "object" &&
+    result !== null &&
+    "isError" in result &&
+    result.isError === true
+  ) {
+    return "tool-error";
+  }
+  return "success";
+}
+
+function createLifecycleEmitter<Database>(
+  options: CreateSupabaseMcpOptions<Database>,
+  dependencies: RuntimeDependencies<Database>,
+): LifecycleEmitter<Database> | undefined {
+  if (!options.onEvent) return undefined;
+
+  const now = (): number => dependencies.now?.() ?? Date.now();
+
+  const server = Object.freeze({
+    name: options.server.name,
+    version: options.server.version,
+  });
+
+  const reportSinkFailure = (error: unknown, traceId: string): void => {
+    try {
+      const reported = (
+        options.onError as
+          | ((event: SupabaseMcpErrorEvent) => unknown)
+          | undefined
+      )?.({ error: normalizeError(error), phase: "events", traceId });
+      void Promise.resolve(reported).catch(() => {});
+    } catch {
+      // An operator hook must not create a second lifecycle failure.
+    }
+  };
+
+  const emit = (event: SupabaseMcpLifecycleEvent): void => {
+    try {
+      const pending = options.onEvent!(event);
+      void Promise.resolve(pending).catch((error) => {
+        reportSinkFailure(error, event.traceId);
+      });
+    } catch (error) {
+      reportSinkFailure(error, event.traceId);
+    }
+  };
+
+  return {
+    wrapRegistration(method, args, context) {
+      const kind = capabilityKind(method);
+      const name = args[0];
+      const callbackIndex = args.length - 1;
+      const callback = args[callbackIndex];
+      if (!kind || typeof name !== "string" || typeof callback !== "function") {
+        return [...args];
+      }
+
+      const authentication = Object.freeze({ ...context.authentication });
+      const principal = context.principal
+        ? Object.freeze({
+            subject: context.principal.subject,
+            ...(context.principal.clientId
+              ? { clientId: context.principal.clientId }
+              : {}),
+            authentication: Object.freeze({
+              ...context.principal.authentication,
+            }),
+          })
+        : null;
+      const capability = Object.freeze({ kind, name });
+      const base = {
+        schemaVersion: 1 as const,
+        traceId: context.traceId,
+        server,
+        capability,
+        principal,
+        authentication,
+      };
+
+      const wrapped = async function (
+        this: unknown,
+        ...callbackArgs: unknown[]
+      ): Promise<unknown> {
+        const startedAt = now();
+        emit(
+          Object.freeze({
+            ...base,
+            type: "capability.started" as const,
+            timestamp: new Date(startedAt).toISOString(),
+          }),
+        );
+        try {
+          const result = await Reflect.apply(callback, this, callbackArgs);
+          const finishedAt = now();
+          emit(
+            Object.freeze({
+              ...base,
+              type: "capability.finished" as const,
+              timestamp: new Date(finishedAt).toISOString(),
+              durationMs: Math.max(0, finishedAt - startedAt),
+              outcome: lifecycleOutcome(kind, result),
+            }),
+          );
+          return result;
+        } catch (error) {
+          const finishedAt = now();
+          emit(
+            Object.freeze({
+              ...base,
+              type: "capability.finished" as const,
+              timestamp: new Date(finishedAt).toISOString(),
+              durationMs: Math.max(0, finishedAt - startedAt),
+              outcome: "failure" as const,
+            }),
+          );
+          throw error;
+        }
+      };
+
+      const wrappedArgs = [...args];
+      wrappedArgs[callbackIndex] = wrapped;
+      return wrappedArgs;
+    },
+  };
 }
 
 async function sha256(value: string): Promise<string> {
@@ -440,6 +602,7 @@ export const defaultRuntimeDependencies: RuntimeDependencies = {
     return createAdminClient({ env: compatibleSupabaseEnv(env) });
   },
   fetch: globalThis.fetch.bind(globalThis),
+  now: () => Date.now(),
   randomUUID: () => crypto.randomUUID(),
 };
 
@@ -456,6 +619,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
   const stateFactory = options.state
     ? createSupabaseMcpStateFactory(options.state)
     : undefined;
+  const lifecycle = createLifecycleEmitter(options, dependencies);
   const oauthStrategy = strategies.find(
     (strategy) => strategy.mode === "oauth",
   );
@@ -589,7 +753,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
         options.server,
         instructions ? { instructions } : undefined,
       );
-      await options.register(scopedServer(server, context), context);
+      await options.register(scopedServer(server, context, lifecycle), context);
       return server;
     },
     {

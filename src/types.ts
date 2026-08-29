@@ -31,6 +31,51 @@ export interface SupabaseMcpPrincipal {
   readonly authentication: SupabaseMcpAuthentication;
 }
 
+export type SupabaseMcpCapabilityKind = "tool" | "resource" | "prompt";
+
+export interface SupabaseMcpLifecycleCapability {
+  readonly kind: SupabaseMcpCapabilityKind;
+  readonly name: string;
+}
+
+export interface SupabaseMcpLifecycleServer {
+  readonly name: string;
+  readonly version: string;
+}
+
+export type SupabaseMcpLifecycleOutcome =
+  | "success"
+  | "tool-error"
+  | "input-required"
+  | "failure";
+
+interface SupabaseMcpLifecycleEventBase {
+  /** Version of this public event schema. */
+  readonly schemaVersion: 1;
+  /** ISO 8601 time at which this lifecycle transition occurred. */
+  readonly timestamp: string;
+  readonly traceId: string;
+  readonly server: SupabaseMcpLifecycleServer;
+  readonly capability: SupabaseMcpLifecycleCapability;
+  readonly principal: SupabaseMcpPrincipal | null;
+  readonly authentication: SupabaseMcpAuthentication;
+}
+
+export interface SupabaseMcpCapabilityStartedEvent extends SupabaseMcpLifecycleEventBase {
+  readonly type: "capability.started";
+}
+
+export interface SupabaseMcpCapabilityFinishedEvent extends SupabaseMcpLifecycleEventBase {
+  readonly type: "capability.finished";
+  readonly durationMs: number;
+  readonly outcome: SupabaseMcpLifecycleOutcome;
+}
+
+/** Redacted, request-scoped facts emitted around capability invocation. */
+export type SupabaseMcpLifecycleEvent =
+  | SupabaseMcpCapabilityStartedEvent
+  | SupabaseMcpCapabilityFinishedEvent;
+
 export interface SupabaseMcpApiKeyVerifyContext<Database = unknown> {
   readonly token: string;
   /**
@@ -204,7 +249,13 @@ export interface SupabaseMcpContext<Database = unknown> {
 
 export interface SupabaseMcpErrorEvent {
   readonly error: Error;
-  readonly phase: "auth" | "metadata" | "mcp" | "rate-limit" | "runtime";
+  readonly phase:
+    | "auth"
+    | "events"
+    | "metadata"
+    | "mcp"
+    | "rate-limit"
+    | "runtime";
   readonly traceId?: string;
 }
 
@@ -248,6 +299,11 @@ export interface CreateSupabaseMcpOptions<Database = unknown> {
     legacy?: "stateless" | "reject";
     responseMode?: "auto" | "json" | "sse";
   };
+  /**
+   * Receive redacted lifecycle facts in an application-owned sink. Returned
+   * promises are observed for failures but never awaited by the MCP request.
+   */
+  onEvent?(event: SupabaseMcpLifecycleEvent): void | Promise<void>;
   onError?(event: SupabaseMcpErrorEvent): void;
 }
 
@@ -274,5 +330,7 @@ export interface RuntimeDependencies<Database = unknown> {
   ): SupabaseClient<Database>;
   createAdminClient(env?: Partial<SupabaseEnv>): SupabaseClient<Database>;
   fetch: typeof globalThis.fetch;
+  /** Optional deterministic clock for runtime tests. */
+  now?(): number;
   randomUUID(): string;
 }
