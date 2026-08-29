@@ -78,6 +78,9 @@ function dependencies(
         code_challenge_methods_supported: ["S256"],
       });
     },
+    now() {
+      return Date.now();
+    },
     randomUUID() {
       sequence += 1;
       return `trace-${sequence}`;
