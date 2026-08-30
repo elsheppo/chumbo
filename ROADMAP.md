@@ -5,6 +5,23 @@ a compatibility promise. A roadmap item ships only after a real application
 proves the abstraction and the public package, living reference, and hosted
 verification agree.
 
+## 0.10.0: explicit run correlation
+
+- **Status:** Shipped on 2026-08-29
+- **Outcome:** Controlled clients may carry a signed, bounded application-run
+  handle through Chumbo request metadata, and builders may expose the same
+  handle as an explicit field on selected tools. Lifecycle v2 receives the
+  verified opaque run fact without inferring runs from MCP sessions, timing,
+  credentials, or transport details. Unconfigured servers retain lifecycle v1.
+
+## 0.9.0: builder-owned capability lifecycle events
+
+- **Status:** Shipped on 2026-08-29
+- **Outcome:** Builders may provide a fail-open sink for structured,
+  secret-safe invocation events covering tools, Resources, and prompts.
+  Chumbo does not retain or export telemetry unless the application explicitly
+  installs a sink.
+
 ## 0.8.0: Chumbo identity transition
 
 - **Status:** Shipped on 2026-08-26
@@ -377,8 +394,8 @@ design system, browser automation suite, or general MCP testing product.
 
 ## Candidate: production operations
 
-- **Status:** Capability lifecycle v1 shipped in `0.9.0`; optional explicit
-  run-correlation extension implemented in the next package candidate
+- **Status:** Capability lifecycle v1 shipped in `0.9.0`; explicit run
+  correlation shipped in `0.10.0`
 - **Motivating cases:** builders need to understand who invoked a capability,
   what happened, and how much work the request consumed
 
@@ -437,17 +454,6 @@ promises or new core abstractions:
   role names, or an administration UI.
 - **Application-key pairing:** simple one-key onboarding and rotation for
   clients that cannot complete OAuth, proven through a real application.
-- **Explicit run-aware capabilities (package candidate):** let an application
-  mint one bounded,
-  opaque handle for a logical run or work order, carry it through controlled
-  request metadata or an explicit field on selected tools, and use the verified
-  digest as a lifecycle-v2 and state-key dimension. Unconfigured servers retain
-  lifecycle v1, and no handle means invocation-only behavior. Never infer a run
-  from an MCP session, credential, connection, IP address, `traceparent`, or
-  timing proximity. Keep run identity distinct from authentication, invocation
-  trace identity, and any future Durable actor identity; early close,
-  revocation, and distinct-run quotas remain application-owned storage
-  concerns.
 - **Custom domains and proxy routes:** deployment recipes for a clean MCP URL
   while keeping the authorization issuer and protected-resource metadata
   correct.
