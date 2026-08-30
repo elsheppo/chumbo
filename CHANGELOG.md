@@ -2,10 +2,15 @@
 
 ## Unreleased
 
+## 0.10.1 – 2026-08-30
+
 - Reduce the generated capability starter to one immediately runnable identity
   tool with an explicit `ctx.supabase` replacement seam. Keep the wider tools,
   Resources, prompts, elicitation, and result-contract surface discoverable and
   executable in the living capability showcase.
+- Refresh the public README around Chumbo's setup, deployment, and capability
+  path. Clarify that API-key mode resolves an application-owned subject and
+  scopes while `ctx.supabase` uses the anonymous Supabase role.
 
 ## 0.10.0 – 2026-08-29
 
