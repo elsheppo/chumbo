@@ -302,8 +302,9 @@ Shape each result around the consumer's next reasoning or interaction step.
 Preserve useful identifiers, omit internal fields, and use Resources or
 pagination for large payloads.
 
-[Model-facing results](./docs/patterns/model-facing-results) contains executable
-examples of all result patterns.
+The [capability and result showcase](./docs/patterns/model-facing-results)
+keeps tools, Resources, prompts, elicitation, and all result patterns
+executable without loading them into the generated starter.
 
 ## Opt into small durable state
 

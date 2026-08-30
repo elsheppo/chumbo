@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Reduce the generated capability starter to one immediately runnable identity
+  tool with an explicit `ctx.supabase` replacement seam. Keep the wider tools,
+  Resources, prompts, elicitation, and result-contract surface discoverable and
+  executable in the living capability showcase.
+
 ## 0.10.0 – 2026-08-29
 
 - Add opt-in signed application-run handles through `createRunCorrelation`.

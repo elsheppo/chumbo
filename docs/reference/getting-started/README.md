@@ -15,11 +15,12 @@ their own accounts, API key for the fastest authenticated start. The
 `supabase/functions/mcp/`, previews every file first, and prints the ordered
 remaining actions.
 
-**2. Implement.** Edit the generated `capabilities.ts`. Query through
-`ctx.supabase` so the caller's own grants and RLS apply. Choose `textResult`,
-`structuredResult`, `renderResult`, or `resourceResult` according to the real
-consumer. Define an `outputSchema` for structured results, and do not mirror a
-database row into both result lanes automatically.
+**2. Implement.** The generated `capabilities.ts` starts with one runnable
+`whoami` tool. Replace that tool with one application operation and query
+through `ctx.supabase` so the caller's own grants and RLS apply. The
+[capability and result showcase](../../patterns/model-facing-results) keeps
+tools, Resources, prompts, elicitation, and alternative result contracts
+executable without loading them into the starter.
 
 **3. Check locally.**
 

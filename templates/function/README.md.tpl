@@ -5,18 +5,21 @@ This function exposes application capabilities to end users through MCP.
 {{API_KEY_SETUP}}
 {{PUBLIC_SETUP}}{{STATE_README}}
 
-Edit `capabilities.ts` to expose your app, then let the setup command re-check
-the project and report the remaining actions:
+The generated `whoami` tool is runnable immediately. Use the generated
+contract test to verify the starter through the MCP boundary, then replace that
+one tool in `capabilities.ts` with an operation from your application:
+
+```sh
+deno task --config supabase/functions/{{FUNCTION_NAME}}/deno.json test
+```
+
+`ctx.supabase` is request-scoped. Its database authority follows the access
+mode described above. Then let setup re-check the project and report the
+remaining actions:
 
 ```sh
 npx chumbo setup --resume --function {{FUNCTION_NAME}}
 ```
-
-Design each result for its actual consumer: use `textResult` for an agent,
-`structuredResult` plus an `outputSchema` for typed clients, `renderResult`
-only when both lanes are genuinely useful, and `resourceResult` for large
-content registered through MCP Resources. Do not expose raw database rows as
-your application contract by default.
 
 ## Develop
 
@@ -24,6 +27,13 @@ your application contract by default.
 supabase functions serve {{FUNCTION_NAME}}
 deno task --config supabase/functions/{{FUNCTION_NAME}}/deno.json test
 ```
+
+## Explore the full MCP surface
+
+The starter stays deliberately small. Chumbo's
+[executable capability showcase](https://github.com/elsheppo/chumbo/tree/main/docs/patterns/model-facing-results)
+covers tools, Resources, prompts, elicitation, typed results, hybrids, empty
+states, and recoverable errors through the same official MCP registration API.
 
 ## Deploy
 

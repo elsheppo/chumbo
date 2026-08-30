@@ -164,7 +164,33 @@ try {
     "mcp",
     "capabilities.ts",
   );
-  const customizedCapabilities = `// builder-owned\n${await readFile(capabilityPath, "utf8")}`;
+  const generatedCapabilities = await readFile(capabilityPath, "utf8");
+  if (
+    (generatedCapabilities.match(/server\.registerTool\(/g) ?? []).length !==
+      1 ||
+    !generatedCapabilities.includes('"whoami"') ||
+    !generatedCapabilities.includes("ctx.supabase") ||
+    generatedCapabilities.includes("registerResource") ||
+    generatedCapabilities.includes("registerPrompt")
+  ) {
+    throw new Error("Generated capabilities did not keep one compact starter");
+  }
+  const generatedReadme = await readFile(
+    join(fixture, "supabase", "functions", "mcp", "README.md"),
+    "utf8",
+  );
+  if (
+    !generatedReadme.includes("generated `whoami` tool") ||
+    !generatedReadme.includes("executable capability showcase") ||
+    !generatedReadme.includes("carries that user's Supabase access token") ||
+    !generatedReadme.includes(
+      "`ctx.supabase` is request-scoped. Its database authority follows",
+    ) ||
+    generatedReadme.includes("authenticated MCP boundary")
+  ) {
+    throw new Error("Generated README omitted the starter or advanced path");
+  }
+  const customizedCapabilities = `// builder-owned\n${generatedCapabilities}`;
   await writeFile(capabilityPath, customizedCapabilities);
   const resumed = run("node", [
     join(repository, "dist", "cli.js"),

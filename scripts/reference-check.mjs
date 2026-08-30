@@ -52,6 +52,7 @@ const env = {
     "local-reference-observation-state-key-at-least-32-bytes",
 };
 
+run("node", ["scripts/generated-rls-smoke.mjs"], { env });
 run("node", ["scripts/sync-reference-content.mjs"], { env });
 for (const name of [
   "docs-mcp",

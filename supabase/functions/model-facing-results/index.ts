@@ -1,3 +1,4 @@
+import { acceptedContent, inputRequired } from "@modelcontextprotocol/server";
 import {
   createSupabaseMcp,
   errorResult,
@@ -33,6 +34,25 @@ function register(server: SupabaseMcpServer) {
           uri: uri.href,
           mimeType: "text/markdown",
           text: "# Result contracts\n\nChoose text, structured data, a deliberate hybrid, or a Resource according to the real consumer.",
+        },
+      ],
+    }),
+  );
+
+  server.registerPrompt(
+    "summarize-result-contract",
+    {
+      description: "Create a prompt for reviewing one MCP result contract.",
+      argsSchema: z.object({ tool: z.string().min(1) }),
+    },
+    ({ tool }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Review the result contract for ${tool}. Explain who consumes it and the next useful action.`,
+          },
         },
       ],
     }),
@@ -116,6 +136,37 @@ function register(server: SupabaseMcpServer) {
       textResult(
         "No examples matched this demonstration filter.\n\n→ Next: call list_examples to retrieve the populated case.",
       ),
+  );
+
+  server.registerTool(
+    "confirm_result_contract",
+    {
+      title: "Confirm a result contract",
+      description:
+        "Demonstrate an MCP elicitation round trip before accepting a result contract.",
+      inputSchema: z.object({}),
+    },
+    async (_args, request) => {
+      const response = acceptedContent<{ confirm: boolean }>(
+        request.mcpReq.inputResponses,
+        "confirmation",
+      );
+      if (!response) {
+        return inputRequired({
+          inputRequests: {
+            confirmation: inputRequired.elicit({
+              message: "Accept this demonstration result contract?",
+              requestedSchema: z.object({ confirm: z.boolean() }),
+            }),
+          },
+        });
+      }
+      return textResult(
+        response.confirm
+          ? "Result contract accepted.\n\n→ Next: call list_examples to inspect a populated hybrid result."
+          : "Result contract declined.\n\n→ Next: call get_result_contract to review the available result modes.",
+      );
+    },
   );
 
   server.registerTool(
