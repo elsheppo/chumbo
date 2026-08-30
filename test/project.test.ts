@@ -219,18 +219,64 @@ describe("initializer", () => {
     );
     expect(entrypoint).toContain('Deno.env.get("MCP_API_KEY")');
     expect(entrypoint).toContain('auth: { mode: "api-key", key: mcpApiKey }');
+    expect(entrypoint).toContain(
+      "Use the available capabilities according to their descriptions.",
+    );
+    expect(entrypoint).not.toContain("Call whoami");
     expect(plan.some((file) => file.path.includes("migrations"))).toBe(false);
+
+    const capabilities = await readFile(
+      join(root, "supabase", "functions", "app-mcp", "capabilities.ts"),
+      "utf8",
+    );
+    expect(capabilities.match(/server\.registerTool\(/g)).toHaveLength(1);
+    expect(capabilities).toContain('"whoami"');
+    expect(capabilities).toContain("ctx.supabase");
+    expect(capabilities).toContain("database authority follows");
+    expect(capabilities).not.toContain("registerResource");
+    expect(capabilities).not.toContain("registerPrompt");
+    expect(capabilities).not.toContain("inputRequired");
 
     const generatedTest = await readFile(
       join(root, "supabase", "functions", "app-mcp", "index_test.ts"),
       "utf8",
     );
-    expect(generatedTest).toContain("accepts the configured key");
+    expect(generatedTest).toContain(
+      "the configured key discovers and invokes the starter",
+    );
     expect(await detectGeneratedAuth(root, "app-mcp")).toBe("api-key");
     expect(await inspectGeneratedAuth(root, "app-mcp")).toEqual({
       mode: "api-key",
       apiKeyStrategy: "static",
     });
+  });
+
+  it("describes request-scoped database authority for every access mode", async () => {
+    const expectations = {
+      oauth: "carries that user's Supabase access token",
+      bearer: "carries that user's Supabase access token",
+      "api-key": "an anonymous Supabase client",
+      public: "Supabase's anonymous RLS role",
+    } as const;
+
+    for (const [auth, expected] of Object.entries(expectations)) {
+      const root = await fixture();
+      const plan = await planInit({
+        cwd: root,
+        functionName: "mcp",
+        serverName: "Authority fixture",
+        auth: auth as keyof typeof expectations,
+        consent: "none",
+        patchConfig: false,
+      });
+      const readme = plan.find((file) => file.path.endsWith("README.md"));
+      expect(readme?.content).toContain(
+        "`ctx.supabase` is request-scoped. Its database authority follows the access",
+      );
+      expect(readme?.content).toContain(expected);
+      expect(readme?.content).not.toContain("authenticated MCP boundary");
+      expect(readme?.content).not.toContain("connected user's existing grants");
+    }
   });
 
   it("keeps durable state opt-in and generates its complete protected setup", async () => {

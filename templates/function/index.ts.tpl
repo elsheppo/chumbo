@@ -9,11 +9,11 @@ const publicUrl = new URL(Deno.env.get("MCP_PUBLIC_URL") ?? internalUrl);
 
 const app = createSupabaseMcp({
   server: { name: "{{SERVER_NAME}}", version: "1.0.0" },
-  // Server-level guidance shown to the model at connection time. Rewrite it
-  // alongside capabilities.ts: say what this server is for and where to start.
+  // Server-level guidance shown to the model at connection time. Keep it
+  // capability-name-agnostic so it stays accurate as capabilities.ts evolves.
   instructions:
     "{{SERVER_NAME}} exposes application capabilities for the connected " +
-    "caller. Call whoami first to see the current identity.",
+    "caller. Use the available capabilities according to their descriptions.",
   resourceUrl: publicUrl,
   auth: {{AUTH_CONFIG}},
 {{STATE_CONFIG}}  register: registerCapabilities,

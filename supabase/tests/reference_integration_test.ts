@@ -55,6 +55,7 @@ function mcpRequest(
   method: string,
   params: Record<string, unknown> = {},
   token?: string,
+  clientCapabilities: Record<string, unknown> = {},
 ): Request {
   const headers = new Headers({
     "content-type": "application/json",
@@ -79,7 +80,7 @@ function mcpRequest(
             name: "supa-mcp-reference-test",
             version: "1.0.0",
           },
-          "io.modelcontextprotocol/clientCapabilities": {},
+          "io.modelcontextprotocol/clientCapabilities": clientCapabilities,
         },
       },
     }),
@@ -465,9 +466,25 @@ Deno.test(
 );
 
 Deno.test(
-  "model-facing results stay legible in populated, empty, and error branches",
+  "advanced capability showcase stays executable outside the starter",
   async () => {
     const url = `${projectUrl}/functions/v1/model-facing-results`;
+    const discovery = await json(
+      await modelResultsApp.fetch(mcpRequest(url, "tools/list")),
+    );
+    equal(
+      discovery.result.tools.map((tool: { name: string }) => tool.name).sort(),
+      [
+        "confirm_result_contract",
+        "get_result_contract",
+        "list_examples",
+        "open_result_guide",
+        "show_empty_state",
+        "show_recoverable_error",
+      ],
+      "showcase tool discovery",
+    );
+
     for (const name of [
       "list_examples",
       "show_empty_state",
@@ -515,6 +532,84 @@ Deno.test(
     assert(
       !JSON.stringify(linked.result).includes("Choose text, structured data"),
       "large result does not embed its resource body",
+    );
+
+    const resource = await json(
+      await modelResultsApp.fetch(
+        mcpRequest(url, "resources/read", {
+          uri: "supa-mcp://examples/result-contract-guide",
+        }),
+      ),
+    );
+    assert(
+      resource.result.contents[0].text.includes("# Result contracts"),
+      "showcase Resource can be read",
+    );
+
+    const prompts = await json(
+      await modelResultsApp.fetch(mcpRequest(url, "prompts/list")),
+    );
+    equal(
+      prompts.result.prompts.map((prompt: { name: string }) => prompt.name),
+      ["summarize-result-contract"],
+      "showcase prompt discovery",
+    );
+    const prompt = await json(
+      await modelResultsApp.fetch(
+        mcpRequest(url, "prompts/get", {
+          name: "summarize-result-contract",
+          arguments: { tool: "list_examples" },
+        }),
+      ),
+    );
+    assert(
+      prompt.result.messages[0].content.text.includes("list_examples"),
+      "showcase prompt can be rendered",
+    );
+
+    const elicitation = await json(
+      await modelResultsApp.fetch(
+        mcpRequest(
+          url,
+          "tools/call",
+          {
+            name: "confirm_result_contract",
+            arguments: {},
+          },
+          undefined,
+          { elicitation: { form: {} } },
+        ),
+      ),
+    );
+    equal(elicitation.result.resultType, "input_required", "elicitation start");
+    equal(
+      elicitation.result.inputRequests.confirmation.method,
+      "elicitation/create",
+      "elicitation request method",
+    );
+    const accepted = await json(
+      await modelResultsApp.fetch(
+        mcpRequest(
+          url,
+          "tools/call",
+          {
+            name: "confirm_result_contract",
+            arguments: {},
+            inputResponses: {
+              confirmation: {
+                action: "accept",
+                content: { confirm: true },
+              },
+            },
+          },
+          undefined,
+          { elicitation: { form: {} } },
+        ),
+      ),
+    );
+    assert(
+      accepted.result.content[0].text.includes("Result contract accepted."),
+      "elicitation continuation completes",
     );
   },
 );
