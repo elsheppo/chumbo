@@ -1,8 +1,8 @@
 {
   "slug": "model-facing-results-example",
   "kind": "example",
-  "title": "Legible result surfaces",
-  "summary": "A public MCP demonstrating populated, empty, and recoverable-error responses.",
+  "title": "Executable capability showcase",
+  "summary": "A public MCP demonstrating tools, a Resource, a prompt, elicitation, and deliberate result contracts.",
   "pattern": "model-facing-results",
   "endpointPath": "/functions/v1/model-facing-results",
   "officialDocs": []

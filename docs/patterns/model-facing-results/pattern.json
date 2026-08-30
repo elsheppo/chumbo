@@ -1,8 +1,8 @@
 {
   "slug": "model-facing-results",
   "kind": "pattern",
-  "title": "Model-facing tool results",
-  "summary": "Return complete, legible text for the model while retaining the raw value as structured content.",
+  "title": "Capability and result showcase",
+  "summary": "Explore executable tools, Resources, prompts, elicitation, and deliberate result contracts outside the compact starter.",
   "example": "model-facing-results-example",
   "officialDocs": []
 }
