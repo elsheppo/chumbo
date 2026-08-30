@@ -101,6 +101,7 @@ try {
     "--eval",
     `const api = await import(${JSON.stringify(runtimeUrl)});
 if (typeof api.createSupabaseMcp !== "function") throw new Error("createSupabaseMcp missing");
+if (typeof api.createRunCorrelation !== "function") throw new Error("createRunCorrelation missing");
 if (typeof api.durableStateLimits !== "object") throw new Error("durableStateLimits missing");`,
   ]);
 
@@ -108,14 +109,30 @@ if (typeof api.durableStateLimits !== "object") throw new Error("durableStateLim
   await writeFile(
     typeConsumer,
     `import {
+  createRunCorrelation,
   createSupabaseMcp,
   type SupabaseMcpContext,
+  type SupabaseMcpRunCorrelation,
   type SupabaseMcpState,
 } from "./package/dist/index.js";
 
 function stateFrom(context: SupabaseMcpContext): SupabaseMcpState | undefined {
   return context.state;
 }
+
+const runs: SupabaseMcpRunCorrelation = createRunCorrelation({
+  currentKey: {
+    version: "packed-v1",
+    secret: "0123456789abcdef0123456789abcdef",
+  },
+  scope(context) {
+    return {
+      installation: "packed-installation",
+      surface: "packed-surface",
+      partition: context.subject ?? "public",
+    };
+  },
+});
 
 createSupabaseMcp({
   server: { name: "packed type smoke", version: "1.0.0" },
@@ -125,6 +142,7 @@ createSupabaseMcp({
     hmacKey: "0123456789abcdef0123456789abcdef",
     namespaces: { observations: { ttlSeconds: 60 } },
   },
+  runCorrelation: runs,
   register(_server, context) {
     void stateFrom(context);
   },
@@ -189,15 +207,32 @@ createSupabaseMcp({
   await writeFile(
     denoConsumer,
     `import {
+  createRunCorrelation,
   createSupabaseMcp,
   durableStateLimits,
+  runCorrelationLimits,
   type SupabaseMcpContext,
+  type SupabaseMcpRunCorrelation,
   type SupabaseMcpState,
 } from "chumbo";
 
 function stateFrom(context: SupabaseMcpContext): SupabaseMcpState | undefined {
   return context.state;
 }
+
+const runs: SupabaseMcpRunCorrelation = createRunCorrelation({
+  currentKey: {
+    version: "packed-v1",
+    secret: "0123456789abcdef0123456789abcdef",
+  },
+  scope(context) {
+    return {
+      installation: "packed-installation",
+      surface: "packed-surface",
+      partition: context.subject ?? "public",
+    };
+  },
+});
 
 const app = createSupabaseMcp({
   server: { name: "packed deno smoke", version: "1.0.0" },
@@ -207,12 +242,17 @@ const app = createSupabaseMcp({
     hmacKey: "0123456789abcdef0123456789abcdef",
     namespaces: { observations: { ttlSeconds: 60 } },
   },
+  runCorrelation: runs,
   register(_server, context) {
     void stateFrom(context);
   },
 });
 
-if (typeof app.fetch !== "function" || durableStateLimits.keyBytes !== 512) {
+if (
+  typeof app.fetch !== "function" ||
+  durableStateLimits.keyBytes !== 512 ||
+  runCorrelationLimits.tokenBytes !== 1024
+) {
   throw new Error("Packed Deno runtime exports are invalid");
 }
 `,

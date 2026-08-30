@@ -9,6 +9,7 @@ import {
   type AuthInfo,
   type McpServer as McpServerType,
   type OAuthMetadata,
+  type ServerContext,
 } from "@modelcontextprotocol/server";
 import {
   createAdminClient,
@@ -28,6 +29,7 @@ import type {
   SupabaseMcpLifecycleOutcome,
   SupabaseMcpProtectedAuth,
   SupabaseMcpPostgresRateLimit,
+  SupabaseMcpRunFact,
   SupabaseMcpServer,
   VerifiedSupabaseIdentity,
 } from "./types.js";
@@ -266,11 +268,35 @@ function lifecycleOutcome(
   return "success";
 }
 
+const runFactIdPattern = /^run_[A-Za-z0-9_-]{43}$/;
+
+function lifecycleRunFact(run: SupabaseMcpRunFact): SupabaseMcpRunFact {
+  const startedAt = Date.parse(run.startedAt);
+  const expiresAt = Date.parse(run.expiresAt);
+  if (
+    run.schemaVersion !== 1 ||
+    !runFactIdPattern.test(run.id) ||
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(expiresAt) ||
+    new Date(startedAt).toISOString() !== run.startedAt ||
+    new Date(expiresAt).toISOString() !== run.expiresAt ||
+    expiresAt <= startedAt
+  ) {
+    throw new Error("Run correlation returned an invalid fact");
+  }
+  return Object.freeze({
+    schemaVersion: 1,
+    id: run.id,
+    startedAt: run.startedAt,
+    expiresAt: run.expiresAt,
+  });
+}
+
 function createLifecycleEmitter<Database>(
   options: CreateSupabaseMcpOptions<Database>,
   dependencies: RuntimeDependencies<Database>,
 ): LifecycleEmitter<Database> | undefined {
-  if (!options.onEvent) return undefined;
+  if (!options.onEvent && !options.runCorrelation) return undefined;
 
   const now = (): number => dependencies.now?.() ?? Date.now();
 
@@ -293,8 +319,9 @@ function createLifecycleEmitter<Database>(
   };
 
   const emit = (event: SupabaseMcpLifecycleEvent): void => {
+    if (!options.onEvent) return;
     try {
-      const pending = options.onEvent!(event);
+      const pending = options.onEvent(event);
       void Promise.resolve(pending).catch((error) => {
         reportSinkFailure(error, event.traceId);
       });
@@ -326,8 +353,7 @@ function createLifecycleEmitter<Database>(
           })
         : null;
       const capability = Object.freeze({ kind, name });
-      const base = {
-        schemaVersion: 1 as const,
+      const common = {
         traceId: context.traceId,
         server,
         capability,
@@ -339,6 +365,21 @@ function createLifecycleEmitter<Database>(
         this: unknown,
         ...callbackArgs: unknown[]
       ): Promise<unknown> {
+        const run = options.runCorrelation
+          ? await options.runCorrelation.resolve(context, {
+              serverContext: callbackArgs.at(-1) as ServerContext,
+              ...(kind === "tool" && callbackArgs.length > 1
+                ? { toolArguments: callbackArgs[0] }
+                : {}),
+            })
+          : undefined;
+        const base = options.runCorrelation
+          ? {
+              ...common,
+              schemaVersion: 2 as const,
+              run: run ? lifecycleRunFact(run) : null,
+            }
+          : { ...common, schemaVersion: 1 as const };
         const startedAt = now();
         emit(
           Object.freeze({
