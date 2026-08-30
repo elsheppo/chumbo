@@ -129,6 +129,66 @@ changes the MCP response. Use the deployment platform's background-work
 primitive when delivery must continue after the response. Sink failures reach
 `onError` with `phase: "events"` and never recursively produce another event.
 
+## Correlate an application run
+
+Some products need several tool calls to belong to one application-defined run
+or work order. Configure `createRunCorrelation` only for that advanced case:
+
+```ts
+import { createRunCorrelation, createSupabaseMcp, textResult } from "chumbo";
+import { z } from "zod";
+
+const runs = createRunCorrelation({
+  currentKey: {
+    version: "2026-08",
+    secret: Deno.env.get("CHUMBO_RUN_HMAC_KEY")!,
+  },
+  scope(ctx) {
+    return {
+      installation: "my-supabase-project",
+      surface: "primary-mcp",
+      partition: ctx.subject ?? "public",
+    };
+  },
+});
+
+const app = createSupabaseMcp({
+  // server, resourceUrl, auth...
+  runCorrelation: runs,
+  register(server, ctx) {
+    server.registerTool(
+      "draft_post",
+      {
+        inputSchema: z.object({
+          run_id: z.string().optional(),
+          idea: z.string(),
+        }),
+      },
+      async (args, mcpCtx) => {
+        const run = await runs.resolve(ctx, {
+          serverContext: mcpCtx,
+          toolArguments: args,
+        });
+        // Use run?.id as an optional state or work-order correlation key.
+        return textResult(run ? `Drafted in ${run.id}.` : "Drafted.");
+      },
+    );
+  },
+});
+```
+
+A builder-authored begin tool can call `runs.mint(ctx)` and return its opaque
+`handle`. Generic MCP clients pass that handle through `run_id` only on the
+tools that deliberately expose the field. A client you control may instead
+send the same handle in `_meta["dev.chumbo/run"]`. Matching carriers are
+accepted; disagreement or an invalid handle stops before application code.
+
+When configured, lifecycle events use schema v2 and contain the same bounded
+opaque run fact or `run: null`. Without `runCorrelation`, Chumbo continues to
+emit lifecycle v1 exactly as before. A run handle is correlation, not
+authorization or execution – Auth, scopes, grants, RLS, and your application's
+data-plane checks remain authoritative.
+
 ## Run, deploy, and verify
 
 Run the generated checks and exercise MCP discovery locally:

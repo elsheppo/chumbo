@@ -5,7 +5,7 @@ import { z } from "zod";
 import {
   mintRunHandle,
   resolveRunHandle,
-  RunCorrelationError,
+  SupabaseMcpRunCorrelationError,
   runCorrelationLimits,
   verifyRunHandle,
   type RunCorrelationKey,
@@ -114,10 +114,10 @@ async function verified(
 
 async function expectCode(
   promise: Promise<unknown>,
-  code: RunCorrelationError["code"],
+  code: SupabaseMcpRunCorrelationError["code"],
 ): Promise<void> {
   await expect(promise).rejects.toMatchObject({
-    name: "RunCorrelationError",
+    name: "SupabaseMcpRunCorrelationError",
     code,
   });
 }
@@ -243,14 +243,14 @@ describe("explicit run correlation proof", () => {
         toolArguments: { run_id: secondHandle },
       }),
     ).toThrowError(
-      expect.objectContaining<Partial<RunCorrelationError>>({
+      expect.objectContaining<Partial<SupabaseMcpRunCorrelationError>>({
         code: "ambiguous_carrier",
       }),
     );
     expect(() =>
       resolveRunHandle({ toolArguments: { run_id: 42 } }),
     ).toThrowError(
-      expect.objectContaining<Partial<RunCorrelationError>>({
+      expect.objectContaining<Partial<SupabaseMcpRunCorrelationError>>({
         code: "invalid_carrier",
       }),
     );

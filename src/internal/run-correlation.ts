@@ -1,3 +1,12 @@
+import type {
+  SupabaseMcpContext,
+  SupabaseMcpRunCorrelation,
+  SupabaseMcpRunCorrelationOptions,
+  SupabaseMcpRunFact,
+  SupabaseMcpRunHandle,
+  SupabaseMcpRunScope,
+} from "../types.js";
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const tokenPrefix = "crun1";
@@ -8,14 +17,14 @@ const controlPattern = /[\u0000-\u001f\u007f]/;
 export const runCorrelationLimits = Object.freeze({
   clockSkewMs: 5 * 60 * 1000,
   defaultTtlSeconds: 4 * 60 * 60,
-  hmacKeyBytes: { min: 32, max: 1024 },
+  hmacKeyBytes: Object.freeze({ min: 32, max: 1024 }),
   identifierBytes: 128,
-  maxTtlSeconds: 7 * 24 * 60 * 60,
+  maxTtlSeconds: 30 * 24 * 60 * 60,
   scopePartBytes: 256,
   tokenBytes: 1024,
 });
 
-export type RunCorrelationErrorCode =
+export type SupabaseMcpRunCorrelationErrorCode =
   | "ambiguous_carrier"
   | "expired"
   | "invalid_carrier"
@@ -24,13 +33,13 @@ export type RunCorrelationErrorCode =
   | "invalid_token"
   | "unknown_key";
 
-export class RunCorrelationError extends Error {
+export class SupabaseMcpRunCorrelationError extends Error {
   constructor(
-    readonly code: RunCorrelationErrorCode,
+    readonly code: SupabaseMcpRunCorrelationErrorCode,
     message: string,
   ) {
     super(message);
-    this.name = "RunCorrelationError";
+    this.name = "SupabaseMcpRunCorrelationError";
   }
 }
 
@@ -63,6 +72,7 @@ export interface MintRunHandleOptions {
   readonly key: RunCorrelationKey;
   readonly now?: number;
   readonly ttlSeconds?: number;
+  readonly maxTtlSeconds?: number;
   /** Deterministic injection for tests; production callers should omit it. */
   readonly nonce?: string;
 }
@@ -72,6 +82,7 @@ export interface VerifyRunHandleOptions {
   readonly scope: RunCorrelationScope;
   readonly keys: readonly RunCorrelationKey[];
   readonly now?: number;
+  readonly maxTtlSeconds?: number;
 }
 
 interface TokenPayload {
@@ -87,16 +98,16 @@ function byteLength(value: string): number {
 }
 
 function fail(
-  code: RunCorrelationErrorCode,
+  code: SupabaseMcpRunCorrelationErrorCode,
   message: string,
-): RunCorrelationError {
-  return new RunCorrelationError(code, message);
+): SupabaseMcpRunCorrelationError {
+  return new SupabaseMcpRunCorrelationError(code, message);
 }
 
 function validateIdentifier(
   value: string,
   label: string,
-  code: RunCorrelationErrorCode = "invalid_token",
+  code: SupabaseMcpRunCorrelationErrorCode = "invalid_token",
 ): void {
   if (
     !identifierPattern.test(value) ||
@@ -175,7 +186,7 @@ function framed(parts: readonly string[]): Uint8Array<ArrayBuffer> {
   return output;
 }
 
-function base64UrlEncode(value: Uint8Array<ArrayBuffer>): string {
+function base64UrlEncode(value: Uint8Array<ArrayBufferLike>): string {
   let binary = "";
   for (const byte of value) binary += String.fromCharCode(byte);
   return btoa(binary)
@@ -214,7 +225,7 @@ function parsePayload(segment: string): TokenPayload {
   try {
     parsed = JSON.parse(decoder.decode(base64UrlDecode(segment)));
   } catch (error) {
-    if (error instanceof RunCorrelationError) throw error;
+    if (error instanceof SupabaseMcpRunCorrelationError) throw error;
     throw fail("invalid_token", "Run handle payload is invalid.");
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -273,13 +284,14 @@ function validateTimes(
   payload: TokenPayload,
   now: number,
   mode: "mint" | "verify",
+  maxTtlSeconds = runCorrelationLimits.maxTtlSeconds,
 ): void {
   if (
     !Number.isSafeInteger(payload.s) ||
     !Number.isSafeInteger(payload.e) ||
     payload.s < 0 ||
     payload.e <= payload.s ||
-    payload.e - payload.s > runCorrelationLimits.maxTtlSeconds * 1000
+    payload.e - payload.s > maxTtlSeconds * 1000
   ) {
     throw fail("invalid_token", "Run handle time bounds are invalid.");
   }
@@ -295,21 +307,34 @@ export async function mintRunHandle(
   options: MintRunHandleOptions,
 ): Promise<string> {
   const now = options.now ?? Date.now();
+  const maxTtlSeconds =
+    options.maxTtlSeconds ?? runCorrelationLimits.maxTtlSeconds;
   const ttlSeconds =
-    options.ttlSeconds ?? runCorrelationLimits.defaultTtlSeconds;
+    options.ttlSeconds ??
+    Math.min(runCorrelationLimits.defaultTtlSeconds, maxTtlSeconds);
   const nonce = options.nonce ?? crypto.randomUUID();
   validateNow(now);
   validateScope(options.scope);
   validateKey(options.key);
   validateNonce(nonce);
   if (
-    !Number.isSafeInteger(ttlSeconds) ||
-    ttlSeconds < 1 ||
-    ttlSeconds > runCorrelationLimits.maxTtlSeconds
+    !Number.isSafeInteger(maxTtlSeconds) ||
+    maxTtlSeconds < 1 ||
+    maxTtlSeconds > runCorrelationLimits.maxTtlSeconds
   ) {
     throw fail(
       "invalid_token",
-      `Run TTL must be an integer from 1 to ${runCorrelationLimits.maxTtlSeconds} seconds.`,
+      `Run maximum TTL must be an integer from 1 to ${runCorrelationLimits.maxTtlSeconds} seconds.`,
+    );
+  }
+  if (
+    !Number.isSafeInteger(ttlSeconds) ||
+    ttlSeconds < 1 ||
+    ttlSeconds > maxTtlSeconds
+  ) {
+    throw fail(
+      "invalid_token",
+      `Run TTL must be an integer from 1 to ${maxTtlSeconds} seconds.`,
     );
   }
   if (options.key.acceptUntil !== undefined && now >= options.key.acceptUntil) {
@@ -323,7 +348,7 @@ export async function mintRunHandle(
     s: now,
     e: now + ttlSeconds * 1000,
   };
-  validateTimes(payload, now, "mint");
+  validateTimes(payload, now, "mint", maxTtlSeconds);
   const payloadSegment = base64UrlEncode(
     encoder.encode(canonicalPayload(payload)),
   );
@@ -343,8 +368,20 @@ export async function verifyRunHandle(
   options: VerifyRunHandleOptions,
 ): Promise<RunCorrelationFact> {
   const now = options.now ?? Date.now();
+  const maxTtlSeconds =
+    options.maxTtlSeconds ?? runCorrelationLimits.maxTtlSeconds;
   validateNow(now);
   validateScope(options.scope);
+  if (
+    !Number.isSafeInteger(maxTtlSeconds) ||
+    maxTtlSeconds < 1 ||
+    maxTtlSeconds > runCorrelationLimits.maxTtlSeconds
+  ) {
+    throw fail(
+      "invalid_token",
+      `Run maximum TTL must be an integer from 1 to ${runCorrelationLimits.maxTtlSeconds} seconds.`,
+    );
+  }
   if (
     !options.handle ||
     byteLength(options.handle) > runCorrelationLimits.tokenBytes
@@ -361,7 +398,7 @@ export async function verifyRunHandle(
     throw fail("invalid_token", "Run handle format is invalid.");
   }
   const payload = parsePayload(payloadSegment);
-  validateTimes(payload, now, "verify");
+  validateTimes(payload, now, "verify", maxTtlSeconds);
 
   const versions = new Set<string>();
   let selected: RunCorrelationKey | undefined;
@@ -442,4 +479,169 @@ export function resolveRunHandle(input: {
     );
   }
   return metadataHandle ?? argumentHandle ?? null;
+}
+
+interface RunCorrelationDependencies {
+  now(): number;
+  randomUUID(): string;
+}
+
+const runArgumentPattern = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+function parsedPreviousKey(
+  configured: SupabaseMcpRunCorrelationOptions["previousKey"],
+): RunCorrelationKey | undefined {
+  if (!configured) return undefined;
+  const acceptUntil = Date.parse(configured.acceptUntil);
+  if (!Number.isSafeInteger(acceptUntil)) {
+    throw fail(
+      "invalid_key",
+      "Previous run key acceptUntil must be an ISO 8601 timestamp.",
+    );
+  }
+  return {
+    version: configured.version,
+    secret: configured.secret,
+    acceptUntil,
+  };
+}
+
+function publicRunFact(fact: RunCorrelationFact): SupabaseMcpRunFact {
+  return fact;
+}
+
+export function createRunCorrelationInternal<Database = unknown>(
+  options: SupabaseMcpRunCorrelationOptions<Database>,
+  dependencies: RunCorrelationDependencies,
+): SupabaseMcpRunCorrelation<Database> {
+  const maxTtlSeconds =
+    options.maxTtlSeconds ?? runCorrelationLimits.maxTtlSeconds;
+  const ttlSeconds =
+    options.ttlSeconds ??
+    Math.min(runCorrelationLimits.defaultTtlSeconds, maxTtlSeconds);
+  const argumentName = options.argumentName ?? "run_id";
+  const scopeResolver = options.scope;
+  if (
+    !Number.isSafeInteger(maxTtlSeconds) ||
+    maxTtlSeconds < 1 ||
+    maxTtlSeconds > runCorrelationLimits.maxTtlSeconds
+  ) {
+    throw fail(
+      "invalid_token",
+      `Run maximum TTL must be an integer from 1 to ${runCorrelationLimits.maxTtlSeconds} seconds.`,
+    );
+  }
+  if (
+    !Number.isSafeInteger(ttlSeconds) ||
+    ttlSeconds < 1 ||
+    ttlSeconds > maxTtlSeconds
+  ) {
+    throw fail(
+      "invalid_token",
+      `Run default TTL must be an integer from 1 to ${maxTtlSeconds} seconds.`,
+    );
+  }
+  if (!runArgumentPattern.test(argumentName)) {
+    throw fail(
+      "invalid_carrier",
+      "Run argumentName must be a 1-64 character ASCII field name.",
+    );
+  }
+  if (typeof scopeResolver !== "function") {
+    throw fail("invalid_scope", "Run correlation requires a scope resolver.");
+  }
+
+  const currentKey: RunCorrelationKey = {
+    version: options.currentKey.version,
+    secret: options.currentKey.secret,
+  };
+  const previousKey = parsedPreviousKey(options.previousKey);
+  validateKey(currentKey);
+  if (previousKey) {
+    validateKey(previousKey);
+    if (previousKey.version === currentKey.version) {
+      throw fail("invalid_key", "Current and previous run keys must differ.");
+    }
+  }
+  const keys = Object.freeze(
+    previousKey ? [currentKey, previousKey] : [currentKey],
+  );
+  const cache = new WeakMap<object, Promise<SupabaseMcpRunFact | null>>();
+
+  const scopeFor = async (
+    context: SupabaseMcpContext<Database>,
+  ): Promise<SupabaseMcpRunScope> => {
+    const scope = await scopeResolver(context);
+    validateScope(scope);
+    return scope;
+  };
+
+  const correlation: SupabaseMcpRunCorrelation<Database> = {
+    async mint(context, mintOptions = {}): Promise<SupabaseMcpRunHandle> {
+      const now = dependencies.now();
+      const scope = await scopeFor(context);
+      const handle = await mintRunHandle({
+        scope,
+        key: currentKey,
+        now,
+        nonce: dependencies.randomUUID(),
+        ttlSeconds: mintOptions.ttlSeconds ?? ttlSeconds,
+        maxTtlSeconds,
+      });
+      const run = publicRunFact(
+        await verifyRunHandle({
+          handle,
+          scope,
+          keys,
+          now,
+          maxTtlSeconds,
+        }),
+      );
+      return Object.freeze({ handle, run });
+    },
+    resolve(context, input): Promise<SupabaseMcpRunFact | null> {
+      const serverContext = input?.serverContext;
+      if (!serverContext || typeof serverContext !== "object") {
+        return Promise.reject(
+          fail(
+            "invalid_carrier",
+            "Run resolution requires the MCP ServerContext.",
+          ),
+        );
+      }
+      const cached = cache.get(serverContext);
+      if (cached) return cached;
+      const pending = (async () => {
+        const handle = resolveRunHandle({
+          requestMeta: serverContext.mcpReq?._meta,
+          toolArguments: input.toolArguments,
+          argumentName,
+        });
+        if (!handle) return null;
+        const scope = await scopeFor(context);
+        return publicRunFact(
+          await verifyRunHandle({
+            handle,
+            scope,
+            keys,
+            now: dependencies.now(),
+            maxTtlSeconds,
+          }),
+        );
+      })();
+      cache.set(serverContext, pending);
+      return pending;
+    },
+  };
+  return Object.freeze(correlation);
+}
+
+/** Create an optional, application-scoped signed run-handle codec. */
+export function createRunCorrelation<Database = unknown>(
+  options: SupabaseMcpRunCorrelationOptions<Database>,
+): SupabaseMcpRunCorrelation<Database> {
+  return createRunCorrelationInternal(options, {
+    now: () => Date.now(),
+    randomUUID: () => crypto.randomUUID(),
+  });
 }
