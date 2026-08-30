@@ -1,6 +1,7 @@
 import type {
   Implementation,
   McpServer,
+  ServerContext,
   ServerNotifier,
 } from "@modelcontextprotocol/server";
 import type { JWTClaims, SupabaseEnv, UserClaims } from "@supabase/server";
@@ -31,6 +32,82 @@ export interface SupabaseMcpPrincipal {
   readonly authentication: SupabaseMcpAuthentication;
 }
 
+export interface SupabaseMcpRunScope {
+  /** Stable builder project or installed-integration boundary. */
+  readonly installation: string;
+  /** Stable MCP surface or server boundary inside that installation. */
+  readonly surface: string;
+  /** Builder-authorized caller, account, or tenant partition. */
+  readonly partition: string;
+}
+
+export interface SupabaseMcpRunCorrelationKey {
+  /** Stable identifier carried by handles so rotations can select one key. */
+  readonly version: string;
+  /** Deployment secret used only for run-handle HMAC operations. */
+  readonly secret: string;
+}
+
+export interface SupabaseMcpPreviousRunCorrelationKey extends SupabaseMcpRunCorrelationKey {
+  /** ISO 8601 end of the explicit verification overlap for this old key. */
+  readonly acceptUntil: string;
+}
+
+export interface SupabaseMcpRunFact {
+  readonly schemaVersion: 1;
+  /** Scope-bound opaque correlation ID safe for lifecycle events and state keys. */
+  readonly id: string;
+  readonly startedAt: string;
+  readonly expiresAt: string;
+}
+
+export interface SupabaseMcpRunHandle {
+  /** Opaque signed value carried by a controlled client or run-aware tool. */
+  readonly handle: string;
+  /** The bounded fact the same server will recover from handle. */
+  readonly run: SupabaseMcpRunFact;
+}
+
+export interface SupabaseMcpRunCorrelationOptions<Database = unknown> {
+  readonly currentKey: SupabaseMcpRunCorrelationKey;
+  readonly previousKey?: SupabaseMcpPreviousRunCorrelationKey;
+  /** Defaults to four hours or maxTtlSeconds when that ceiling is shorter. */
+  readonly ttlSeconds?: number;
+  /** Maximum caller-selected lifetime. Defaults to thirty days. */
+  readonly maxTtlSeconds?: number;
+  /** Explicit tool argument carrying a handle. Defaults to `run_id`. */
+  readonly argumentName?: string;
+  /**
+   * Resolve the application-owned boundary used to mint and verify a handle.
+   * The same logical run must resolve the same scope on every request.
+   */
+  scope(
+    context: SupabaseMcpContext<Database>,
+  ): SupabaseMcpRunScope | Promise<SupabaseMcpRunScope>;
+}
+
+export interface SupabaseMcpMintRunOptions {
+  /** Defaults to the correlation instance's configured lifetime. */
+  readonly ttlSeconds?: number;
+}
+
+export interface SupabaseMcpResolveRunInput {
+  readonly serverContext: ServerContext;
+  /** Parsed arguments for a tool that deliberately exposes the configured field. */
+  readonly toolArguments?: unknown;
+}
+
+export interface SupabaseMcpRunCorrelation<Database = unknown> {
+  mint(
+    context: SupabaseMcpContext<Database>,
+    options?: SupabaseMcpMintRunOptions,
+  ): Promise<SupabaseMcpRunHandle>;
+  resolve(
+    context: SupabaseMcpContext<Database>,
+    input: SupabaseMcpResolveRunInput,
+  ): Promise<SupabaseMcpRunFact | null>;
+}
+
 export type SupabaseMcpCapabilityKind = "tool" | "resource" | "prompt";
 
 export interface SupabaseMcpLifecycleCapability {
@@ -49,9 +126,7 @@ export type SupabaseMcpLifecycleOutcome =
   | "input-required"
   | "failure";
 
-interface SupabaseMcpLifecycleEventBase {
-  /** Version of this public event schema. */
-  readonly schemaVersion: 1;
+interface SupabaseMcpLifecycleEventCommon {
   /** ISO 8601 time at which this lifecycle transition occurred. */
   readonly timestamp: string;
   readonly traceId: string;
@@ -61,15 +136,43 @@ interface SupabaseMcpLifecycleEventBase {
   readonly authentication: SupabaseMcpAuthentication;
 }
 
-export interface SupabaseMcpCapabilityStartedEvent extends SupabaseMcpLifecycleEventBase {
+interface SupabaseMcpLifecycleEventV1 extends SupabaseMcpLifecycleEventCommon {
+  readonly schemaVersion: 1;
+}
+
+interface SupabaseMcpLifecycleEventV2 extends SupabaseMcpLifecycleEventCommon {
+  readonly schemaVersion: 2;
+  /** Explicit application run, or null when this invocation supplied no handle. */
+  readonly run: SupabaseMcpRunFact | null;
+}
+
+export interface SupabaseMcpCapabilityStartedEventV1 extends SupabaseMcpLifecycleEventV1 {
   readonly type: "capability.started";
 }
 
-export interface SupabaseMcpCapabilityFinishedEvent extends SupabaseMcpLifecycleEventBase {
+export interface SupabaseMcpCapabilityFinishedEventV1 extends SupabaseMcpLifecycleEventV1 {
   readonly type: "capability.finished";
   readonly durationMs: number;
   readonly outcome: SupabaseMcpLifecycleOutcome;
 }
+
+export interface SupabaseMcpCapabilityStartedEventV2 extends SupabaseMcpLifecycleEventV2 {
+  readonly type: "capability.started";
+}
+
+export interface SupabaseMcpCapabilityFinishedEventV2 extends SupabaseMcpLifecycleEventV2 {
+  readonly type: "capability.finished";
+  readonly durationMs: number;
+  readonly outcome: SupabaseMcpLifecycleOutcome;
+}
+
+export type SupabaseMcpCapabilityStartedEvent =
+  | SupabaseMcpCapabilityStartedEventV1
+  | SupabaseMcpCapabilityStartedEventV2;
+
+export type SupabaseMcpCapabilityFinishedEvent =
+  | SupabaseMcpCapabilityFinishedEventV1
+  | SupabaseMcpCapabilityFinishedEventV2;
 
 /** Redacted, request-scoped facts emitted around capability invocation. */
 export type SupabaseMcpLifecycleEvent =
@@ -287,6 +390,8 @@ export interface CreateSupabaseMcpOptions<Database = unknown> {
   auth?: SupabaseMcpAuth<Database>;
   /** Optional Postgres-backed state for authenticated MCP capabilities. */
   state?: SupabaseMcpDurableStateOptions;
+  /** Optional explicit application-run correlation for handlers and lifecycle v2. */
+  runCorrelation?: SupabaseMcpRunCorrelation<Database>;
   access?: SupabaseMcpAccessOptions<Database>;
   register(
     server: SupabaseMcpServer,

@@ -637,6 +637,40 @@ bounded live keyspace rather than mapping arbitrary caller input directly into
 object keys. The living observation-before-action pattern is the executable
 reference for these requirements.
 
+### 13.8 Explicit application-run correlation
+
+Run identity is an optional application-owned boundary above invocation traces
+and separate from authentication, MCP transport sessions, and Durable actor
+identity. Chumbo never infers a run from a credential, connection, IP address,
+`traceparent`, or timing proximity. A caller that supplies no handle retains
+invocation-only behavior.
+
+`createRunCorrelation` mints and verifies a canonical HMAC-SHA256 handle scoped
+to one installation, MCP surface, and builder-authorized principal, account, or
+tenant partition. Configuration contains one current deployment secret and may
+contain one previous key with an explicit ISO 8601 verification-overlap end.
+The codec bounds key material, identifiers, token size, default and maximum
+TTL, clock skew, and canonical encoding. The verified fact exposes only an
+opaque digest plus start and expiry times; credentials, application object IDs,
+tool inputs, prompts, outputs, and signing material are absent.
+
+Controlled clients carry the handle in `_meta["dev.chumbo/run"]`. Generic MCP
+clients may pass the same handle through `run_id` only when a builder chooses to
+add that field to a particular tool. A builder-authored domain begin tool may
+call `mint`; Chumbo does not add a universal workflow API or change every tool
+schema. Matching dual carriers are accepted. Conflicting, malformed, expired,
+cross-scope, or unknown-key handles fail before capability code executes.
+
+The runtime and builder capability code share one request-cached verification
+result through the official MCP `ServerContext`. Configured lifecycle sinks
+receive schema v2 with the bounded run fact or `run: null`. Unconfigured
+servers retain schema v1 byte for byte.
+
+The signed handle supplies stateless correlation, not persistence,
+authorization, worker execution, early close, revocation, or per-account run
+quotas. Applications add Supabase or Durable storage only when those behaviors
+are real product requirements.
+
 ## 14. OAuth metadata routing: resolved implementation spike
 
 The highest-priority technical uncertainty was how the Supabase gateway routes

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add opt-in signed application-run handles through `createRunCorrelation`.
+  Controlled clients may carry a handle in Chumbo request metadata, while
+  builders may expose an explicit field on selected tools. Configured runtimes
+  validate correlation before capability execution and emit lifecycle v2 with
+  the same bounded opaque run fact; unconfigured lifecycle v1 remains
+  unchanged.
+
 ## 0.9.0 – 2026-08-29
 
 - Add an optional builder-owned lifecycle-event sink for invoked tools,

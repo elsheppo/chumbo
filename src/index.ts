@@ -1,5 +1,11 @@
 export { createSupabaseMcp, oauthDefaults, runtimeUrls } from "./runtime.js";
 export {
+  createRunCorrelation,
+  runCorrelationLimits,
+  SupabaseMcpRunCorrelationError,
+} from "./internal/run-correlation.js";
+export type { SupabaseMcpRunCorrelationErrorCode } from "./internal/run-correlation.js";
+export {
   errorResult,
   renderResult,
   resourceResult,
@@ -18,8 +24,12 @@ export type {
   SupabaseMcpAuthentication,
   SupabaseMcpAuthMode,
   SupabaseMcpCapabilityFinishedEvent,
+  SupabaseMcpCapabilityFinishedEventV1,
+  SupabaseMcpCapabilityFinishedEventV2,
   SupabaseMcpCapabilityKind,
   SupabaseMcpCapabilityStartedEvent,
+  SupabaseMcpCapabilityStartedEventV1,
+  SupabaseMcpCapabilityStartedEventV2,
   SupabaseMcpContext,
   SupabaseMcpDurableStateOptions,
   SupabaseMcpErrorEvent,
@@ -30,6 +40,15 @@ export type {
   SupabaseMcpPostgresRateLimit,
   SupabaseMcpPrincipal,
   SupabaseMcpProtectedAuth,
+  SupabaseMcpMintRunOptions,
+  SupabaseMcpPreviousRunCorrelationKey,
+  SupabaseMcpResolveRunInput,
+  SupabaseMcpRunCorrelation,
+  SupabaseMcpRunCorrelationKey,
+  SupabaseMcpRunCorrelationOptions,
+  SupabaseMcpRunFact,
+  SupabaseMcpRunHandle,
+  SupabaseMcpRunScope,
   SupabaseMcpServer,
   SupabaseMcpState,
   SupabaseMcpStateDeleteOptions,
