@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.0 – 2026-08-29
+
 - Add opt-in signed application-run handles through `createRunCorrelation`.
   Controlled clients may carry a handle in Chumbo request metadata, while
   builders may expose an explicit field on selected tools. Configured runtimes
