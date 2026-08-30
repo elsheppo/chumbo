@@ -137,7 +137,7 @@ https://PROJECT_REF.supabase.co/functions/v1/mcp
 | Access mode | Use it when                                                                          | Request authority                                                   |
 | ----------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
 | **OAuth**   | Your users should connect their own accounts. Recommended for a user-facing product. | Supabase user token and existing RLS                                |
-| **API key** | You want the shortest authenticated start or already maintain application keys.      | Application-verified subject and scopes                             |
+| **API key** | You want the shortest authenticated start or already maintain application keys.      | Application subject and scopes; `ctx.supabase` uses the `anon` role |
 | **Bearer**  | Your own client already holds a Supabase user access token.                          | Supabase user token and existing RLS                                |
 | **Public**  | The capability is intentionally anonymous.                                           | Supabase `anon` role plus a generated Postgres rate-limit guardrail |
 
@@ -209,9 +209,9 @@ MCP client
     ↓
 Supabase Edge Function
     ↓
-fresh request-scoped identity and Supabase client
+fresh request-scoped identity and mode-appropriate Supabase client
     ↓
-your capabilities, Postgres data, and RLS policies
+your capabilities, application checks, grants, and RLS policies
 ```
 
 ### Choose the result for its consumer
