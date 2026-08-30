@@ -5,6 +5,14 @@ a compatibility promise. A roadmap item ships only after a real application
 proves the abstraction and the public package, living reference, and hosted
 verification agree.
 
+## 0.10.1: first useful tool path
+
+- **Status:** Prepared for release
+- **Outcome:** Generated projects start with one compact, immediately runnable
+  identity tool and an explicit `ctx.supabase` replacement seam. The wider
+  tools, Resources, prompts, elicitation, and result-contract showcase remains
+  executable and discoverable in the living reference.
+
 ## 0.10.0: explicit run correlation
 
 - **Status:** Shipped on 2026-08-29
@@ -478,9 +486,10 @@ it.
 ## Directional sequence
 
 ```text
-shipped: bounded durable MCP state and Chumbo identity transition
-next candidates: external identity federation and durable agent work
-later candidates: interactive MCP Apps and production visibility hooks
+shipped: durable state, identity transition, lifecycle events, run correlation
+prepared: compact first-tool path
+next OSS pull: complete the local-first Chumbo MCP development loop
+advanced candidates: external JWT identities, durable MCP Tasks, MCP Apps
 ```
 
 The sequence is directional. A living pattern may advance without forcing a
