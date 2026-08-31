@@ -44,6 +44,41 @@ export async function findSupabaseProject(start: string): Promise<string> {
   }
 }
 
+function apiPortFromConfig(source: string): number {
+  let inApiSection = false;
+  const portAssignment = /^\s*(?:port|"port"|'port')\s*=/;
+  const decimalPort =
+    /^\s*(?:port|"port"|'port')\s*=\s*(\d(?:[\d_]*\d)?)\s*(?:#.*)?$/;
+  for (const line of source.replace(/\r\n/g, "\n").split("\n")) {
+    const section = /^\s*\[([^\]]+)]\s*(?:#.*)?$/.exec(line);
+    if (section) {
+      inApiSection = section[1]?.trim() === "api";
+      continue;
+    }
+    if (!inApiSection || !portAssignment.test(line)) continue;
+    const configured = decimalPort.exec(line)?.[1];
+    const port = configured
+      ? Number(configured.replaceAll("_", ""))
+      : Number.NaN;
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      throw new Error(
+        "supabase/config.toml [api].port must be an integer between 1 and 65535",
+      );
+    }
+    return port;
+  }
+  return 54_321;
+}
+
+export async function resolveLocalMcpEndpoint(
+  root: string,
+  functionName: string,
+): Promise<string> {
+  const config = await readFile(join(root, "supabase", "config.toml"), "utf8");
+  const port = apiPortFromConfig(config);
+  return `http://127.0.0.1:${port}/functions/v1/${functionName}`;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -118,6 +153,10 @@ async function classifyFile(
 
 export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
   const root = await findSupabaseProject(options.cwd);
+  const localEndpoint = await resolveLocalMcpEndpoint(
+    root,
+    options.functionName,
+  );
   if (options.stateNamespace) {
     if (options.auth === "public") {
       throw new Error("Durable state requires protected authentication");
@@ -166,6 +205,8 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
         : "",
     LOCAL_MIGRATION_COMMAND:
       options.auth === "public" ? "supabase migration up --local\n" : "",
+    LOCAL_ENDPOINT: localEndpoint,
+    LOCAL_ORIGIN: new URL(localEndpoint).origin,
     PACKAGE_VERSION,
     PUBLIC_SETUP:
       options.auth === "public"

@@ -1,13 +1,13 @@
 Deno.env.set(
   "SUPABASE_URL",
-  Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321",
+  Deno.env.get("SUPABASE_URL") ?? "{{LOCAL_ORIGIN}}",
 );
 {{STATE_TEST_SETUP}}const { default: app } = await import("./index.ts");
 
 Deno.test("bearer mode rejects a missing access token", async () => {
   const response = await app.fetch(
     new Request(
-      "http://127.0.0.1:54321/functions/v1/{{FUNCTION_NAME}}",
+      "{{LOCAL_ENDPOINT}}",
       {
         method: "POST",
         headers: {

@@ -11,7 +11,8 @@
 - Complete the local-first generated Edge Function loop with explicit
   Supabase start/serve/probe guidance, classified doctor checks for MCP
   initialization, discovery, and an opt-in named tool call, plus local
-  API-key environment loading that stays separate from hosted secrets.
+  API-key environment loading that stays separate from hosted secrets. Local
+  URLs follow each project's configured Supabase API port.
 
 ## 0.10.2 – 2026-08-31
 

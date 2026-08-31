@@ -41,9 +41,12 @@ With the function still running, use another terminal:
 deno task --config supabase/functions/mcp/deno.json test
 npx chumbo doctor \
   --function mcp \
-  --url http://127.0.0.1:54321/functions/v1/mcp \
+  --url http://127.0.0.1:API_PORT/functions/v1/mcp \
   --call-tool whoami
 ```
+
+Use the exact Local MCP URL printed by `chumbo dev`. `API_PORT` comes from
+`[api].port` in `supabase/config.toml` and defaults to `54321` when omitted.
 
 Add `--token <MCP_API_KEY>` to doctor for generated API-key mode or
 `--token <LOCAL_USER_JWT>` for bearer/OAuth mode. This initializes MCP, lists

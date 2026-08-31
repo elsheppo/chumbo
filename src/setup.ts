@@ -78,6 +78,7 @@ export interface BuildSetupReportOptions {
   command: "setup" | "status";
   projectRoot: string;
   functionName: string;
+  localEndpoint: string;
   auth: SetupAuthMode;
   consent: "none" | "minimal";
   files: SetupReport["files"];
@@ -222,7 +223,7 @@ export function buildSetupReport(
     ? normalizePublicUrl(options.publicUrl)
     : undefined;
   const endpoint = options.endpoint ?? publicUrl ?? upstreamEndpoint;
-  const localEndpoint = `http://127.0.0.1:54321/functions/v1/${options.functionName}`;
+  const localEndpoint = options.localEndpoint;
   const apiKeyStrategy = options.apiKeyStrategy ?? "static";
   const localServeCommand =
     options.auth === "api-key" && apiKeyStrategy === "static"
