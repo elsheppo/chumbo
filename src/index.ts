@@ -6,13 +6,21 @@ export {
 } from "./internal/run-correlation.js";
 export type { SupabaseMcpRunCorrelationErrorCode } from "./internal/run-correlation.js";
 export {
+  appendResultText,
+  composeResultContent,
   errorResult,
+  prependResultText,
   renderResult,
   resourceResult,
   structuredResult,
   textResult,
 } from "./results.js";
-export type { JsonValue, ResourceResultLink } from "./results.js";
+export type {
+  JsonValue,
+  ResourceResultLink,
+  ResultContentBlock,
+  ResultContentComposition,
+} from "./results.js";
 export type {
   CreateSupabaseMcpOptions,
   SupabaseMcpApiKeyAuth,
@@ -49,6 +57,8 @@ export type {
   SupabaseMcpRunFact,
   SupabaseMcpRunHandle,
   SupabaseMcpRunScope,
+  SupabaseMcpResultMiddleware,
+  SupabaseMcpResultMiddlewareInput,
   SupabaseMcpServer,
   SupabaseMcpState,
   SupabaseMcpStateDeleteOptions,

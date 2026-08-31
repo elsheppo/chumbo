@@ -22,12 +22,21 @@ Choose the smallest result contract that serves a real consumer:
 - `renderResult(value, render)` only when both representations matter.
 - `resourceResult(text, link)` for large content served by MCP Resources.
 - `errorResult(message, nextStep)` for recoverable failures.
+- `appendResultText(result, text)` or `prependResultText(result, text)` for
+  bounded guidance that preserves an authored successful result.
 
 Design the contract around the application operation and next reasoning step,
 not the shape of the database row that produced it.
 
 The living examples prove purposeful text, typed output, an intentional hybrid,
 large-resource delivery, a cause-specific empty state, and a recoverable error.
+The `list_examples` result also proves server-wide `resultMiddleware`: its
+handler authors the hybrid result, then middleware adds one optional follow-up
+without replacing the content, structured data, or metadata.
+
+Guidance added by a helper or middleware remains ordinary model-facing result
+content. It can explain an available follow-up, but it cannot require the
+client to perform one.
 
 Source:
 
