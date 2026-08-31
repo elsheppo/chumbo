@@ -8,15 +8,17 @@ import {
   PACKAGE_VERSION,
   patchFunctionConfig,
   planInit,
+  resolveLocalMcpEndpoint,
 } from "../src/project.js";
 import {
-  buildSetupReport,
+  buildSetupReport as buildSetupReportInternal,
   detectGeneratedAuth,
   endpointFor,
   formatSetupReport,
   inspectGeneratedAuth,
   normalizePublicUrl,
   SUPA_MCP_DOCUMENTATION_SERVER_URL,
+  type BuildSetupReportOptions,
 } from "../src/setup.js";
 
 async function fixture(): Promise<string> {
@@ -27,6 +29,19 @@ async function fixture(): Promise<string> {
     'project_id = "fixture"\n\n[api]\nport = 54321\n',
   );
   return root;
+}
+
+function buildSetupReport(
+  options: Omit<BuildSetupReportOptions, "localEndpoint"> & {
+    localEndpoint?: string;
+  },
+) {
+  return buildSetupReportInternal({
+    ...options,
+    localEndpoint:
+      options.localEndpoint ??
+      `http://127.0.0.1:54321/functions/v1/${options.functionName}`,
+  });
 }
 
 describe("release version", () => {
@@ -68,6 +83,72 @@ describe("config patching", () => {
       '[functions.mcp]\nverify_jwt = false\nimport_map = "./deno.json"',
     );
     expect(output).toContain("[functions.other]\nverify_jwt = true");
+  });
+
+  it("resolves the local MCP endpoint from the configured Supabase API port", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "supabase", "config.toml"),
+      'project_id = "fixture"\n\n[api]\nport = 57321 # project-specific\n',
+    );
+    const endpoint = await resolveLocalMcpEndpoint(root, "mcp");
+    expect(endpoint).toBe("http://127.0.0.1:57321/functions/v1/mcp");
+
+    const plan = await planInit({
+      cwd: root,
+      functionName: "mcp",
+      serverName: "Custom port fixture",
+      auth: "bearer",
+      consent: "none",
+      patchConfig: true,
+    });
+    expect(
+      plan.find((file) => file.path.endsWith("README.md"))?.content,
+    ).toContain(`--url ${endpoint}`);
+    expect(
+      plan.find((file) => file.path.endsWith("index_test.ts"))?.content,
+    ).toContain(endpoint);
+
+    const report = buildSetupReport({
+      command: "setup",
+      projectRoot: root,
+      functionName: "mcp",
+      localEndpoint: endpoint,
+      auth: "bearer",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+    });
+    expect(report.localEndpoint).toBe(endpoint);
+    expect(report.steps.find((step) => step.id === "serve_local")?.url).toBe(
+      endpoint,
+    );
+    expect(
+      report.steps.find((step) => step.id === "verify_local")?.command,
+    ).toContain(`--url ${endpoint}`);
+  });
+
+  it("uses port 54321 only when the Supabase API port is absent", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "supabase", "config.toml"),
+      'project_id = "fixture"\n',
+    );
+    await expect(resolveLocalMcpEndpoint(root, "mcp")).resolves.toBe(
+      "http://127.0.0.1:54321/functions/v1/mcp",
+    );
+  });
+
+  it("rejects an invalid configured API port instead of silently using the default", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "supabase", "config.toml"),
+      'project_id = "fixture"\n\n[api]\nport = "57321"\n',
+    );
+    await expect(resolveLocalMcpEndpoint(root, "mcp")).rejects.toThrow(
+      "[api].port must be an integer",
+    );
   });
 });
 
@@ -186,6 +267,14 @@ describe("initializer", () => {
     expect(migration?.status).toBe("create");
     expect(migration?.content).toContain("security invoker");
     expect(migration?.content).toContain("grant execute");
+    const publicReadme = await readFile(
+      join(root, "supabase", "functions", "public-mcp", "README.md"),
+      "utf8",
+    );
+    expect(publicReadme).toContain("supabase migration up --local");
+    expect(publicReadme).toContain(
+      "supabase start\nsupabase migration up --local\nnpx chumbo dev --function public-mcp",
+    );
 
     const oauthRoot = await fixture();
     const oauthPlan = await planInit({
@@ -249,6 +338,17 @@ describe("initializer", () => {
       mode: "api-key",
       apiKeyStrategy: "static",
     });
+    const generatedReadme = await readFile(
+      join(root, "supabase", "functions", "app-mcp", "README.md"),
+      "utf8",
+    );
+    expect(generatedReadme).toContain("supabase/functions/.env.local");
+    expect(generatedReadme).toContain(
+      "chumbo dev --function app-mcp --env-file supabase/functions/.env.local",
+    );
+    expect(generatedReadme).toContain(
+      'supabase secrets set MCP_API_KEY="replace-with-a-long-random-key"',
+    );
   });
 
   it("describes request-scoped database authority for every access mode", async () => {
@@ -366,6 +466,23 @@ describe("initializer", () => {
 });
 
 describe("doctor", () => {
+  function requestMethod(init?: RequestInit): string | undefined {
+    if (typeof init?.body !== "string") return undefined;
+    return (JSON.parse(init.body) as { method?: string }).method;
+  }
+
+  function initialized(): Response {
+    return Response.json({
+      jsonrpc: "2.0",
+      id: "initialize",
+      result: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        serverInfo: { name: "fixture", version: "1.0.0" },
+      },
+    });
+  }
+
   it("checks OAuth discovery before an authenticated tools/list", async () => {
     const root = await fixture();
     await applyPlan(
@@ -391,6 +508,7 @@ describe("doctor", () => {
         }
         const headers = new Headers(init?.headers);
         if (headers.has("authorization")) {
+          if (requestMethod(init) === "initialize") return initialized();
           return Response.json({
             jsonrpc: "2.0",
             id: "authenticated",
@@ -441,10 +559,380 @@ describe("doctor", () => {
           ok: true,
         }),
       ]);
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("initializes, discovers, and explicitly calls one public tool", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "public-mcp",
+        serverName: "Public fixture",
+        auth: "public",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+      if (requestMethod(init) === "initialize") return initialized();
+      if (requestMethod(init) === "tools/call") {
+        return Response.json({
+          jsonrpc: "2.0",
+          id: "call",
+          result: { content: [{ type: "text", text: "ok" }] },
+        });
+      }
+      return Response.json(
+        {
+          jsonrpc: "2.0",
+          id: "list",
+          result: { tools: [{ name: "whoami" }] },
+        },
+        { headers: { "x-ratelimit-limit": "60" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "public-mcp",
+        url: "http://127.0.0.1:54321/functions/v1/public-mcp",
+        callTool: "whoami",
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "mcp-initialize", ok: true }),
+          expect.objectContaining({ name: "public-tools-list", ok: true }),
+          expect.objectContaining({ name: "tool-call", ok: true }),
+        ]),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("refuses to call a tool that discovery did not advertise", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "public-mcp",
+        serverName: "Public fixture",
+        auth: "public",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    const fetchMock = vi.fn(async (_input, init?: RequestInit) =>
+      requestMethod(init) === "initialize"
+        ? initialized()
+        : Response.json(
+            {
+              jsonrpc: "2.0",
+              id: "list",
+              result: { tools: [{ name: "whoami" }] },
+            },
+            { headers: { "x-ratelimit-limit": "60" } },
+          ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "public-mcp",
+        url: "http://127.0.0.1:54321/functions/v1/public-mcp",
+        callTool: "delete_everything",
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "tool-call",
+            ok: false,
+            detail: expect.stringContaining("was not discovered"),
+          }),
+        ]),
+      );
+      expect(
+        fetchMock.mock.calls.some(
+          ([, init]) => requestMethod(init) === "tools/call",
+        ),
+      ).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("stops before discovery when MCP initialization fails", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "public-mcp",
+        serverName: "Public fixture",
+        auth: "public",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    const fetchMock = vi.fn(async (_input, init?: RequestInit) =>
+      requestMethod(init) === "initialize"
+        ? Response.json({
+            jsonrpc: "2.0",
+            id: "initialize",
+            error: { code: -32603, message: "private runtime detail" },
+          })
+        : Response.json(
+            { jsonrpc: "2.0", id: "list", result: { tools: [] } },
+            { headers: { "x-ratelimit-limit": "60" } },
+          ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "public-mcp",
+        url: "http://127.0.0.1:54321/functions/v1/public-mcp",
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "mcp-initialize",
+            ok: false,
+            detail: expect.stringContaining("MCP error -32603"),
+          }),
+        ]),
+      );
+      expect(checks.some((check) => check.name === "public-tools-list")).toBe(
+        false,
+      );
+      expect(JSON.stringify(checks)).not.toContain("private runtime detail");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports an MCP error result as a failed capability proof without leaking credentials or arguments", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "app-mcp",
+        serverName: "Application fixture",
+        auth: "api-key",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    const token = "private-test-token";
+    const privateArgument = "private-call-value";
+    const fetchMock = vi.fn(async (_input, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      if (!headers.has("authorization")) {
+        return Response.json(
+          { error: "invalid_token" },
+          {
+            status: 401,
+            headers: {
+              "x-chumbo-version": PACKAGE_VERSION,
+              "x-chumbo-auth-mode": "api-key",
+              "x-chumbo-auth-strategy": "static",
+            },
+          },
+        );
+      }
+      if (requestMethod(init) === "initialize") return initialized();
+      if (requestMethod(init) === "tools/list") {
+        return Response.json({
+          jsonrpc: "2.0",
+          id: "list",
+          result: { tools: [{ name: "publish" }] },
+        });
+      }
+      return Response.json({
+        jsonrpc: "2.0",
+        id: "call",
+        result: {
+          isError: true,
+          content: [{ type: "text", text: privateArgument }],
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "app-mcp",
+        url: "http://127.0.0.1:54321/functions/v1/app-mcp",
+        token,
+        callTool: "publish",
+        callArgs: { draft: privateArgument },
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "mcp-initialize", ok: true }),
+          expect.objectContaining({
+            name: "authenticated-tools-list",
+            ok: true,
+          }),
+          expect.objectContaining({
+            name: "tool-call",
+            ok: false,
+            detail: expect.stringContaining("MCP error result"),
+          }),
+        ]),
+      );
+      const diagnosticOutput = JSON.stringify(checks);
+      expect(diagnosticOutput).not.toContain(token);
+      expect(diagnosticOutput).not.toContain(privateArgument);
+      const call = fetchMock.mock.calls.find(
+        ([, init]) => requestMethod(init) === "tools/call",
+      );
+      expect(new Headers(call?.[1]?.headers).get("authorization")).toBe(
+        `Bearer ${token}`,
+      );
+      expect(call?.[1]?.body).toContain(privateArgument);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("classifies a rejected protected credential without echoing it", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "app-mcp",
+        serverName: "Application fixture",
+        auth: "api-key",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    const token = "rejected-private-token";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input, init?: RequestInit) =>
+        Response.json(
+          { error: "invalid_token" },
+          {
+            status: 401,
+            headers:
+              requestMethod(init) === "tools/list" &&
+              !new Headers(init?.headers).has("authorization")
+                ? {
+                    "x-chumbo-version": PACKAGE_VERSION,
+                    "x-chumbo-auth-mode": "api-key",
+                    "x-chumbo-auth-strategy": "static",
+                  }
+                : undefined,
+          },
+        ),
+      ),
+    );
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "app-mcp",
+        url: "http://127.0.0.1:54321/functions/v1/app-mcp",
+        token,
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "credential-accepted", ok: false }),
+        ]),
+      );
+      expect(JSON.stringify(checks)).not.toContain(token);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("distinguishes a stopped local stack from a missing local function", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "mcp",
+        serverName: "Fixture",
+        auth: "bearer",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    const url = "http://127.0.0.1:54321/functions/v1/mcp";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new Error("off"))),
+    );
+    expect(await runDoctor({ cwd: root, functionName: "mcp", url })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "local-stack-running", ok: false }),
+      ]),
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input) => {
+        if (String(input) === "http://127.0.0.1:54321") {
+          return new Response("not found", { status: 404 });
+        }
+        throw new Error("function unavailable");
+      }),
+    );
+    expect(await runDoctor({ cwd: root, functionName: "mcp", url })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "function-reachable", ok: false }),
+      ]),
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("worker boot error", { status: 500 })),
+    );
+    expect(await runDoctor({ cwd: root, functionName: "mcp", url })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "function-reachable",
+          ok: false,
+          detail: expect.stringContaining("chumbo dev logs"),
+        }),
+      ]),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("returns an actionable check for a malformed endpoint URL", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "mcp",
+        serverName: "Fixture",
+        auth: "public",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    const checks = await runDoctor({
+      cwd: root,
+      functionName: "mcp",
+      url: "not-an-endpoint",
+    });
+    expect(checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "endpoint-url", ok: false }),
+      ]),
+    );
   });
 
   it("checks public discovery and the generated limiter contract", async () => {
@@ -461,11 +949,13 @@ describe("doctor", () => {
     );
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        Response.json(
-          { jsonrpc: "2.0", id: "public", result: { tools: [] } },
-          { headers: { "x-ratelimit-limit": "60" } },
-        ),
+      vi.fn(async (_input, init?: RequestInit) =>
+        requestMethod(init) === "initialize"
+          ? initialized()
+          : Response.json(
+              { jsonrpc: "2.0", id: "public", result: { tools: [] } },
+              { headers: { "x-ratelimit-limit": "60" } },
+            ),
       ),
     );
 
@@ -479,6 +969,49 @@ describe("doctor", () => {
         expect.arrayContaining([
           expect.objectContaining({ name: "public-tools-list", ok: true }),
           expect.objectContaining({ name: "public-rate-limit", ok: true }),
+        ]),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports the missing public limiter without blocking MCP classification", async () => {
+    const root = await fixture();
+    await applyPlan(
+      await planInit({
+        cwd: root,
+        functionName: "public-mcp",
+        serverName: "Public fixture",
+        auth: "public",
+        consent: "none",
+        patchConfig: true,
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input, init?: RequestInit) =>
+        requestMethod(init) === "initialize"
+          ? initialized()
+          : Response.json({
+              jsonrpc: "2.0",
+              id: "public",
+              result: { tools: [] },
+            }),
+      ),
+    );
+
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName: "public-mcp",
+        url: "http://127.0.0.1:54321/functions/v1/public-mcp",
+      });
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "public-rate-limit", ok: false }),
+          expect.objectContaining({ name: "mcp-initialize", ok: true }),
+          expect.objectContaining({ name: "public-tools-list", ok: true }),
         ]),
       );
     } finally {
@@ -503,20 +1036,22 @@ describe("doctor", () => {
       vi.fn(async (_input, init?: RequestInit) => {
         const headers = new Headers(init?.headers);
         return headers.get("authorization") === "Bearer app-secret"
-          ? Response.json(
-              {
-                jsonrpc: "2.0",
-                id: "authenticated",
-                result: { tools: [{ name: "whoami" }] },
-              },
-              {
-                headers: {
-                  "x-supa-mcp-version": PACKAGE_VERSION,
-                  "x-supa-mcp-auth-mode": "api-key",
-                  "x-supa-mcp-auth-strategy": "static",
+          ? requestMethod(init) === "initialize"
+            ? initialized()
+            : Response.json(
+                {
+                  jsonrpc: "2.0",
+                  id: "authenticated",
+                  result: { tools: [{ name: "whoami" }] },
                 },
-              },
-            )
+                {
+                  headers: {
+                    "x-supa-mcp-version": PACKAGE_VERSION,
+                    "x-supa-mcp-auth-mode": "api-key",
+                    "x-supa-mcp-auth-strategy": "static",
+                  },
+                },
+              )
           : Response.json(
               { error: "invalid_token" },
               {
@@ -541,6 +1076,7 @@ describe("doctor", () => {
       expect(checks).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: "api-key-gate", ok: true }),
+          expect.objectContaining({ name: "mcp-initialize", ok: true }),
           expect.objectContaining({ name: "runtime-reached", ok: true }),
           expect.objectContaining({
             name: "runtime-auth-strategy",
@@ -794,6 +1330,32 @@ describe("guided setup", () => {
     expect(await detectGeneratedAuth(root, "missing")).toBeUndefined();
   });
 
+  it("keeps local API-key loading separate from hosted secret mutation", () => {
+    const report = buildSetupReport({
+      command: "setup",
+      projectRoot: "/tmp/project",
+      functionName: "app-mcp",
+      auth: "api-key",
+      apiKeyStrategy: "static",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+      localChecks: "complete",
+    });
+    expect(
+      report.steps.find((step) => step.id === "serve_local")?.command,
+    ).toBe(
+      "npx chumbo dev --function app-mcp --env-file supabase/functions/.env.local",
+    );
+    expect(
+      report.steps.find((step) => step.id === "set_api_key_secret")?.command,
+    ).toContain("supabase secrets set");
+    expect(
+      report.steps.find((step) => step.id === "serve_local")?.command,
+    ).not.toContain("supabase secrets set");
+  });
+
   it("recognizes verifier-backed application keys without prescribing a shared secret", async () => {
     const root = await fixture();
     const functionDir = join(root, "supabase", "functions", "app-mcp");
@@ -893,6 +1455,30 @@ describe("guided setup", () => {
     expect(report.status).toBe("ready");
   });
 
+  it("does not send a verified deployed server back through local first-run steps", () => {
+    const report = buildSetupReport({
+      command: "status",
+      projectRoot: "/tmp/project",
+      functionName: "mcp",
+      auth: "bearer",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+      localChecks: "complete",
+      remoteVerified: true,
+      endpoint: "https://example.com/mcp",
+    });
+    expect(report.status).toBe("complete");
+    expect(
+      report.nextActions.some((step) =>
+        ["start_local_supabase", "serve_local", "verify_local"].includes(
+          step.id,
+        ),
+      ),
+    ).toBe(false);
+  });
+
   it("hands a discovery-verified OAuth endpoint to the client for sign-in", () => {
     const report = buildSetupReport({
       command: "status",
@@ -949,12 +1535,24 @@ describe("guided setup", () => {
     expect(report.schemaVersion).toBe(1);
     expect(report.status).toBe("ready");
     expect(report.endpoint).toBe(endpoint);
+    expect(report.localEndpoint).toBe(
+      "http://127.0.0.1:54321/functions/v1/mcp",
+    );
     expect(report.nextActions.map((step) => step.id)).toEqual([
+      "start_local_supabase",
+      "apply_local_migrations",
+      "serve_local",
+      "verify_local",
       "apply_rate_limit_migration",
       "deploy",
       "verify_remote",
     ]);
-    expect(report.nextActions[0]?.command).toBe("supabase db push --yes");
+    expect(report.nextActions[0]?.command).toBe("supabase start");
+    expect(report.nextActions[1]?.command).toBe(
+      "supabase migration up --local",
+    );
+    expect(report.nextActions[3]?.command).toContain("--call-tool whoami");
+    expect(report.nextActions[4]?.command).toBe("supabase db push --yes");
     expect(report.resumeCommand).toContain("--resume");
     expect(report.agentHandoff).toEqual({
       documentationServerUrl: SUPA_MCP_DOCUMENTATION_SERVER_URL,

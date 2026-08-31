@@ -1,6 +1,6 @@
 {
   "name": "chumbo",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "MCP made easy on Supabase.",
   "type": "module",
   "license": "MIT",

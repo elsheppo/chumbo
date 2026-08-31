@@ -53,6 +53,7 @@ export interface SetupReport {
   functionName: string;
   auth: SetupAuthMode;
   authStrategy?: ApiKeyStrategy;
+  localEndpoint: string;
   endpoint?: string;
   upstreamEndpoint?: string;
   files: Array<{
@@ -77,6 +78,7 @@ export interface BuildSetupReportOptions {
   command: "setup" | "status";
   projectRoot: string;
   functionName: string;
+  localEndpoint: string;
   auth: SetupAuthMode;
   consent: "none" | "minimal";
   files: SetupReport["files"];
@@ -221,6 +223,18 @@ export function buildSetupReport(
     ? normalizePublicUrl(options.publicUrl)
     : undefined;
   const endpoint = options.endpoint ?? publicUrl ?? upstreamEndpoint;
+  const localEndpoint = options.localEndpoint;
+  const apiKeyStrategy = options.apiKeyStrategy ?? "static";
+  const localServeCommand =
+    options.auth === "api-key" && apiKeyStrategy === "static"
+      ? `npx chumbo dev --function ${options.functionName} --env-file supabase/functions/.env.local`
+      : `npx chumbo dev --function ${options.functionName}`;
+  const localCredential =
+    options.auth === "api-key"
+      ? ` --token <${apiKeyStrategy === "static" ? "MCP_API_KEY" : "APPLICATION_API_KEY"}>`
+      : options.auth === "bearer" || options.auth === "oauth"
+        ? " --token <LOCAL_USER_JWT>"
+        : "";
   const endpointVerified =
     options.remoteVerified ||
     (options.auth === "oauth" &&
@@ -250,6 +264,48 @@ export function buildSetupReport(
         `deno task --config supabase/functions/${options.functionName}/deno.json check && deno task --config supabase/functions/${options.functionName}/deno.json test`,
     },
   ];
+
+  if (!options.remoteVerified) {
+    steps.push({
+      id: "start_local_supabase",
+      title: "Start local Supabase",
+      status: "ready",
+      detail: "Run the application's database, Auth, and Edge Runtime locally.",
+      command: "supabase start",
+    });
+    if (options.auth === "public") {
+      steps.push({
+        id: "apply_local_migrations",
+        title: "Apply local database support",
+        status: "ready",
+        detail:
+          "Apply the generated rate-limit migration to the local database before probing the public MCP.",
+        command: "supabase migration up --local",
+      });
+    }
+    steps.push(
+      {
+        id: "serve_local",
+        title: "Serve the MCP locally",
+        status: "ready",
+        detail:
+          options.auth === "api-key" && apiKeyStrategy === "static"
+            ? "Provide MCP_API_KEY in the local function environment, then serve the generated function."
+            : "Serve the same generated Edge Function that you will deploy.",
+        command: localServeCommand,
+        url: localEndpoint,
+      },
+      {
+        id: "verify_local",
+        title: "Call the generated tool locally",
+        status: "ready",
+        detail:
+          "Initialize MCP, discover tools, and explicitly invoke the generated whoami starter.",
+        command: `npx chumbo doctor --function ${options.functionName} --url ${localEndpoint}${localCredential} --call-tool whoami --json`,
+        url: localEndpoint,
+      },
+    );
+  }
 
   if (options.auth === "public") {
     steps.push({
@@ -283,7 +339,6 @@ export function buildSetupReport(
     });
   }
 
-  const apiKeyStrategy = options.apiKeyStrategy ?? "static";
   if (options.auth === "api-key" && apiKeyStrategy === "static") {
     steps.push({
       id: "set_api_key_secret",
@@ -411,6 +466,7 @@ export function buildSetupReport(
     projectRoot: options.projectRoot,
     functionName: options.functionName,
     auth: options.auth,
+    localEndpoint,
     ...(options.auth === "api-key" ? { authStrategy: apiKeyStrategy } : {}),
     ...(endpoint ? { endpoint } : {}),
     ...(upstreamEndpoint ? { upstreamEndpoint } : {}),

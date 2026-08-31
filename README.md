@@ -114,13 +114,39 @@ around that application code.
 
 ## Run, deploy, and verify
 
-Serve the function, run its generated tests, and exercise MCP discovery:
+Start Supabase, serve the generated function, then prove the real MCP boundary
+before deploying. Keep `chumbo dev` running in one terminal:
 
 ```sh
-supabase functions serve mcp
-deno task --config supabase/functions/mcp/deno.json test
-npx chumbo doctor --url http://127.0.0.1:54321/functions/v1/mcp
+supabase start
+npx chumbo dev --function mcp
 ```
+
+For public mode, run `supabase migration up --local` after `supabase start`
+and before serving the function so the generated local rate limiter is ready.
+For generated API-key mode, put `MCP_API_KEY` in the gitignored file
+`supabase/functions/.env.local` and add
+`--env-file supabase/functions/.env.local` to the `chumbo dev` command.
+
+In another terminal, run the generated contract test and invoke the starter:
+
+```sh
+deno task --config supabase/functions/mcp/deno.json test
+npx chumbo doctor \
+  --function mcp \
+  --url http://127.0.0.1:API_PORT/functions/v1/mcp \
+  --call-tool whoami
+```
+
+Use the exact Local MCP URL printed by `chumbo dev`. `API_PORT` comes from
+`[api].port` in `supabase/config.toml` and defaults to `54321` when omitted.
+
+Add `--token <MCP_API_KEY>` to doctor for generated API-key mode or
+`--token <LOCAL_USER_JWT>` for bearer or OAuth mode. Chumbo does not add a local
+authentication bypass. Doctor reports initialization, tool discovery, and the
+explicit tool call separately. If the stack or function is stopped, it prints
+the next recovery command. The locally served files are the same files deployed
+below.
 
 Then deploy and probe the hosted endpoint:
 
@@ -232,10 +258,30 @@ your capabilities, application checks, grants, and RLS policies
 | `renderResult(value, render)`     | A deliberate text and structured-data hybrid                            |
 | `resourceResult(text, link)`      | A concise reading card whose full body is served through MCP Resources  |
 | `errorResult(message, nextStep?)` | A failure that tells the agent how to recover                           |
+| `appendResultText(result, text)`  | Optional model-facing guidance after a successful authored result       |
+| `prependResultText(result, text)` | Optional model-facing context before a successful authored result       |
 
 Shape each result around the consumer's next reasoning or interaction step.
 Preserve useful identifiers, omit internal fields, and use Resources or
 pagination for large payloads.
+
+Successful results can carry an optional follow-up without rebuilding their
+structured data or metadata:
+
+```ts
+return appendResultText(
+  structuredResult({ draftId: draft.id }),
+  "Optional follow-up: call review_draft with this draftId when you want to review it.",
+);
+```
+
+For cross-cutting guidance, `resultMiddleware` may return bounded `prepend` or
+`append` content for successful tools. Every middleware receives the same
+read-only authored-result snapshot, and a middleware failure leaves that
+result unchanged and reaches `onError` with `phase: "results"`.
+
+This guidance is ordinary model-facing tool-result content. It is not a system
+message and cannot require the client to call another tool.
 
 The [capability and result showcase](./docs/patterns/model-facing-results)
 keeps tools, Resources, prompts, elicitation, and all result patterns
