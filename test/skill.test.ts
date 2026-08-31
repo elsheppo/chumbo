@@ -16,7 +16,7 @@ import {
 const firstBundle: SkillBundle = {
   version: "0.6.0-test",
   files: {
-    "SKILL.md": "---\nname: supa-mcp\ndescription: test\n---\n\nFirst.\n",
+    "SKILL.md": "---\nname: chumbo\ndescription: test\n---\n\nFirst.\n",
     "references/old.md": "Old reference.\n",
   },
 };
@@ -24,13 +24,13 @@ const firstBundle: SkillBundle = {
 const nextBundle: SkillBundle = {
   version: "0.6.1-test",
   files: {
-    "SKILL.md": "---\nname: supa-mcp\ndescription: test\n---\n\nSecond.\n",
+    "SKILL.md": "---\nname: chumbo\ndescription: test\n---\n\nSecond.\n",
     "references/new.md": "New reference.\n",
   },
 };
 
 async function fixture(agents?: string): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "supa-mcp-skill-"));
+  const root = await mkdtemp(join(tmpdir(), "chumbo-skill-"));
   await mkdir(join(root, "supabase"), { recursive: true });
   await writeFile(
     join(root, "supabase", "config.toml"),
@@ -45,14 +45,11 @@ async function manifest(root: string): Promise<{
   files: Record<string, { sha256: string }>;
 }> {
   return JSON.parse(
-    await readFile(
-      join(root, "skills", "supa-mcp", SKILL_MANIFEST_NAME),
-      "utf8",
-    ),
+    await readFile(join(root, "skills", "chumbo", SKILL_MANIFEST_NAME), "utf8"),
   );
 }
 
-describe("managed Supa MCP skill", () => {
+describe("managed Chumbo skill", () => {
   it("plans without writing, installs idempotently, and preserves AGENTS content", async () => {
     const root = await fixture("# Existing agent guide\r\nNo final newline");
     const plan = await planSkill("install", root, firstBundle);
@@ -60,7 +57,7 @@ describe("managed Supa MCP skill", () => {
     expect(plan.files).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          relativePath: "skills/supa-mcp/SKILL.md",
+          relativePath: "skills/chumbo/SKILL.md",
           status: "create",
         }),
         expect.objectContaining({
@@ -70,7 +67,7 @@ describe("managed Supa MCP skill", () => {
       ]),
     );
     await expect(
-      readFile(join(root, "skills", "supa-mcp", "SKILL.md")),
+      readFile(join(root, "skills", "chumbo", "SKILL.md")),
     ).rejects.toThrow();
 
     await applySkillPlan(plan);
@@ -102,15 +99,15 @@ describe("managed Supa MCP skill", () => {
     expect(update.files).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          relativePath: "skills/supa-mcp/SKILL.md",
+          relativePath: "skills/chumbo/SKILL.md",
           status: "update",
         }),
         expect.objectContaining({
-          relativePath: "skills/supa-mcp/references/old.md",
+          relativePath: "skills/chumbo/references/old.md",
           status: "delete",
         }),
         expect.objectContaining({
-          relativePath: "skills/supa-mcp/references/new.md",
+          relativePath: "skills/chumbo/references/new.md",
           status: "create",
         }),
         expect.objectContaining({
@@ -122,14 +119,14 @@ describe("managed Supa MCP skill", () => {
     await applySkillPlan(update);
 
     expect(
-      await readFile(join(root, "skills", "supa-mcp", "SKILL.md"), "utf8"),
+      await readFile(join(root, "skills", "chumbo", "SKILL.md"), "utf8"),
     ).toContain("Second.");
     await expect(
-      readFile(join(root, "skills", "supa-mcp", "references", "old.md")),
+      readFile(join(root, "skills", "chumbo", "references", "old.md")),
     ).rejects.toThrow();
     expect(
       await readFile(
-        join(root, "skills", "supa-mcp", "references", "new.md"),
+        join(root, "skills", "chumbo", "references", "new.md"),
         "utf8",
       ),
     ).toBe("New reference.\n");
@@ -145,7 +142,7 @@ describe("managed Supa MCP skill", () => {
   it("reports modified managed files and applies no partial update", async () => {
     const root = await fixture();
     await applySkillPlan(await planSkill("install", root, firstBundle));
-    const skillPath = join(root, "skills", "supa-mcp", "SKILL.md");
+    const skillPath = join(root, "skills", "chumbo", "SKILL.md");
     await writeFile(skillPath, "Builder-owned edit.\n");
 
     const update = await planSkill("update", root, nextBundle);
@@ -153,7 +150,7 @@ describe("managed Supa MCP skill", () => {
     expect(update.files).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          relativePath: "skills/supa-mcp/SKILL.md",
+          relativePath: "skills/chumbo/SKILL.md",
           status: "conflict",
         }),
       ]),
@@ -163,7 +160,7 @@ describe("managed Supa MCP skill", () => {
     );
     expect(await readFile(skillPath, "utf8")).toBe("Builder-owned edit.\n");
     await expect(
-      readFile(join(root, "skills", "supa-mcp", "references", "new.md")),
+      readFile(join(root, "skills", "chumbo", "references", "new.md")),
     ).rejects.toThrow();
     expect((await manifest(root)).installedVersion).toBe("0.6.0-test");
   });
@@ -196,13 +193,13 @@ describe("managed Supa MCP skill", () => {
 
   it("blocks an invalid or path-escaping manifest", async () => {
     const root = await fixture();
-    const directory = join(root, "skills", "supa-mcp");
+    const directory = join(root, "skills", "chumbo");
     await mkdir(directory, { recursive: true });
     await writeFile(
       join(directory, SKILL_MANIFEST_NAME),
       JSON.stringify({
         schemaVersion: 1,
-        skill: "supa-mcp",
+        skill: "chumbo",
         installedVersion: "bad",
         files: { "../outside.md": { sha256: "a".repeat(64) } },
         agents: {
@@ -220,7 +217,7 @@ describe("managed Supa MCP skill", () => {
 
   it("refuses to take over a partially populated unmanaged skill directory", async () => {
     const root = await fixture();
-    const directory = join(root, "skills", "supa-mcp");
+    const directory = join(root, "skills", "chumbo");
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, "notes.md"), "User notes.\n");
     const install = await planSkill("install", root, firstBundle);
@@ -228,7 +225,7 @@ describe("managed Supa MCP skill", () => {
     expect(install.files).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          relativePath: "skills/supa-mcp/notes.md",
+          relativePath: "skills/chumbo/notes.md",
           status: "conflict",
         }),
       ]),

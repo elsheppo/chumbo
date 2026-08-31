@@ -26,6 +26,15 @@ From a repository that already contains `supabase/config.toml`:
 npx chumbo setup
 ```
 
+For agent-assisted development, install the version-matched project skill too:
+
+```sh
+npx chumbo skill install
+```
+
+It gives the agent the ordinary setup, capability, auth, result, local proof,
+deployment, and upgrade paths without replacing your project instructions.
+
 Setup asks who may connect, previews every file it will write, generates the
 Edge Function and tests, and reports the remaining deployment or OAuth steps in
 order. It is resumable and does not overwrite application-authored

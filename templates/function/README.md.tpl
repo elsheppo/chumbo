@@ -5,6 +5,12 @@ This function exposes application capabilities to end users through MCP.
 {{API_KEY_SETUP}}
 {{PUBLIC_SETUP}}{{STATE_README}}
 
+For agent-assisted development, install the version-matched project guidance:
+
+```sh
+npx chumbo skill install
+```
+
 The generated `whoami` tool is runnable immediately. Use the generated
 contract test to verify the starter through the MCP boundary, then replace that
 one tool in `capabilities.ts` with an operation from your application:
