@@ -1,4 +1,9 @@
-import { acceptedContent, inputRequired } from "@modelcontextprotocol/server";
+import {
+  acceptedContent,
+  inputRequired,
+  isCallToolResult,
+  isInputRequiredResult,
+} from "@modelcontextprotocol/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -227,14 +232,22 @@ describe("result middleware", () => {
               );
               return response
                 ? textResult("Confirmed")
-                : inputRequired({
-                    inputRequests: {
-                      confirmation: inputRequired.elicit({
-                        message: "Confirm?",
-                        requestedSchema: z.object({ confirm: z.boolean() }),
-                      }),
-                    },
-                  });
+                : {
+                    ...inputRequired({
+                      inputRequests: {
+                        confirmation: inputRequired.elicit({
+                          message: "Confirm?",
+                          requestedSchema: z.object({ confirm: z.boolean() }),
+                        }),
+                      },
+                    }),
+                    content: [
+                      {
+                        type: "text" as const,
+                        text: "Confirmation is required before continuing.",
+                      },
+                    ],
+                  };
             },
           );
         },
@@ -243,7 +256,15 @@ describe("result middleware", () => {
     );
 
     const body = await (await app.fetch(request("confirm"))).json();
+    expect(isCallToolResult(body.result)).toBe(true);
+    expect(isInputRequiredResult(body.result)).toBe(true);
     expect(body.result.resultType).toBe("input_required");
+    expect(body.result.inputRequests.confirmation.method).toBe(
+      "elicitation/create",
+    );
+    expect(textBlocks(body.result)).toEqual([
+      "Confirmation is required before continuing.",
+    ]);
     expect(calls).toBe(0);
   });
 
