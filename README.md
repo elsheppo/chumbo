@@ -105,13 +105,36 @@ around that application code.
 
 ## Run, deploy, and verify
 
-Serve the function, run its generated tests, and exercise MCP discovery:
+Start Supabase, serve the generated function, then prove the real MCP boundary
+before deploying. Keep `chumbo dev` running in one terminal:
 
 ```sh
-supabase functions serve mcp
-deno task --config supabase/functions/mcp/deno.json test
-npx chumbo doctor --url http://127.0.0.1:54321/functions/v1/mcp
+supabase start
+npx chumbo dev --function mcp
 ```
+
+For public mode, run `supabase migration up --local` after `supabase start`
+and before serving the function so the generated local rate limiter is ready.
+For generated API-key mode, put `MCP_API_KEY` in the gitignored file
+`supabase/functions/.env.local` and add
+`--env-file supabase/functions/.env.local` to the `chumbo dev` command.
+
+In another terminal, run the generated contract test and invoke the starter:
+
+```sh
+deno task --config supabase/functions/mcp/deno.json test
+npx chumbo doctor \
+  --function mcp \
+  --url http://127.0.0.1:54321/functions/v1/mcp \
+  --call-tool whoami
+```
+
+Add `--token <MCP_API_KEY>` to doctor for generated API-key mode or
+`--token <LOCAL_USER_JWT>` for bearer or OAuth mode. Chumbo does not add a local
+authentication bypass. Doctor reports initialization, tool discovery, and the
+explicit tool call separately. If the stack or function is stopped, it prints
+the next recovery command. The locally served files are the same files deployed
+below.
 
 Then deploy and probe the hosted endpoint:
 

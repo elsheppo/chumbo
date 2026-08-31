@@ -71,3 +71,32 @@ Report what is proven in product terms:
 
 Name anything not tested. A green type-check is not evidence that users can
 connect or that unauthorized callers are excluded.
+
+## Local-first proof
+
+For an undeployed Supabase project, use the production-shaped local path:
+
+```sh
+supabase start
+npx chumbo dev --function mcp
+npx chumbo doctor \
+  --function mcp \
+  --url http://127.0.0.1:54321/functions/v1/mcp \
+  --call-tool <SAFE_TOOL>
+```
+
+For public mode, apply the generated rate-limit migration after starting
+Supabase and before probing the function:
+
+```sh
+supabase migration up --local
+```
+
+Add `--token` for the configured protected auth mode. Do not add a development
+auth bypass, and do not create a parallel stdio MCP merely because the Edge
+Function has not been deployed.
+
+For a generated static API-key server, keep `MCP_API_KEY` in the project's
+gitignored local environment file and pass that file through
+`chumbo dev --env-file`. Setting the hosted Edge Function secret is a separate
+deployment step.

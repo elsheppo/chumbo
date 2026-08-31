@@ -74,6 +74,12 @@ capabilities. For identity-sensitive work, prove row isolation with distinct
 real callers and verify that failed authentication cannot fall through to a
 different strategy.
 
+When Chumbo and Supabase are already present, lack of a hosted deployment is
+not a reason to scaffold a separate stdio server or another MCP runtime. Start
+local Supabase, serve the generated Edge Function with `npx chumbo dev`, and
+prove its Streamable HTTP endpoint with `npx chumbo doctor --call-tool <name>`.
+Deployment changes the URL, not the capability source or MCP architecture.
+
 Read [testing and completion](references/testing-and-completion.md) before
 claiming the capability is finished. Use
 [production contrasts](references/production-contrasts.md) when reviewing a

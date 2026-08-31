@@ -25,10 +25,30 @@ executable without loading them into the starter.
 **3. Check locally.**
 
 ```sh
-supabase functions serve mcp
-deno task --config supabase/functions/mcp/deno.json test
-npx chumbo doctor --url http://127.0.0.1:54321/functions/v1/mcp
+supabase start
+npx chumbo dev --function mcp
 ```
+
+For public mode, run `supabase migration up --local` after `supabase start`
+and before serving the function so the generated local rate limiter is ready.
+For generated API-key mode, put `MCP_API_KEY` in the gitignored file
+`supabase/functions/.env.local` and serve with
+`--env-file supabase/functions/.env.local`.
+
+With the function still running, use another terminal:
+
+```sh
+deno task --config supabase/functions/mcp/deno.json test
+npx chumbo doctor \
+  --function mcp \
+  --url http://127.0.0.1:54321/functions/v1/mcp \
+  --call-tool whoami
+```
+
+Add `--token <MCP_API_KEY>` to doctor for generated API-key mode or
+`--token <LOCAL_USER_JWT>` for bearer/OAuth mode. This initializes MCP, lists
+the available tools, and invokes only the tool you explicitly name. Local and
+deployed development use the same Edge Function and capability source.
 
 **4. Deploy and verify.**
 
@@ -37,9 +57,10 @@ supabase functions deploy mcp --no-verify-jwt
 npx chumbo doctor --url https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
 
-Pass `--token` when the endpoint is authenticated to complete a full
-`tools/list` probe. For OAuth mode, first enable Authentication → OAuth Server
-in the Supabase Dashboard.
+Pass `--token` when the endpoint is authenticated to complete initialization
+and `tools/list`. Add `--call-tool <SAFE_TOOL>` only when doctor should invoke a
+specific tool. For OAuth mode, first enable Authentication → OAuth Server in
+the Supabase Dashboard.
 
 **5. Connect a client.** Point an MCP client at the deployed URL and call a
 tool as a real user – for example:

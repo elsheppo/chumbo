@@ -151,13 +151,25 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
           : "A request's `ctx.supabase` client carries that user's Supabase access token, so your existing Row Level Security policies decide which rows are visible.",
     API_KEY_SETUP:
       options.auth === "api-key"
-        ? '\nSet one Edge Function secret before local development or deployment:\n\n```sh\nsupabase secrets set MCP_API_KEY="replace-with-a-long-random-key"\n```\n\nPass that value as `Authorization: Bearer <key>` from MCP clients.\n'
+        ? '\nFor local development, create the gitignored file `supabase/functions/.env.local`:\n\n```dotenv\nMCP_API_KEY=replace-with-a-long-random-key\n```\n\nLoad it with `npx chumbo dev --function {{FUNCTION_NAME}} --env-file supabase/functions/.env.local`. For the hosted function, set the same secret separately:\n\n```sh\nsupabase secrets set MCP_API_KEY="replace-with-a-long-random-key"\n```\n\nPass that value as `Authorization: Bearer <key>` from MCP clients.\n'
         : "",
     FUNCTION_NAME: options.functionName,
+    LOCAL_DOCTOR_AUTH:
+      options.auth === "public"
+        ? ""
+        : options.auth === "api-key"
+          ? "--token <MCP_API_KEY> \\\n  "
+          : "--token <LOCAL_USER_JWT> \\\n  ",
+    LOCAL_DEV_AUTH:
+      options.auth === "api-key"
+        ? " --env-file supabase/functions/.env.local"
+        : "",
+    LOCAL_MIGRATION_COMMAND:
+      options.auth === "public" ? "supabase migration up --local\n" : "",
     PACKAGE_VERSION,
     PUBLIC_SETUP:
       options.auth === "public"
-        ? "\nPublic mode is intentionally anonymous and rate limited. Apply the generated migration before starting the function:\n\n```sh\nsupabase db push\n```\n"
+        ? "\nPublic mode is intentionally anonymous and rate limited. After starting local Supabase, apply the generated migration before probing the function:\n\n```sh\nsupabase migration up --local\n```\n\nApply the same migration to the linked project with `supabase db push` before deployment.\n"
         : "",
     STATE_CONFIG: options.stateNamespace
       ? `  state: {\n    hmacKey: stateHmacKey,\n    namespaces: { ${JSON.stringify(options.stateNamespace)}: { ttlSeconds: 86400 } },\n  },\n`
