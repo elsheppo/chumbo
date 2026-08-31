@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.3 – 2026-08-31
+
 - Add bounded `appendResultText`, `prependResultText`, and
   `composeResultContent` helpers plus optional successful-tool result
   middleware. Additions preserve authored structured data, Resources, Apps
