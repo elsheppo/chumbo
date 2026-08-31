@@ -14,6 +14,8 @@ export interface DoctorOptions {
   token?: string;
   auth?: SetupAuthMode;
   apiKeyStrategy?: ApiKeyStrategy;
+  callTool?: string;
+  callArgs?: Record<string, unknown>;
 }
 
 export interface DoctorCheck {
@@ -33,12 +35,16 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-function modernRequest(method: string): string {
+function modernRequest(
+  method: string,
+  params: Record<string, unknown> = {},
+): string {
   return JSON.stringify({
     jsonrpc: "2.0",
     id: crypto.randomUUID(),
     method,
     params: {
+      ...params,
       _meta: {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientInfo": {
@@ -48,6 +54,231 @@ function modernRequest(method: string): string {
         "io.modelcontextprotocol/clientCapabilities": {},
       },
     },
+  });
+}
+
+function initializeRequest(): string {
+  return JSON.stringify({
+    jsonrpc: "2.0",
+    id: crypto.randomUUID(),
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-03-26",
+      capabilities: {},
+      clientInfo: {
+        name: "chumbo-doctor",
+        version: PACKAGE_VERSION,
+      },
+    },
+  });
+}
+
+function requestHeaders(
+  method: string,
+  token?: string,
+  name?: string,
+): Headers {
+  const headers = new Headers({
+    "content-type": "application/json",
+    "mcp-protocol-version": "2026-07-28",
+    "mcp-method": method,
+  });
+  if (token) headers.set("authorization", `Bearer ${token}`);
+  if (name) headers.set("mcp-name", name);
+  return headers;
+}
+
+interface ProtocolBody {
+  result?: Record<string, unknown>;
+  error?: { code?: unknown };
+}
+
+function endpointUrl(value: string): URL | null {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function responseBody(response: Response): Promise<ProtocolBody | null> {
+  const text = await response.text();
+  const payload = response.headers
+    .get("content-type")
+    ?.includes("text/event-stream")
+    ? text
+        .split(/\r?\n/)
+        .find((line) => line.startsWith("data: "))
+        ?.slice("data: ".length)
+    : text;
+  if (!payload) return null;
+  try {
+    return JSON.parse(payload) as ProtocolBody;
+  } catch {
+    return null;
+  }
+}
+
+function protocolDetail(response: Response, body: ProtocolBody | null): string {
+  const suffix =
+    body?.error?.code === undefined
+      ? ""
+      : `; MCP error ${String(body.error.code)}`;
+  return `HTTP ${response.status}${suffix}`;
+}
+
+function isLocalEndpoint(value: string): boolean {
+  const hostname = endpointUrl(value)?.hostname;
+  return hostname === "127.0.0.1" || hostname === "localhost";
+}
+
+async function unreachableCheck(
+  url: string,
+  functionName: string,
+): Promise<DoctorCheck> {
+  if (!isLocalEndpoint(url)) {
+    return {
+      name: "endpoint-reachable",
+      ok: false,
+      detail:
+        "The endpoint did not respond. Check the URL and deployment, then retry doctor.",
+    };
+  }
+  const origin = endpointUrl(url)!.origin;
+  try {
+    await fetch(origin, { method: "GET" });
+    return {
+      name: "function-reachable",
+      ok: false,
+      detail: `Local Supabase responded, but '${functionName}' did not. Run npx chumbo dev --function ${functionName}, then retry doctor.`,
+    };
+  } catch {
+    return {
+      name: "local-stack-running",
+      ok: false,
+      detail:
+        "Local Supabase did not respond. Run supabase start, then run npx chumbo dev in another terminal.",
+    };
+  }
+}
+
+async function mcpProbe(
+  options: DoctorOptions,
+  checks: DoctorCheck[],
+  token?: string,
+): Promise<void> {
+  let initializeResponse: Response;
+  try {
+    initializeResponse = await fetch(options.url!, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        "content-type": "application/json",
+      },
+      body: initializeRequest(),
+    });
+  } catch {
+    checks.push(await unreachableCheck(options.url!, options.functionName));
+    return;
+  }
+  const initializeBody = await responseBody(initializeResponse);
+  if (initializeResponse.status === 401 || initializeResponse.status === 403) {
+    checks.push({
+      name: "credential-accepted",
+      ok: false,
+      detail: `HTTP ${initializeResponse.status}; the supplied credential was rejected. Check the credential and auth mode, then retry without placing the credential in the URL.`,
+    });
+    return;
+  }
+  const initialized =
+    initializeResponse.ok &&
+    Boolean(initializeBody?.result) &&
+    !initializeBody?.error;
+  checks.push({
+    name: "mcp-initialize",
+    ok: initialized,
+    detail: initialized
+      ? `HTTP ${initializeResponse.status}`
+      : `${protocolDetail(initializeResponse, initializeBody)}; MCP initialization failed. Check the function logs and retry.`,
+  });
+  if (!initialized) return;
+
+  let discoveryResponse: Response;
+  try {
+    discoveryResponse = await fetch(options.url!, {
+      method: "POST",
+      headers: requestHeaders("tools/list", token),
+      body: modernRequest("tools/list"),
+    });
+  } catch {
+    checks.push({
+      name: "mcp-tools-list",
+      ok: false,
+      detail:
+        "MCP initialization succeeded, but tools/list did not respond. Check the function logs and retry.",
+    });
+    return;
+  }
+  const discoveryBody = await responseBody(discoveryResponse);
+  const tools = Array.isArray(discoveryBody?.result?.tools)
+    ? (discoveryBody.result.tools as Array<{ name?: unknown }>)
+    : undefined;
+  const discovered =
+    discoveryResponse.ok && Boolean(tools) && !discoveryBody?.error;
+  checks.push({
+    name: token ? "authenticated-tools-list" : "public-tools-list",
+    ok: discovered,
+    detail: discovered
+      ? `HTTP ${discoveryResponse.status}; ${tools?.length ?? 0} tool${tools?.length === 1 ? "" : "s"}`
+      : `${protocolDetail(discoveryResponse, discoveryBody)}; tools/list failed. Check capability registration and function logs.`,
+  });
+  if (!discovered || !options.callTool) return;
+
+  if (!tools?.some((tool) => tool.name === options.callTool)) {
+    checks.push({
+      name: "tool-call",
+      ok: false,
+      detail: `Tool '${options.callTool}' was not discovered. Run doctor without --call-tool to verify discovery, then choose an advertised tool.`,
+    });
+    return;
+  }
+  let callResponse: Response;
+  try {
+    callResponse = await fetch(options.url!, {
+      method: "POST",
+      headers: requestHeaders("tools/call", token, options.callTool),
+      body: modernRequest("tools/call", {
+        name: options.callTool,
+        arguments: options.callArgs ?? {},
+      }),
+    });
+  } catch {
+    checks.push({
+      name: "tool-call",
+      ok: false,
+      detail: `Tool '${options.callTool}' did not return a response. Check the function logs and retry.`,
+    });
+    return;
+  }
+  const callBody = await responseBody(callResponse);
+  const capabilityErrored = callBody?.result?.isError === true;
+  const called =
+    callResponse.ok &&
+    Boolean(callBody?.result) &&
+    !callBody?.error &&
+    !capabilityErrored;
+  checks.push({
+    name: "tool-call",
+    ok: called,
+    detail: called
+      ? `Tool '${options.callTool}' completed with HTTP ${callResponse.status}.`
+      : capabilityErrored
+        ? `Tool '${options.callTool}' returned an MCP error result with HTTP ${callResponse.status}. Check its inputs and capability logs, then retry.`
+        : `${protocolDetail(callResponse, callBody)}; tool '${options.callTool}' failed. Check its inputs and function logs.`,
   });
 }
 
@@ -127,16 +358,26 @@ export async function runDoctor(
   });
 
   if (!options.url) return checks;
-  const headers = new Headers({
-    "content-type": "application/json",
-    "mcp-protocol-version": "2026-07-28",
-    "mcp-method": "tools/list",
-  });
-  const response = await fetch(options.url, {
-    method: "POST",
-    headers,
-    body: modernRequest("tools/list"),
-  });
+  if (!endpointUrl(options.url)) {
+    checks.push({
+      name: "endpoint-url",
+      ok: false,
+      detail:
+        "The MCP endpoint must be a valid http or https URL. Pass --url with the local or deployed function endpoint.",
+    });
+    return checks;
+  }
+  let response: Response;
+  try {
+    response = await fetch(options.url, {
+      method: "POST",
+      headers: requestHeaders("tools/list"),
+      body: modernRequest("tools/list"),
+    });
+  } catch {
+    checks.push(await unreachableCheck(options.url, options.functionName));
+    return checks;
+  }
   const runtimeVersion =
     response.headers.get("x-chumbo-version") ??
     response.headers.get("x-supa-mcp-version");
@@ -171,6 +412,26 @@ export async function runDoctor(
     ok: true,
     detail: `HTTP ${response.status}`,
   });
+  if (response.status === 404) {
+    checks.push({
+      name: "function-reachable",
+      ok: false,
+      detail: isLocalEndpoint(options.url)
+        ? `The local function '${options.functionName}' returned HTTP 404. Run npx chumbo dev --function ${options.functionName}, then retry doctor.`
+        : `The function returned HTTP 404. Check --url and deploy '${options.functionName}', then retry doctor.`,
+    });
+    return checks;
+  }
+  if (response.status >= 500 && !runtimeVersion) {
+    checks.push({
+      name: "function-reachable",
+      ok: false,
+      detail: isLocalEndpoint(options.url)
+        ? `The local function returned HTTP ${response.status} before Chumbo started. Check the chumbo dev logs, fix the function startup error, and retry doctor.`
+        : `The function returned HTTP ${response.status} before Chumbo started. Check the Edge Function logs and retry doctor.`,
+    });
+    return checks;
+  }
   checks.push({
     name: "runtime-reached",
     ok: Boolean(runtimeVersion),
@@ -226,21 +487,14 @@ export async function runDoctor(
   }
 
   if (auth === "public") {
-    const body = (await response.json().catch(() => null)) as {
-      result?: { tools?: unknown[] };
-    } | null;
-    checks.push({
-      name: "public-tools-list",
-      ok: response.ok && Array.isArray(body?.result?.tools),
-      detail: `HTTP ${response.status}`,
-    });
     checks.push({
       name: "public-rate-limit",
       ok: response.ok && response.headers.has("x-ratelimit-limit"),
       detail: response.headers.has("x-ratelimit-limit")
         ? `${response.headers.get("x-ratelimit-limit")} requests per window`
-        : "missing rate-limit response headers",
+        : "missing rate-limit response headers; apply the generated public rate-limit migration to the local database, then retry",
     });
+    await mcpProbe(options, checks);
     return checks;
   }
 
@@ -253,22 +507,7 @@ export async function runDoctor(
         : `HTTP ${response.status}; responding layer is unconfirmed`,
     });
     if (!options.token) return checks;
-
-    const authenticatedHeaders = new Headers(headers);
-    authenticatedHeaders.set("authorization", `Bearer ${options.token}`);
-    const authenticatedResponse = await fetch(options.url, {
-      method: "POST",
-      headers: authenticatedHeaders,
-      body: modernRequest("tools/list"),
-    });
-    const body = (await authenticatedResponse.json().catch(() => null)) as {
-      result?: { tools?: unknown[] };
-    } | null;
-    checks.push({
-      name: "authenticated-tools-list",
-      ok: authenticatedResponse.ok && Array.isArray(body?.result?.tools),
-      detail: `HTTP ${authenticatedResponse.status}`,
-    });
+    await mcpProbe(options, checks, options.token);
     return checks;
   }
 
@@ -280,23 +519,6 @@ export async function runDoctor(
         ? `HTTP ${response.status} from Chumbo`
         : `HTTP ${response.status}; responding layer is unconfirmed`,
     });
-    if (options.token) {
-      const authenticatedHeaders = new Headers(headers);
-      authenticatedHeaders.set("authorization", `Bearer ${options.token}`);
-      const authenticatedResponse = await fetch(options.url, {
-        method: "POST",
-        headers: authenticatedHeaders,
-        body: modernRequest("tools/list"),
-      });
-      const body = (await authenticatedResponse.json().catch(() => null)) as {
-        result?: { tools?: unknown[] };
-      } | null;
-      checks.push({
-        name: "authenticated-tools-list",
-        ok: authenticatedResponse.ok && Array.isArray(body?.result?.tools),
-        detail: `HTTP ${authenticatedResponse.status}`,
-      });
-    }
   }
 
   const metadataUrl = challengeMetadataUrl(
@@ -342,22 +564,7 @@ export async function runDoctor(
   }
 
   if (options.token) {
-    const authenticatedHeaders = new Headers(headers);
-    authenticatedHeaders.set("authorization", `Bearer ${options.token}`);
-    const authenticatedResponse = await fetch(options.url, {
-      method: "POST",
-      headers: authenticatedHeaders,
-      body: modernRequest("tools/list"),
-    });
-    const body = (await authenticatedResponse.json().catch(() => null)) as {
-      result?: { tools?: unknown[] };
-      error?: unknown;
-    } | null;
-    checks.push({
-      name: "authenticated-tools-list",
-      ok: authenticatedResponse.ok && Array.isArray(body?.result?.tools),
-      detail: `HTTP ${authenticatedResponse.status}`,
-    });
+    await mcpProbe(options, checks, options.token);
   }
   return checks;
 }

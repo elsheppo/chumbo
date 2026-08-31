@@ -39,6 +39,33 @@ try {
     join(fixture, "supabase", "config.toml"),
     'project_id = "generated-smoke"\n',
   );
+  const help = run("node", [join(repository, "dist", "cli.js"), "--help"]);
+  for (const option of ["--call-tool", "--call-args", "--env-file"]) {
+    if (!help.stdout.includes(option)) {
+      throw new Error(`CLI help is missing ${option}: ${help.stdout}`);
+    }
+  }
+  const privateArgument = "generated-smoke-private-argument";
+  const rejectedCallArgs = spawnSync(
+    "node",
+    [
+      join(repository, "dist", "cli.js"),
+      "doctor",
+      "--json",
+      "--call-args",
+      JSON.stringify({ privateArgument }),
+    ],
+    { cwd: fixture, encoding: "utf8", env: process.env },
+  );
+  if (
+    rejectedCallArgs.status === 0 ||
+    !rejectedCallArgs.stdout.includes("--call-args requires --call-tool") ||
+    rejectedCallArgs.stdout.includes(privateArgument)
+  ) {
+    throw new Error(
+      `Doctor did not safely reject unscoped call arguments: ${rejectedCallArgs.stdout}`,
+    );
+  }
   const existingAgents = "# Existing project guidance\n\nKeep this content.\n";
   await writeFile(join(fixture, "AGENTS.md"), existingAgents);
 

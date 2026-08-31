@@ -23,10 +23,27 @@ npx chumbo setup --resume --function {{FUNCTION_NAME}}
 
 ## Develop
 
+Start the local Supabase stack, then keep the generated function running in one
+terminal:
+
 ```sh
-supabase functions serve {{FUNCTION_NAME}}
-deno task --config supabase/functions/{{FUNCTION_NAME}}/deno.json test
+supabase start
+{{LOCAL_MIGRATION_COMMAND}}npx chumbo dev --function {{FUNCTION_NAME}}{{LOCAL_DEV_AUTH}}
 ```
+
+In another terminal, test and call the starter through Streamable HTTP:
+
+```sh
+deno task --config supabase/functions/{{FUNCTION_NAME}}/deno.json test
+npx chumbo doctor \
+  --function {{FUNCTION_NAME}} \
+  --url http://127.0.0.1:54321/functions/v1/{{FUNCTION_NAME}} \
+  {{LOCAL_DOCTOR_AUTH}}--call-tool whoami
+```
+
+Doctor proves MCP initialization, `tools/list`, and the explicit `whoami` call.
+It never invokes an arbitrary discovered tool. The generated `index.ts` and
+`capabilities.ts` used here are the same files deployed below.
 
 ## Explore the full MCP surface
 
