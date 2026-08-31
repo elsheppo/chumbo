@@ -12,16 +12,21 @@ import { basename, dirname, join, posix, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PACKAGE_VERSION } from "./version.js";
 
-export const SKILL_RELATIVE_DIRECTORY = "skills/supa-mcp";
-export const SKILL_MANIFEST_NAME = ".supa-mcp-skill.json";
-export const AGENTS_POINTER_START = "<!-- supa-mcp:skill:start -->";
-export const AGENTS_POINTER_END = "<!-- supa-mcp:skill:end -->";
+export const SKILL_RELATIVE_DIRECTORY = "skills/chumbo";
+export const SKILL_MANIFEST_NAME = ".chumbo-skill.json";
+export const AGENTS_POINTER_START = "<!-- chumbo:skill:start -->";
+export const AGENTS_POINTER_END = "<!-- chumbo:skill:end -->";
+
+const LEGACY_SKILL_RELATIVE_DIRECTORY = "skills/supa-mcp";
+const LEGACY_SKILL_MANIFEST_NAME = ".supa-mcp-skill.json";
+const LEGACY_AGENTS_POINTER_START = "<!-- supa-mcp:skill:start -->";
+const LEGACY_AGENTS_POINTER_END = "<!-- supa-mcp:skill:end -->";
 
 export const AGENTS_POINTER = `${AGENTS_POINTER_START}
 ## Chumbo agent skill
 
 For designing, implementing, reviewing, or testing Chumbo capabilities, read
-and follow \`skills/supa-mcp/SKILL.md\`.
+and follow \`skills/chumbo/SKILL.md\`.
 ${AGENTS_POINTER_END}`;
 
 export interface SkillBundle {
@@ -31,7 +36,7 @@ export interface SkillBundle {
 
 interface SkillManifest {
   schemaVersion: 1;
-  skill: "supa-mcp";
+  skill: "chumbo" | "supa-mcp";
   installedVersion: string;
   files: Record<string, { sha256: string }>;
   agents: {
@@ -162,7 +167,7 @@ async function readTree(
 }
 
 export async function loadBundledSkill(
-  sourceRoot = fileURLToPath(new URL("../skills/supa-mcp/", import.meta.url)),
+  sourceRoot = fileURLToPath(new URL("../skills/chumbo/", import.meta.url)),
   version = PACKAGE_VERSION,
 ): Promise<SkillBundle> {
   return { version, files: await readTree(sourceRoot) };
@@ -179,7 +184,7 @@ function desiredManifest(bundle: SkillBundle): SkillManifest {
   );
   return {
     schemaVersion: 1,
-    skill: "supa-mcp",
+    skill: "chumbo",
     installedVersion: bundle.version,
     files,
     agents: {
@@ -193,11 +198,14 @@ function manifestText(manifest: SkillManifest): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
-function parseManifest(source: string): SkillManifest {
+function parseManifest(
+  source: string,
+  expectedSkill: SkillManifest["skill"],
+): SkillManifest {
   const value = JSON.parse(source) as Partial<SkillManifest>;
   if (
     value.schemaVersion !== 1 ||
-    value.skill !== "supa-mcp" ||
+    value.skill !== expectedSkill ||
     typeof value.installedVersion !== "string" ||
     !value.installedVersion ||
     !value.files ||
@@ -236,9 +244,13 @@ function markerIndexes(source: string, marker: string): number[] {
   }
 }
 
-function inspectPointer(source: string): PointerInspection {
-  const starts = markerIndexes(source, AGENTS_POINTER_START);
-  const ends = markerIndexes(source, AGENTS_POINTER_END);
+function inspectPointer(
+  source: string,
+  startMarker = AGENTS_POINTER_START,
+  endMarker = AGENTS_POINTER_END,
+): PointerInspection {
+  const starts = markerIndexes(source, startMarker);
+  const ends = markerIndexes(source, endMarker);
   if (starts.length === 0 && ends.length === 0) {
     return { state: "absent", source };
   }
@@ -251,7 +263,7 @@ function inspectPointer(source: string): PointerInspection {
     };
   }
   const start = starts[0]!;
-  const end = ends[0]! + AGENTS_POINTER_END.length;
+  const end = ends[0]! + endMarker.length;
   return {
     state: "valid",
     source,
@@ -267,8 +279,11 @@ function appendPointer(source: string): string {
   return `${source}${separator}${AGENTS_POINTER}\n`;
 }
 
-function replacePointer(inspection: PointerInspection): string {
-  return `${inspection.source.slice(0, inspection.start)}${AGENTS_POINTER}${inspection.source.slice(inspection.end)}`;
+function replacePointer(
+  inspection: PointerInspection,
+  desiredPointer = AGENTS_POINTER,
+): string {
+  return `${inspection.source.slice(0, inspection.start)}${desiredPointer}${inspection.source.slice(inspection.end)}`;
 }
 
 function plannedFile(
@@ -289,6 +304,7 @@ function plannedFile(
 
 async function readManifest(
   path: string,
+  expectedSkill: SkillManifest["skill"],
 ): Promise<{ manifest?: SkillManifest; source?: string; error?: string }> {
   const state = await fileState(path);
   if (state === "missing") return {};
@@ -297,7 +313,7 @@ async function readManifest(
   }
   const source = await readFile(path, "utf8");
   try {
-    return { manifest: parseManifest(source), source };
+    return { manifest: parseManifest(source, expectedSkill), source };
   } catch (error) {
     return {
       source,
@@ -624,6 +640,158 @@ async function planManagedSkill(
   };
 }
 
+async function planLegacyMigration(
+  action: SkillAction,
+  projectRoot: string,
+  bundle: SkillBundle,
+  manifest: SkillManifest,
+  legacyManifestPath: string,
+): Promise<SkillPlan> {
+  const legacySkillRoot = join(
+    projectRoot,
+    ...LEGACY_SKILL_RELATIVE_DIRECTORY.split("/"),
+  );
+  const agentsPath = join(projectRoot, "AGENTS.md");
+  const initial = await planInitialInstall(projectRoot, bundle);
+  const canonicalManifest = initial.files.find(
+    (file) => file.kind === "manifest",
+  );
+  const files = initial.files.filter(
+    (file) => file.kind !== "agents" && file.kind !== "manifest",
+  );
+
+  for (const [name, entry] of Object.entries(manifest.files).sort(
+    ([left], [right]) => left.localeCompare(right),
+  )) {
+    assertManagedPath(name);
+    const path = join(legacySkillRoot, ...name.split("/"));
+    if (await hasUnsafeParent(legacySkillRoot, name)) {
+      files.push(
+        plannedFile(projectRoot, path, "skill", "conflict", {
+          reason:
+            "A managed legacy skill path has a non-directory or symbolic parent.",
+        }),
+      );
+      continue;
+    }
+    const state = await fileState(path);
+    if (state !== "file") {
+      files.push(
+        plannedFile(projectRoot, path, "skill", "conflict", {
+          reason:
+            state === "missing"
+              ? "A managed legacy skill file is missing."
+              : "A managed legacy skill path is not a regular file.",
+        }),
+      );
+      continue;
+    }
+    const currentHash = sha256(await readFile(path, "utf8"));
+    files.push(
+      plannedFile(
+        projectRoot,
+        path,
+        "skill",
+        currentHash === entry.sha256 ? "delete" : "conflict",
+        currentHash === entry.sha256
+          ? {}
+          : {
+              reason:
+                "The managed legacy skill file has local edits and cannot be migrated.",
+            },
+      ),
+    );
+  }
+
+  const agentsState = await fileState(agentsPath);
+  if (agentsState !== "file") {
+    files.push(
+      plannedFile(projectRoot, agentsPath, "agents", "conflict", {
+        reason:
+          agentsState === "missing"
+            ? "The managed legacy AGENTS.md pointer is missing."
+            : "AGENTS.md is not a regular file.",
+      }),
+    );
+  } else {
+    const agentsSource = await readFile(agentsPath, "utf8");
+    const canonicalPointer = inspectPointer(agentsSource);
+    const legacyPointer = inspectPointer(
+      agentsSource,
+      LEGACY_AGENTS_POINTER_START,
+      LEGACY_AGENTS_POINTER_END,
+    );
+    if (canonicalPointer.state !== "absent") {
+      files.push(
+        plannedFile(projectRoot, agentsPath, "agents", "conflict", {
+          reason:
+            "AGENTS.md already contains Chumbo markers alongside the managed legacy pointer.",
+        }),
+      );
+    } else if (legacyPointer.state !== "valid") {
+      files.push(
+        plannedFile(projectRoot, agentsPath, "agents", "conflict", {
+          reason:
+            legacyPointer.reason ??
+            "The managed legacy AGENTS.md pointer is missing.",
+        }),
+      );
+    } else if (sha256(legacyPointer.block!) !== manifest.agents.pointerSha256) {
+      files.push(
+        plannedFile(projectRoot, agentsPath, "agents", "conflict", {
+          reason:
+            "The managed legacy AGENTS.md pointer has local edits and cannot be migrated.",
+        }),
+      );
+    } else {
+      files.push(
+        plannedFile(projectRoot, agentsPath, "agents", "update", {
+          content: replacePointer(legacyPointer),
+        }),
+      );
+    }
+  }
+
+  files.push(
+    plannedFile(projectRoot, legacyManifestPath, "skill", "delete", {
+      reason: "Replace the legacy managed manifest after migration.",
+    }),
+  );
+  if (canonicalManifest) files.push(canonicalManifest);
+
+  const conflict = files.some((file) => file.status === "conflict");
+  return {
+    action,
+    projectRoot,
+    availableVersion: bundle.version,
+    installedVersion: manifest.installedVersion,
+    state: conflict ? "modified" : "update_available",
+    files,
+    message: conflict
+      ? "Local changes conflict with the managed legacy skill. No files will be written."
+      : "The managed legacy skill is ready to migrate to skills/chumbo.",
+  };
+}
+
+function blockedInstallationPlan(
+  action: SkillAction,
+  projectRoot: string,
+  bundle: SkillBundle,
+  path: string,
+  reason: string,
+  message: string,
+  kind: PlannedSkillFile["kind"] = "manifest",
+): SkillPlan {
+  return {
+    action,
+    projectRoot,
+    availableVersion: bundle.version,
+    state: "blocked",
+    files: [plannedFile(projectRoot, path, kind, "conflict", { reason })],
+    message,
+  };
+}
+
 export async function planSkill(
   action: SkillAction,
   projectRoot: string,
@@ -638,42 +806,122 @@ export async function planSkill(
 
   const skillRoot = join(projectRoot, ...SKILL_RELATIVE_DIRECTORY.split("/"));
   const manifestPath = join(skillRoot, SKILL_MANIFEST_NAME);
-  const loaded = await readManifest(manifestPath);
+  const legacySkillRoot = join(
+    projectRoot,
+    ...LEGACY_SKILL_RELATIVE_DIRECTORY.split("/"),
+  );
+  const legacyManifestPath = join(legacySkillRoot, LEGACY_SKILL_MANIFEST_NAME);
+  const loaded = await readManifest(manifestPath, "chumbo");
   if (loaded.error) {
+    return blockedInstallationPlan(
+      action,
+      projectRoot,
+      bundle,
+      manifestPath,
+      loaded.error,
+      "The managed Chumbo manifest cannot be trusted. Repair or remove the skill installation before continuing.",
+    );
+  }
+
+  const legacyLoaded = await readManifest(legacyManifestPath, "supa-mcp");
+  if (legacyLoaded.error) {
+    return blockedInstallationPlan(
+      action,
+      projectRoot,
+      bundle,
+      legacyManifestPath,
+      legacyLoaded.error,
+      "The managed legacy skill manifest cannot be trusted. Repair or remove the legacy installation before continuing.",
+    );
+  }
+  const legacySkillPath = join(legacySkillRoot, "SKILL.md");
+  const legacySkillState = await fileState(legacySkillPath);
+  const agentsPath = join(projectRoot, "AGENTS.md");
+  const agentsState = await fileState(agentsPath);
+  const legacyPointerState =
+    agentsState === "file"
+      ? inspectPointer(
+          await readFile(agentsPath, "utf8"),
+          LEGACY_AGENTS_POINTER_START,
+          LEGACY_AGENTS_POINTER_END,
+        ).state
+      : "absent";
+
+  if (loaded.manifest && loaded.source !== undefined) {
+    if (
+      legacyLoaded.manifest ||
+      legacySkillState !== "missing" ||
+      legacyPointerState !== "absent"
+    ) {
+      const conflictPath = legacyLoaded.manifest
+        ? legacyManifestPath
+        : legacySkillState !== "missing"
+          ? legacySkillPath
+          : agentsPath;
+      return blockedInstallationPlan(
+        action,
+        projectRoot,
+        bundle,
+        conflictPath,
+        "A legacy skill installation exists alongside the canonical Chumbo skill.",
+        "Remove or reconcile the duplicate legacy skill before continuing.",
+        conflictPath === agentsPath ? "agents" : "skill",
+      );
+    }
+    return planManagedSkill(
+      action,
+      projectRoot,
+      bundle,
+      loaded.manifest,
+      loaded.source,
+    );
+  }
+
+  if (legacyLoaded.manifest && legacyLoaded.source !== undefined) {
+    return planLegacyMigration(
+      action,
+      projectRoot,
+      bundle,
+      legacyLoaded.manifest,
+      legacyManifestPath,
+    );
+  }
+
+  if (legacySkillState !== "missing") {
+    return blockedInstallationPlan(
+      action,
+      projectRoot,
+      bundle,
+      legacySkillPath,
+      "An unmanaged legacy SKILL.md would create a duplicate active skill.",
+      "Move or remove the unmanaged legacy skill before installing the canonical Chumbo skill.",
+      "skill",
+    );
+  }
+
+  if (legacyPointerState !== "absent") {
+    return blockedInstallationPlan(
+      action,
+      projectRoot,
+      bundle,
+      agentsPath,
+      "AGENTS.md contains legacy Chumbo skill markers without a trusted managed manifest.",
+      "Repair or remove the stale legacy pointer before installing the canonical Chumbo skill.",
+      "agents",
+    );
+  }
+
+  if (action === "update" || action === "status") {
     return {
       action,
       projectRoot,
       availableVersion: bundle.version,
-      state: "blocked",
-      files: [
-        plannedFile(projectRoot, manifestPath, "manifest", "conflict", {
-          reason: loaded.error,
-        }),
-      ],
-      message:
-        "The managed manifest cannot be trusted. Repair or remove the skill installation before continuing.",
+      state: "not_installed",
+      files: [],
+      message: "The Chumbo project skill is not installed.",
     };
   }
-  if (!loaded.manifest || loaded.source === undefined) {
-    if (action === "update" || action === "status") {
-      return {
-        action,
-        projectRoot,
-        availableVersion: bundle.version,
-        state: "not_installed",
-        files: [],
-        message: "The Chumbo project skill is not installed.",
-      };
-    }
-    return planInitialInstall(projectRoot, bundle);
-  }
-  return planManagedSkill(
-    action,
-    projectRoot,
-    bundle,
-    loaded.manifest,
-    loaded.source,
-  );
+  return planInitialInstall(projectRoot, bundle);
 }
 
 let temporaryCounter = 0;
@@ -682,7 +930,7 @@ async function atomicWrite(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = join(
     dirname(path),
-    `.${basename(path)}.supa-mcp-${process.pid}-${temporaryCounter++}.tmp`,
+    `.${basename(path)}.chumbo-${process.pid}-${temporaryCounter++}.tmp`,
   );
   try {
     await writeFile(temporary, content, "utf8");

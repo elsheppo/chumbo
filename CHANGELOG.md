@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Make the first-party `chumbo` skill the recommended agent-assisted
+  development path. New installs use `skills/chumbo/`; clean managed legacy
+  installs migrate without duplicate active skills, while locally edited
+  files or pointers block before any write.
+
 ## 0.10.2 – 2026-08-31
 
 - Add an optional builder-owned `onSurface` sink that receives a bounded,

@@ -466,7 +466,7 @@ export function formatSetupReport(report: SetupReport): string {
     "",
     "Build with an agent:",
     `  MCP docs: ${report.agentHandoff.documentationServerUrl}`,
-    `  Agent skill (optional): ${humanCommand(report.agentHandoff.skillInstallCommand)}`,
+    `  Agent skill (recommended): ${humanCommand(report.agentHandoff.skillInstallCommand)}`,
     `  Ask: “${report.agentHandoff.prompt}”`,
   );
   return lines.join("\n");
