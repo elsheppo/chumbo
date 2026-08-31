@@ -1,4 +1,5 @@
 import type {
+  CallToolResult,
   Implementation,
   McpServer,
   ServerContext,
@@ -6,7 +7,15 @@ import type {
 } from "@modelcontextprotocol/server";
 import type { JWTClaims, SupabaseEnv, UserClaims } from "@supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { JsonValue } from "./results.js";
+import type { JsonValue, ResultContentComposition } from "./results.js";
+
+type DeepReadonly<Value> = Value extends (...args: never[]) => unknown
+  ? Value
+  : Value extends readonly (infer Item)[]
+    ? readonly DeepReadonly<Item>[]
+    : Value extends object
+      ? { readonly [Key in keyof Value]: DeepReadonly<Value[Key]> }
+      : Value;
 
 export interface SupabaseMcpApiKeyIdentity {
   /** Stable application-owned identity for audit logs and scope resolution. */
@@ -394,10 +403,31 @@ export interface SupabaseMcpErrorEvent {
     | "metadata"
     | "mcp"
     | "rate-limit"
+    | "results"
     | "runtime"
     | "surface";
   readonly traceId?: string;
 }
+
+export interface SupabaseMcpResultMiddlewareInput<Database = unknown> {
+  readonly context: SupabaseMcpContext<Database>;
+  readonly tool: {
+    readonly name: string;
+  };
+  /**
+   * A deeply frozen structured-clone snapshot of the original successful
+   * handler result. Every middleware receives the same authored snapshot.
+   */
+  readonly result: DeepReadonly<CallToolResult>;
+}
+
+export type SupabaseMcpResultMiddleware<Database = unknown> = (
+  input: SupabaseMcpResultMiddlewareInput<Database>,
+) =>
+  | ResultContentComposition
+  | null
+  | undefined
+  | Promise<ResultContentComposition | null | undefined>;
 
 export interface SupabaseMcpAccessOptions<Database = unknown> {
   /**
@@ -434,6 +464,13 @@ export interface CreateSupabaseMcpOptions<Database = unknown> {
     server: SupabaseMcpServer,
     context: SupabaseMcpContext<Database>,
   ): void | Promise<void>;
+  /**
+   * Add bounded content to successful tool results. Middleware runs in the
+   * declared order against the same immutable authored-result snapshot.
+   */
+  resultMiddleware?:
+    | SupabaseMcpResultMiddleware<Database>
+    | readonly SupabaseMcpResultMiddleware<Database>[];
   supabase?: {
     env?: Partial<SupabaseEnv>;
   };

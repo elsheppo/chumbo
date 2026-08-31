@@ -223,10 +223,30 @@ your capabilities, application checks, grants, and RLS policies
 | `renderResult(value, render)`     | A deliberate text and structured-data hybrid                            |
 | `resourceResult(text, link)`      | A concise reading card whose full body is served through MCP Resources  |
 | `errorResult(message, nextStep?)` | A failure that tells the agent how to recover                           |
+| `appendResultText(result, text)`  | Optional model-facing guidance after a successful authored result       |
+| `prependResultText(result, text)` | Optional model-facing context before a successful authored result       |
 
 Shape each result around the consumer's next reasoning or interaction step.
 Preserve useful identifiers, omit internal fields, and use Resources or
 pagination for large payloads.
+
+Successful results can carry an optional follow-up without rebuilding their
+structured data or metadata:
+
+```ts
+return appendResultText(
+  structuredResult({ draftId: draft.id }),
+  "Optional follow-up: call review_draft with this draftId when you want to review it.",
+);
+```
+
+For cross-cutting guidance, `resultMiddleware` may return bounded `prepend` or
+`append` content for successful tools. Every middleware receives the same
+read-only authored-result snapshot, and a middleware failure leaves that
+result unchanged and reaches `onError` with `phase: "results"`.
+
+This guidance is ordinary model-facing tool-result content. It is not a system
+message and cannot require the client to call another tool.
 
 The [capability and result showcase](./docs/patterns/model-facing-results)
 keeps tools, Resources, prompts, elicitation, and all result patterns

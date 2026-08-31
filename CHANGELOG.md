@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add bounded `appendResultText`, `prependResultText`, and
+  `composeResultContent` helpers plus optional successful-tool result
+  middleware. Additions preserve authored structured data, Resources, Apps
+  metadata, and future result fields; invalid or failed middleware leaves the
+  last valid composition intact and reports through the application error
+  hook.
+
 ## 0.10.2 – 2026-08-31
 
 - Add an optional builder-owned `onSurface` sink that receives a bounded,
