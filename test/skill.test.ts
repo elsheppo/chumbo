@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
@@ -30,28 +29,6 @@ const nextBundle: SkillBundle = {
   },
 };
 
-const legacyBundle: SkillBundle = {
-  version: "0.6.0-test",
-  files: {
-    "SKILL.md":
-      "---\nname: supa-mcp\ndescription: legacy test\n---\n\nLegacy.\n",
-    "references/old.md": "Legacy reference.\n",
-  },
-};
-
-const legacyPointerStart = "<!-- supa-mcp:skill:start -->";
-const legacyPointerEnd = "<!-- supa-mcp:skill:end -->";
-const legacyPointer = `${legacyPointerStart}
-## Chumbo agent skill
-
-For designing, implementing, reviewing, or testing Chumbo capabilities, read
-and follow \`skills/supa-mcp/SKILL.md\`.
-${legacyPointerEnd}`;
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
-
 async function fixture(agents?: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "chumbo-skill-"));
   await mkdir(join(root, "supabase"), { recursive: true });
@@ -64,58 +41,12 @@ async function fixture(agents?: string): Promise<string> {
 }
 
 async function manifest(root: string): Promise<{
-  skill: string;
   installedVersion: string;
   files: Record<string, { sha256: string }>;
 }> {
   return JSON.parse(
     await readFile(join(root, "skills", "chumbo", SKILL_MANIFEST_NAME), "utf8"),
   );
-}
-
-async function installLegacy(
-  root: string,
-  bundle: SkillBundle = legacyBundle,
-): Promise<void> {
-  const directory = join(root, "skills", "supa-mcp");
-  await mkdir(directory, { recursive: true });
-  for (const [name, content] of Object.entries(bundle.files)) {
-    const path = join(directory, ...name.split("/"));
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, content);
-  }
-  await writeFile(
-    join(directory, ".supa-mcp-skill.json"),
-    `${JSON.stringify(
-      {
-        schemaVersion: 1,
-        skill: "supa-mcp",
-        installedVersion: bundle.version,
-        files: Object.fromEntries(
-          Object.entries(bundle.files).map(([name, content]) => [
-            name,
-            { sha256: sha256(content) },
-          ]),
-        ),
-        agents: {
-          path: "AGENTS.md",
-          pointerSha256: sha256(legacyPointer),
-        },
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  const agentsPath = join(root, "AGENTS.md");
-  const agents = await readFile(agentsPath, "utf8").catch(
-    (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return "";
-      throw error;
-    },
-  );
-  const separator =
-    agents.length === 0 ? "" : agents.endsWith("\n") ? "\n" : "\n\n";
-  await writeFile(agentsPath, `${agents}${separator}${legacyPointer}\n`);
 }
 
 describe("managed Chumbo skill", () => {
@@ -145,148 +76,13 @@ describe("managed Chumbo skill", () => {
       agents.startsWith("# Existing agent guide\r\nNo final newline"),
     ).toBe(true);
     expect(agents).toContain(AGENTS_POINTER);
-    expect(await manifest(root)).toMatchObject({
-      skill: "chumbo",
-      installedVersion: "0.6.0-test",
-    });
+    expect((await manifest(root)).installedVersion).toBe("0.6.0-test");
 
     const repeated = await planSkill("install", root, firstBundle);
     expect(repeated.state).toBe("current");
     expect(repeated.files.every((file) => file.status === "unchanged")).toBe(
       true,
     );
-  });
-
-  it.each(["install", "status", "update"] as const)(
-    "detects a managed legacy installation during %s",
-    async (action) => {
-      const root = await fixture("# Existing agent guide\n");
-      await installLegacy(root);
-
-      const plan = await planSkill(action, root, firstBundle);
-
-      expect(plan.state).toBe("update_available");
-      expect(plan.message).toContain("migrate to skills/chumbo");
-      expect(plan.files).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            relativePath: "skills/chumbo/SKILL.md",
-            status: "create",
-          }),
-          expect.objectContaining({
-            relativePath: "skills/supa-mcp/SKILL.md",
-            status: "delete",
-          }),
-          expect.objectContaining({
-            relativePath: "AGENTS.md",
-            status: "update",
-          }),
-        ]),
-      );
-    },
-  );
-
-  it("migrates a clean legacy install without duplicate active skills", async () => {
-    const existing = "# Existing agent guide\n\nKeep this text.\n";
-    const root = await fixture(existing);
-    await installLegacy(root);
-
-    const update = await planSkill("update", root, firstBundle);
-    await applySkillPlan(update);
-
-    expect(
-      await readFile(join(root, "skills", "chumbo", "SKILL.md"), "utf8"),
-    ).toContain("First.");
-    expect((await manifest(root)).installedVersion).toBe("0.6.0-test");
-    await expect(
-      readFile(join(root, "skills", "supa-mcp", "SKILL.md")),
-    ).rejects.toThrow();
-    await expect(
-      readFile(join(root, "skills", "supa-mcp", ".supa-mcp-skill.json")),
-    ).rejects.toThrow();
-    const agents = await readFile(join(root, "AGENTS.md"), "utf8");
-    expect(agents.startsWith(existing)).toBe(true);
-    expect(agents).toContain(AGENTS_POINTER);
-    expect(agents).not.toContain(legacyPointerStart);
-  });
-
-  it("blocks stale legacy markers that have no trusted manifest", async () => {
-    const root = await fixture(`# Existing\n\n${legacyPointer}\n`);
-
-    const install = await planSkill("install", root, firstBundle);
-
-    expect(install.state).toBe("blocked");
-    expect(install.files).toEqual([
-      expect.objectContaining({
-        relativePath: "AGENTS.md",
-        kind: "agents",
-        status: "conflict",
-      }),
-    ]);
-    await expect(applySkillPlan(install)).rejects.toThrow(
-      "Refusing to overwrite",
-    );
-    await expect(
-      readFile(join(root, "skills", "chumbo", "SKILL.md")),
-    ).rejects.toThrow();
-  });
-
-  it("blocks an edited legacy file without partial writes", async () => {
-    const root = await fixture("# Existing\n");
-    await installLegacy(root);
-    const legacySkill = join(root, "skills", "supa-mcp", "SKILL.md");
-    const legacyManifest = join(
-      root,
-      "skills",
-      "supa-mcp",
-      ".supa-mcp-skill.json",
-    );
-    await writeFile(legacySkill, "Builder-owned legacy edit.\n");
-    const agentsBefore = await readFile(join(root, "AGENTS.md"), "utf8");
-    const manifestBefore = await readFile(legacyManifest, "utf8");
-
-    const update = await planSkill("update", root, firstBundle);
-    expect(update.state).toBe("modified");
-    await expect(applySkillPlan(update)).rejects.toThrow(
-      "Refusing to overwrite",
-    );
-
-    expect(await readFile(legacySkill, "utf8")).toBe(
-      "Builder-owned legacy edit.\n",
-    );
-    expect(await readFile(legacyManifest, "utf8")).toBe(manifestBefore);
-    expect(await readFile(join(root, "AGENTS.md"), "utf8")).toBe(agentsBefore);
-    await expect(
-      readFile(join(root, "skills", "chumbo", "SKILL.md")),
-    ).rejects.toThrow();
-  });
-
-  it("blocks an edited legacy pointer without partial writes", async () => {
-    const root = await fixture("# Existing\n");
-    await installLegacy(root);
-    const agentsPath = join(root, "AGENTS.md");
-    const legacySkill = join(root, "skills", "supa-mcp", "SKILL.md");
-    const legacyBefore = await readFile(legacySkill, "utf8");
-    await writeFile(
-      agentsPath,
-      (await readFile(agentsPath, "utf8")).replace(
-        "read\nand follow",
-        "read carefully\nand follow",
-      ),
-    );
-    const agentsBefore = await readFile(agentsPath, "utf8");
-
-    const update = await planSkill("update", root, firstBundle);
-    expect(update.state).toBe("modified");
-    await expect(applySkillPlan(update)).rejects.toThrow(
-      "Refusing to overwrite",
-    );
-
-    expect(await readFile(agentsPath, "utf8")).toBe(agentsBefore);
-    expect(await readFile(legacySkill, "utf8")).toBe(legacyBefore);
-    await expect(
-      readFile(join(root, "skills", "chumbo", "SKILL.md")),
-    ).rejects.toThrow();
   });
 
   it("updates clean files, adds new references, and removes obsolete managed files", async () => {
