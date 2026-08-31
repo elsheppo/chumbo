@@ -22,6 +22,7 @@ import type {
   RuntimeDependencies,
   SupabaseMcpApp,
   SupabaseMcpApiKeyAuth,
+  SupabaseMcpAuthentication,
   SupabaseMcpCapabilityKind,
   SupabaseMcpContext,
   SupabaseMcpErrorEvent,
@@ -31,8 +32,12 @@ import type {
   SupabaseMcpPostgresRateLimit,
   SupabaseMcpRunFact,
   SupabaseMcpServer,
+  SupabaseMcpSurfaceProof,
+  SupabaseMcpSurfaceTool,
+  SupabaseMcpSurfaceToolAnnotations,
   VerifiedSupabaseIdentity,
 } from "./types.js";
+import type { JsonValue } from "./results.js";
 import {
   createSupabaseMcpStateFactory,
   SupabaseMcpStateUnavailableError,
@@ -49,6 +54,13 @@ const DEFAULT_RATE_LIMIT = {
 } as const;
 const REMOTE_JWKS_TTL_MS = 60_000;
 const MAX_JWKS_BYTES = 64 * 1024;
+const MAX_SURFACE_REQUEST_BYTES = 64 * 1024;
+const MAX_SURFACE_RESPONSE_BYTES = 512 * 1024;
+const MAX_SURFACE_CANONICAL_BYTES = 256 * 1024;
+const MAX_SURFACE_TOOLS = 256;
+const MAX_SURFACE_JSON_DEPTH = 32;
+const MAX_SURFACE_NAME_BYTES = 256;
+const MAX_SURFACE_PROSE_BYTES = 32 * 1024;
 type InlineJwks = Exclude<NonNullable<SupabaseEnv["jwks"]>, URL>;
 const remoteJwksCache = new Map<
   string,
@@ -431,6 +443,271 @@ async function sha256(value: string): Promise<string> {
   ).join("");
 }
 
+interface SurfaceListRequest {
+  protocolVersion?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function boundedUtf8(value: unknown, maxBytes: number): value is string {
+  return (
+    typeof value === "string" &&
+    new TextEncoder().encode(value).byteLength <= maxBytes
+  );
+}
+
+async function boundedBodyText(
+  body: Request | Response,
+  maxBytes: number,
+): Promise<string | null> {
+  const contentLength = body.headers.get("content-length");
+  if (contentLength !== null) {
+    const declared = Number(contentLength);
+    if (Number.isFinite(declared) && declared > maxBytes) return null;
+  }
+  let clone: Request | Response;
+  try {
+    clone = body.clone();
+  } catch {
+    return null;
+  }
+  if (!clone.body) return "";
+  const reader = clone.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } catch {
+    try {
+      await reader.cancel();
+    } catch {
+      // The observed clone is disposable; the actual protocol body is untouched.
+    }
+    return null;
+  }
+}
+
+function protocolVersionFromRequest(
+  request: Request,
+  payload: Record<string, unknown>,
+): string | undefined {
+  const header = request.headers.get("mcp-protocol-version")?.trim();
+  const params = isRecord(payload.params) ? payload.params : undefined;
+  const meta = params && isRecord(params._meta) ? params._meta : undefined;
+  const metadataVersion = meta?.["io.modelcontextprotocol/protocolVersion"];
+  const candidate =
+    header ||
+    (typeof metadataVersion === "string" ? metadataVersion.trim() : "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : undefined;
+}
+
+async function inspectSurfaceListRequest(
+  request: Request,
+): Promise<SurfaceListRequest | null> {
+  if (request.method !== "POST") return null;
+  const text = await boundedBodyText(request, MAX_SURFACE_REQUEST_BYTES);
+  if (text === null) return null;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isRecord(payload) || payload.method !== "tools/list") return null;
+  const params = isRecord(payload.params) ? payload.params : undefined;
+  if (params && typeof params.cursor === "string") return null;
+  const protocolVersion = protocolVersionFromRequest(request, payload);
+  return protocolVersion ? { protocolVersion } : {};
+}
+
+function canonicalJsonValue(value: unknown, depth = 0): JsonValue | null {
+  if (depth > MAX_SURFACE_JSON_DEPTH) return null;
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (Array.isArray(value)) {
+    const result: JsonValue[] = [];
+    for (const entry of value) {
+      const normalized = canonicalJsonValue(entry, depth + 1);
+      if (normalized === null && entry !== null) return null;
+      result.push(normalized);
+    }
+    return Object.freeze(result) as unknown as JsonValue;
+  }
+  if (!isRecord(value)) return null;
+  const result: Record<string, JsonValue> = {};
+  for (const key of Object.keys(value).sort()) {
+    const entry = value[key];
+    const normalized = canonicalJsonValue(entry, depth + 1);
+    if (normalized === null && entry !== null) return null;
+    result[key] = normalized;
+  }
+  return Object.freeze(result);
+}
+
+function normalizedSurfaceAnnotations(
+  value: unknown,
+): SupabaseMcpSurfaceToolAnnotations | null | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return null;
+  const annotations: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  } = {};
+  if (boundedUtf8(value.title, MAX_SURFACE_PROSE_BYTES)) {
+    annotations.title = value.title;
+  } else if (value.title !== undefined) {
+    return null;
+  }
+  for (const key of [
+    "readOnlyHint",
+    "destructiveHint",
+    "idempotentHint",
+    "openWorldHint",
+  ] as const) {
+    if (typeof value[key] === "boolean") annotations[key] = value[key];
+    else if (value[key] !== undefined) return null;
+  }
+  return Object.keys(annotations).length > 0
+    ? Object.freeze(annotations)
+    : undefined;
+}
+
+function normalizedSurfaceTool(value: unknown): SupabaseMcpSurfaceTool | null {
+  if (
+    !isRecord(value) ||
+    !boundedUtf8(value.name, MAX_SURFACE_NAME_BYTES) ||
+    !value.name
+  ) {
+    return null;
+  }
+  if (
+    (value.title !== undefined &&
+      !boundedUtf8(value.title, MAX_SURFACE_PROSE_BYTES)) ||
+    (value.description !== undefined &&
+      !boundedUtf8(value.description, MAX_SURFACE_PROSE_BYTES))
+  ) {
+    return null;
+  }
+  if (!isRecord(value.inputSchema)) return null;
+  const inputSchema = canonicalJsonValue(value.inputSchema);
+  if (!isRecord(inputSchema)) return null;
+  let outputSchema: Readonly<Record<string, JsonValue>> | undefined;
+  if (value.outputSchema !== undefined) {
+    if (!isRecord(value.outputSchema)) return null;
+    const normalized = canonicalJsonValue(value.outputSchema);
+    if (!isRecord(normalized)) return null;
+    outputSchema = normalized as Readonly<Record<string, JsonValue>>;
+  }
+  const annotations = normalizedSurfaceAnnotations(value.annotations);
+  if (annotations === null) return null;
+  return Object.freeze({
+    name: value.name,
+    ...(typeof value.title === "string" ? { title: value.title } : {}),
+    ...(typeof value.description === "string"
+      ? { description: value.description }
+      : {}),
+    inputSchema: inputSchema as Readonly<Record<string, JsonValue>>,
+    ...(outputSchema ? { outputSchema } : {}),
+    ...(annotations ? { annotations } : {}),
+  });
+}
+
+function jsonRpcPayloadFromResponse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    for (const line of text.split(/\r?\n/)) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice("data:".length).trim();
+      if (!data || data === "[DONE]") continue;
+      try {
+        const payload = JSON.parse(data) as unknown;
+        if (isRecord(payload) && isRecord(payload.result)) return payload;
+      } catch {
+        // Ignore unrelated or malformed SSE events.
+      }
+    }
+    return null;
+  }
+}
+
+async function createSurfaceProof(
+  response: Response,
+  request: SurfaceListRequest,
+  server: CreateSupabaseMcpOptions["server"],
+  authentication: SupabaseMcpAuthentication,
+): Promise<SupabaseMcpSurfaceProof | null> {
+  if (!response.ok) return null;
+  const text = await boundedBodyText(response, MAX_SURFACE_RESPONSE_BYTES);
+  if (text === null) return null;
+  const payload = jsonRpcPayloadFromResponse(text);
+  if (!isRecord(payload) || payload.jsonrpc !== "2.0" || "error" in payload) {
+    return null;
+  }
+  const result = isRecord(payload.result) ? payload.result : undefined;
+  if (!result || !Array.isArray(result.tools) || result.nextCursor != null) {
+    return null;
+  }
+  if (result.tools.length > MAX_SURFACE_TOOLS) return null;
+  const tools: SupabaseMcpSurfaceTool[] = [];
+  const names = new Set<string>();
+  for (const value of result.tools) {
+    const tool = normalizedSurfaceTool(value);
+    if (!tool || names.has(tool.name)) return null;
+    names.add(tool.name);
+    tools.push(tool);
+  }
+  tools.sort((left, right) => left.name.localeCompare(right.name));
+  const frozenTools = Object.freeze(tools);
+  const canonicalContent = JSON.stringify({
+    schemaVersion: 1,
+    tools: frozenTools,
+  });
+  if (
+    new TextEncoder().encode(canonicalContent).byteLength >
+    MAX_SURFACE_CANONICAL_BYTES
+  ) {
+    return null;
+  }
+  const contentDigest = `sha256:${await sha256(canonicalContent)}` as const;
+  return Object.freeze({
+    schemaVersion: 1,
+    server: Object.freeze({ name: server.name, version: server.version }),
+    runtime: Object.freeze({
+      name: "chumbo" as const,
+      version: PACKAGE_VERSION,
+    }),
+    authentication: Object.freeze({ ...authentication }),
+    ...(request.protocolVersion
+      ? { protocolVersion: request.protocolVersion }
+      : {}),
+    tools: frozenTools,
+    contentDigest,
+  });
+}
+
 function callerAddress(request: Request): string {
   return (
     request.headers.get("cf-connecting-ip") ??
@@ -806,6 +1083,46 @@ export function createSupabaseMcpInternal<Database = unknown>(
     },
   );
 
+  const reportSurfaceFailure = (error: unknown): void => {
+    try {
+      options.onError?.({ error: normalizeError(error), phase: "surface" });
+    } catch {
+      // An operator hook must not change the successful discovery response.
+    }
+  };
+
+  async function fetchMcp(
+    request: Request,
+    authentication: SupabaseMcpAuthentication,
+    authInfo?: AuthInfo,
+  ): Promise<Response> {
+    const surfaceRequest = options.onSurface
+      ? await inspectSurfaceListRequest(request)
+      : null;
+    const response = authInfo
+      ? await mcpHandler.fetch(request, { authInfo })
+      : await mcpHandler.fetch(request);
+    if (!surfaceRequest || !options.onSurface) return response;
+    try {
+      const proof = await createSurfaceProof(
+        response,
+        surfaceRequest,
+        options.server,
+        authentication,
+      );
+      if (!proof) return response;
+      try {
+        const pending = options.onSurface(proof);
+        void Promise.resolve(pending).catch(reportSurfaceFailure);
+      } catch (error) {
+        reportSurfaceFailure(error);
+      }
+    } catch (error) {
+      reportSurfaceFailure(error);
+    }
+    return response;
+  }
+
   const bearerGate =
     auth.mode === "public"
       ? undefined
@@ -1079,7 +1396,10 @@ export function createSupabaseMcpInternal<Database = unknown>(
     }
 
     if (!bearerGate) {
-      const response = await mcpHandler.fetch(request);
+      const response = await fetchMcp(request, {
+        mode: "public",
+        strategy: "public",
+      });
       return rateHeaders
         ? responseWithHeaders(response, rateHeaders)
         : response;
@@ -1144,7 +1464,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
       return jsonResponse({ error: "server_error", traceId }, 500);
     }
     authInfo.extra = { ...authInfo.extra, [CONTEXT_KEY]: context };
-    return mcpHandler.fetch(request, { authInfo });
+    return fetchMcp(request, context.authentication, authInfo);
   }
 
   return {

@@ -179,6 +179,42 @@ export type SupabaseMcpLifecycleEvent =
   | SupabaseMcpCapabilityStartedEvent
   | SupabaseMcpCapabilityFinishedEvent;
 
+export interface SupabaseMcpSurfaceToolAnnotations {
+  readonly title?: string;
+  readonly readOnlyHint?: boolean;
+  readonly destructiveHint?: boolean;
+  readonly idempotentHint?: boolean;
+  readonly openWorldHint?: boolean;
+}
+
+/** One tool exactly as advertised to the successful discovery caller. */
+export interface SupabaseMcpSurfaceTool {
+  readonly name: string;
+  readonly title?: string;
+  readonly description?: string;
+  readonly inputSchema: Readonly<Record<string, JsonValue>>;
+  readonly outputSchema?: Readonly<Record<string, JsonValue>>;
+  readonly annotations?: SupabaseMcpSurfaceToolAnnotations;
+}
+
+/**
+ * Canonical, redacted evidence derived from one complete successful tools/list.
+ * It deliberately contains no caller identity, scopes, credentials, or traffic.
+ */
+export interface SupabaseMcpSurfaceProof {
+  readonly schemaVersion: 1;
+  readonly server: SupabaseMcpLifecycleServer;
+  readonly runtime: {
+    readonly name: "chumbo";
+    readonly version: string;
+  };
+  readonly authentication: SupabaseMcpAuthentication;
+  readonly protocolVersion?: string;
+  readonly tools: readonly SupabaseMcpSurfaceTool[];
+  /** SHA-256 of canonical JSON containing schemaVersion and tools. */
+  readonly contentDigest: `sha256:${string}`;
+}
+
 export interface SupabaseMcpApiKeyVerifyContext<Database = unknown> {
   readonly token: string;
   /**
@@ -358,7 +394,8 @@ export interface SupabaseMcpErrorEvent {
     | "metadata"
     | "mcp"
     | "rate-limit"
-    | "runtime";
+    | "runtime"
+    | "surface";
   readonly traceId?: string;
 }
 
@@ -409,6 +446,11 @@ export interface CreateSupabaseMcpOptions<Database = unknown> {
    * promises are observed for failures but never awaited by the MCP request.
    */
   onEvent?(event: SupabaseMcpLifecycleEvent): void | Promise<void>;
+  /**
+   * Receive a bounded, redacted proof after a complete successful tools/list.
+   * Chumbo performs no surface inspection or delivery work when this is absent.
+   */
+  onSurface?(proof: SupabaseMcpSurfaceProof): void | Promise<void>;
   onError?(event: SupabaseMcpErrorEvent): void;
 }
 

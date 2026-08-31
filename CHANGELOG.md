@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add an optional builder-owned `onSurface` sink that receives a bounded,
+  canonical, redacted proof only after a complete successful `tools/list`.
+  Proofs contain the exact effective tool catalog and a stable content digest,
+  while excluding caller identity, scopes, credentials, traffic, and arbitrary
+  protocol metadata. Unconfigured runtimes do no surface inspection or
+  delivery work.
+
 ## 0.10.1 – 2026-08-30
 
 - Reduce the generated capability starter to one immediately runnable identity

@@ -55,6 +55,9 @@ export type {
   SupabaseMcpStateNamespaceOptions,
   SupabaseMcpStatePutOptions,
   SupabaseMcpStateValue,
+  SupabaseMcpSurfaceProof,
+  SupabaseMcpSurfaceTool,
+  SupabaseMcpSurfaceToolAnnotations,
 } from "./types.js";
 export {
   durableStateLimits,
