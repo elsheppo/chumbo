@@ -81,8 +81,6 @@ function register(server: SupabaseMcpServer) {
           ...examples.map(
             (example) => `- **${example.name}** – ${example.status}`,
           ),
-          "",
-          "→ Next: call show_empty_state or show_recoverable_error to inspect the other branches.",
         ].join("\n"),
       );
     },
@@ -190,6 +188,17 @@ const app = createSupabaseMcp({
   resourceUrl,
   auth: { mode: "public", rateLimit: true },
   register,
+  resultMiddleware({ tool }) {
+    if (tool.name !== "list_examples") return;
+    return {
+      append: [
+        {
+          type: "text",
+          text: "Optional follow-up: call show_empty_state or show_recoverable_error if you want to inspect those result branches.",
+        },
+      ],
+    };
+  },
 });
 
 if (import.meta.main) Deno.serve(app.fetch);
