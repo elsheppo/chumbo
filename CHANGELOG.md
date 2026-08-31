@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.2 – 2026-08-31
+
 - Add an optional builder-owned `onSurface` sink that receives a bounded,
   canonical, redacted proof only after a complete successful `tools/list`.
   Proofs contain the exact effective tool catalog and a stable content digest,
