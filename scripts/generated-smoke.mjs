@@ -1,4 +1,5 @@
 import {
+  chmod,
   cp,
   mkdtemp,
   mkdir,
@@ -8,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -37,7 +38,7 @@ try {
   await mkdir(join(fixture, "supabase"), { recursive: true });
   await writeFile(
     join(fixture, "supabase", "config.toml"),
-    'project_id = "generated-smoke"\n',
+    'project_id = "generated-smoke"\n\n[api]\nport = 57321\n',
   );
   const help = run("node", [join(repository, "dist", "cli.js"), "--help"]);
   for (const option of ["--call-tool", "--call-args", "--env-file"]) {
@@ -217,6 +218,33 @@ try {
   ) {
     throw new Error("Generated README omitted the starter or advanced path");
   }
+  const fakeBin = join(fixture, "fake-bin");
+  const fakeSupabase = join(fakeBin, "supabase");
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(
+    fakeSupabase,
+    '#!/usr/bin/env node\nconsole.log(`fake supabase ${process.argv.slice(2).join(" ")}`);\n',
+  );
+  await chmod(fakeSupabase, 0o755);
+  const dev = run(
+    "node",
+    [join(repository, "dist", "cli.js"), "dev", "--function", "mcp"],
+    {
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}${delimiter}${process.env.PATH ?? ""}`,
+      },
+    },
+  );
+  if (
+    !dev.stdout.includes(
+      "Local MCP URL: http://127.0.0.1:57321/functions/v1/mcp",
+    ) ||
+    !dev.stdout.includes("--url http://127.0.0.1:57321/functions/v1/mcp") ||
+    !dev.stdout.includes("fake supabase functions serve mcp")
+  ) {
+    throw new Error(`Dev ignored the configured local API port: ${dev.stdout}`);
+  }
   const customizedCapabilities = `// builder-owned\n${generatedCapabilities}`;
   await writeFile(capabilityPath, customizedCapabilities);
   const resumed = run("node", [
@@ -290,6 +318,13 @@ try {
     "mcp",
   ]);
   const statusReport = JSON.parse(status.stdout);
+  if (
+    statusReport.localEndpoint !== "http://127.0.0.1:57321/functions/v1/mcp"
+  ) {
+    throw new Error(
+      `Status JSON ignored the configured local API port: ${status.stdout}`,
+    );
+  }
   if (!Array.isArray(statusReport.nextActions)) {
     throw new Error(`Status JSON is missing next actions: ${status.stdout}`);
   }

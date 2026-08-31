@@ -11,6 +11,7 @@ import {
   findSupabaseProject,
   PACKAGE_VERSION,
   planInit,
+  resolveLocalMcpEndpoint,
   type PlannedFile,
 } from "./project.js";
 import {
@@ -473,6 +474,7 @@ async function init(args: string[]): Promise<void> {
   const machine = parsed.values.json ?? false;
   const root = await findSupabaseProject(process.cwd());
   const functionName = parsed.values.function ?? "mcp";
+  const localEndpoint = await resolveLocalMcpEndpoint(root, functionName);
   const auth = choice(
     parsed.values.auth,
     ["oauth", "api-key", "bearer", "public"] as const,
@@ -512,6 +514,7 @@ async function init(args: string[]): Promise<void> {
       status: needsConfirmation ? "needs_confirmation" : "planned",
       projectRoot: root,
       functionName,
+      localEndpoint,
       auth,
       files: fileSummary(files, root),
       nextCommand: needsConfirmation
@@ -640,6 +643,7 @@ async function setup(args: string[]): Promise<void> {
   const machine = parsed.values.json ?? false;
   const root = await findSupabaseProject(process.cwd());
   const functionName = parsed.values.function ?? "mcp";
+  const localEndpoint = await resolveLocalMcpEndpoint(root, functionName);
   const existingInspection = await inspectGeneratedAuth(root, functionName);
   const existingAuth = existingInspection?.mode;
   const requestedStateNamespace = parsed.values["state-namespace"];
@@ -756,6 +760,7 @@ async function setup(args: string[]): Promise<void> {
       command: "setup",
       projectRoot: root,
       functionName,
+      localEndpoint,
       auth,
       consent,
       files: fileSummary(files, root),
@@ -986,6 +991,7 @@ async function setup(args: string[]): Promise<void> {
     command: "setup",
     projectRoot: root,
     functionName,
+    localEndpoint,
     auth,
     consent,
     files: fileSummary(files, root),
@@ -1020,6 +1026,7 @@ async function status(args: string[]): Promise<void> {
   const machine = parsed.values.json ?? false;
   const root = await findSupabaseProject(process.cwd());
   const functionName = parsed.values.function ?? "mcp";
+  const localEndpoint = await resolveLocalMcpEndpoint(root, functionName);
   const inspection = await inspectGeneratedAuth(root, functionName);
   const configuredAuth = parsed.values.auth
     ? choice(
@@ -1102,6 +1109,7 @@ async function status(args: string[]): Promise<void> {
     command: "status",
     projectRoot: root,
     functionName,
+    localEndpoint,
     auth,
     consent,
     files: [],
@@ -1198,7 +1206,7 @@ async function dev(args: string[]): Promise<void> {
   }
   const functionName = parsed.values.function ?? "mcp";
   const root = await findSupabaseProject(process.cwd());
-  const localUrl = `http://127.0.0.1:54321/functions/v1/${functionName}`;
+  const localUrl = await resolveLocalMcpEndpoint(root, functionName);
   const authInspection = await inspectGeneratedAuth(root, functionName);
   const auth = authInspection?.mode;
   const credential =

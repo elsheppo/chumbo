@@ -37,7 +37,7 @@ In another terminal, test and call the starter through Streamable HTTP:
 deno task --config supabase/functions/{{FUNCTION_NAME}}/deno.json test
 npx chumbo doctor \
   --function {{FUNCTION_NAME}} \
-  --url http://127.0.0.1:54321/functions/v1/{{FUNCTION_NAME}} \
+  --url {{LOCAL_ENDPOINT}} \
   {{LOCAL_DOCTOR_AUTH}}--call-tool whoami
 ```
 
