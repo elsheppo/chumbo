@@ -67,6 +67,9 @@ Setup options:
 Shared options:
   --url <url>             Deployed MCP URL for status or doctor
   --token <token>         User token or application API key for an MCP probe
+  --call-tool <name>      Explicit tool for doctor to invoke after discovery
+  --call-args <json>      JSON object passed to --call-tool (default: {})
+  --env-file <path>       Local secrets file passed through by chumbo dev
   --dry-run               Print init's file plan without writing
   --yes                   Never prompt; accept the selected/default choices
   --json                  Stable machine-readable output; never prompts
@@ -92,9 +95,12 @@ function parse(commandArgs: string[]) {
     options: {
       "apply-migrations": { type: "boolean" },
       auth: { type: "string" },
+      "call-args": { type: "string" },
+      "call-tool": { type: "string" },
       consent: { type: "string" },
       deploy: { type: "boolean" },
       "dry-run": { type: "boolean" },
+      "env-file": { type: "string" },
       function: { type: "string" },
       help: { type: "boolean" },
       json: { type: "boolean" },
@@ -277,6 +283,20 @@ function fileSummary(files: readonly PlannedFile[], root: string) {
 
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function parseCallArgs(value: string | undefined): Record<string, unknown> {
+  if (!value) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("--call-args must be a valid JSON object");
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+    throw new Error("--call-args must be a JSON object");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 type SkillCommandStatus =
@@ -1132,6 +1152,9 @@ async function status(args: string[]): Promise<void> {
 
 async function doctor(args: string[]): Promise<void> {
   const parsed = parse(args);
+  if (parsed.values["call-args"] && !parsed.values["call-tool"]) {
+    throw new Error("--call-args requires --call-tool");
+  }
   const checks = await runDoctor({
     cwd: process.cwd(),
     functionName: parsed.values.function ?? "mcp",
@@ -1145,6 +1168,8 @@ async function doctor(args: string[]): Promise<void> {
           "--auth",
         )
       : undefined,
+    callTool: parsed.values["call-tool"],
+    callArgs: parseCallArgs(parsed.values["call-args"]),
   });
   if (parsed.values.json) {
     printJson({
@@ -1173,10 +1198,43 @@ async function dev(args: string[]): Promise<void> {
   }
   const functionName = parsed.values.function ?? "mcp";
   const root = await findSupabaseProject(process.cwd());
-  console.log(`Serving http://127.0.0.1:54321/functions/v1/${functionName}`);
+  const localUrl = `http://127.0.0.1:54321/functions/v1/${functionName}`;
+  const authInspection = await inspectGeneratedAuth(root, functionName);
+  const auth = authInspection?.mode;
+  const credential =
+    auth === "api-key"
+      ? ` --token <${authInspection?.apiKeyStrategy === "verifier" ? "APPLICATION_API_KEY" : "MCP_API_KEY"}>`
+      : auth === "bearer" || auth === "oauth"
+        ? " --token <USER_JWT>"
+        : "";
+  console.log(`Local MCP URL: ${localUrl}`);
+  console.log("If the local stack is stopped, run: supabase start");
+  if (
+    auth === "api-key" &&
+    authInspection?.apiKeyStrategy === "static" &&
+    !parsed.values["env-file"]
+  ) {
+    console.log(
+      `Static API-key mode needs a local secret file. Restart with:
+  npx chumbo dev --function ${functionName} --env-file supabase/functions/.env.local`,
+    );
+  }
+  console.log(
+    `Prove the generated starter in another terminal:\n  npx chumbo doctor --function ${functionName} --url ${localUrl}${credential} --call-tool whoami`,
+  );
+  console.log(
+    `Explore with MCP Inspector:\n  npx @modelcontextprotocol/inspector`,
+  );
   const result = await runCommand(
     "supabase",
-    ["functions", "serve", functionName],
+    [
+      "functions",
+      "serve",
+      functionName,
+      ...(parsed.values["env-file"]
+        ? ["--env-file", parsed.values["env-file"]]
+        : []),
+    ],
     root,
     false,
   );
