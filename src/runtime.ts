@@ -330,7 +330,11 @@ function createResultMiddlewareRunner<Database>(
         ...callbackArgs: unknown[]
       ): Promise<unknown> {
         const original = await Reflect.apply(callback, this, callbackArgs);
-        if (!isCallToolResult(original) || original.isError === true) {
+        if (
+          !isCallToolResult(original) ||
+          isInputRequiredResult(original) ||
+          original.isError === true
+        ) {
           return original;
         }
 
