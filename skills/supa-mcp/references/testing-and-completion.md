@@ -81,9 +81,12 @@ supabase start
 npx chumbo dev --function mcp
 npx chumbo doctor \
   --function mcp \
-  --url http://127.0.0.1:54321/functions/v1/mcp \
+  --url http://127.0.0.1:API_PORT/functions/v1/mcp \
   --call-tool <SAFE_TOOL>
 ```
+
+Use the exact Local MCP URL printed by `chumbo dev`. `API_PORT` is the
+project's configured `[api].port`, or `54321` when that setting is absent.
 
 For public mode, apply the generated rate-limit migration after starting
 Supabase and before probing the function:

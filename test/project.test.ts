@@ -8,15 +8,17 @@ import {
   PACKAGE_VERSION,
   patchFunctionConfig,
   planInit,
+  resolveLocalMcpEndpoint,
 } from "../src/project.js";
 import {
-  buildSetupReport,
+  buildSetupReport as buildSetupReportInternal,
   detectGeneratedAuth,
   endpointFor,
   formatSetupReport,
   inspectGeneratedAuth,
   normalizePublicUrl,
   SUPA_MCP_DOCUMENTATION_SERVER_URL,
+  type BuildSetupReportOptions,
 } from "../src/setup.js";
 
 async function fixture(): Promise<string> {
@@ -27,6 +29,19 @@ async function fixture(): Promise<string> {
     'project_id = "fixture"\n\n[api]\nport = 54321\n',
   );
   return root;
+}
+
+function buildSetupReport(
+  options: Omit<BuildSetupReportOptions, "localEndpoint"> & {
+    localEndpoint?: string;
+  },
+) {
+  return buildSetupReportInternal({
+    ...options,
+    localEndpoint:
+      options.localEndpoint ??
+      `http://127.0.0.1:54321/functions/v1/${options.functionName}`,
+  });
 }
 
 describe("release version", () => {
@@ -68,6 +83,72 @@ describe("config patching", () => {
       '[functions.mcp]\nverify_jwt = false\nimport_map = "./deno.json"',
     );
     expect(output).toContain("[functions.other]\nverify_jwt = true");
+  });
+
+  it("resolves the local MCP endpoint from the configured Supabase API port", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "supabase", "config.toml"),
+      'project_id = "fixture"\n\n[api]\nport = 57321 # project-specific\n',
+    );
+    const endpoint = await resolveLocalMcpEndpoint(root, "mcp");
+    expect(endpoint).toBe("http://127.0.0.1:57321/functions/v1/mcp");
+
+    const plan = await planInit({
+      cwd: root,
+      functionName: "mcp",
+      serverName: "Custom port fixture",
+      auth: "bearer",
+      consent: "none",
+      patchConfig: true,
+    });
+    expect(
+      plan.find((file) => file.path.endsWith("README.md"))?.content,
+    ).toContain(`--url ${endpoint}`);
+    expect(
+      plan.find((file) => file.path.endsWith("index_test.ts"))?.content,
+    ).toContain(endpoint);
+
+    const report = buildSetupReport({
+      command: "setup",
+      projectRoot: root,
+      functionName: "mcp",
+      localEndpoint: endpoint,
+      auth: "bearer",
+      consent: "none",
+      files: [],
+      applied: true,
+      planned: false,
+    });
+    expect(report.localEndpoint).toBe(endpoint);
+    expect(report.steps.find((step) => step.id === "serve_local")?.url).toBe(
+      endpoint,
+    );
+    expect(
+      report.steps.find((step) => step.id === "verify_local")?.command,
+    ).toContain(`--url ${endpoint}`);
+  });
+
+  it("uses port 54321 only when the Supabase API port is absent", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "supabase", "config.toml"),
+      'project_id = "fixture"\n',
+    );
+    await expect(resolveLocalMcpEndpoint(root, "mcp")).resolves.toBe(
+      "http://127.0.0.1:54321/functions/v1/mcp",
+    );
+  });
+
+  it("rejects an invalid configured API port instead of silently using the default", async () => {
+    const root = await fixture();
+    await writeFile(
+      join(root, "supabase", "config.toml"),
+      'project_id = "fixture"\n\n[api]\nport = "57321"\n',
+    );
+    await expect(resolveLocalMcpEndpoint(root, "mcp")).rejects.toThrow(
+      "[api].port must be an integer",
+    );
   });
 });
 
