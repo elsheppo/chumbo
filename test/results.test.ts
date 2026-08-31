@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import {
+  appendResultText,
+  composeResultContent,
   errorResult,
+  prependResultText,
   renderResult,
   resourceResult,
   structuredResult,
@@ -11,6 +15,92 @@ import {
 function textOf(result: { content: Array<{ type: string; text?: string }> }) {
   return result.content[0]?.text ?? "";
 }
+
+function textsOf(result: { content: Array<{ type: string; text?: string }> }) {
+  return result.content.flatMap((block) =>
+    block.type === "text" && block.text !== undefined ? [block.text] : [],
+  );
+}
+
+describe("result composition", () => {
+  it("adds text in order without mutating a structured result", () => {
+    const original = structuredResult({ projectId: "p1" });
+    const composed = appendResultText(
+      prependResultText(original, "Before"),
+      "After",
+    );
+
+    expect(textsOf(composed)).toEqual(["Before", "After"]);
+    expect(composed.structuredContent).toEqual({ projectId: "p1" });
+    expect(original).toEqual({
+      content: [],
+      structuredContent: { projectId: "p1" },
+    });
+  });
+
+  it("snapshots added blocks so later caller mutation cannot change the result", () => {
+    const added = { type: "text" as const, text: "Stable guidance" };
+    const composed = composeResultContent(textResult("Original"), {
+      append: [added],
+    });
+
+    added.text = "Mutated guidance";
+    expect(textsOf(composed)).toEqual(["Original", "Stable guidance"]);
+  });
+
+  it("preserves hybrid, Resource, error, and extension metadata", () => {
+    const futureField = { enabled: true };
+    const metadata = { "ui/resourceUri": "ui://reports/view" };
+    const original = {
+      ...resourceResult("Open the report", {
+        type: "resource_link" as const,
+        uri: "app://reports/p1",
+        name: "report",
+      }),
+      structuredContent: { reportId: "p1" },
+      isError: true,
+      _meta: metadata,
+      futureField,
+    } as CallToolResult & { futureField: { enabled: boolean } };
+    const composed = composeResultContent(original, {
+      prepend: [{ type: "text", text: "Before" }],
+      append: [{ type: "text", text: "After" }],
+    });
+
+    expect(textsOf(composed)).toEqual(["Before", "Open the report", "After"]);
+    expect(composed.content[2]).toMatchObject({
+      type: "resource_link",
+      uri: "app://reports/p1",
+    });
+    expect(composed).toMatchObject({
+      structuredContent: { reportId: "p1" },
+      isError: true,
+      _meta: { "ui/resourceUri": "ui://reports/view" },
+      futureField: { enabled: true },
+    });
+    expect(composed._meta).toBe(metadata);
+    expect((composed as typeof original).futureField).toBe(futureField);
+  });
+
+  it("rejects additions beyond the block and encoded-byte bounds", () => {
+    expect(() =>
+      composeResultContent(textResult("Original"), {
+        append: Array.from({ length: 17 }, (_, index) => ({
+          type: "text" as const,
+          text: String(index),
+        })),
+      }),
+    ).toThrow(/at most 16 content blocks/);
+    expect(() =>
+      appendResultText(textResult("Original"), "x".repeat(64 * 1024)),
+    ).toThrow(/at most 65536 encoded bytes/);
+    expect(() =>
+      composeResultContent(textResult("Original"), {
+        append: [{ type: "not-mcp-content" } as never],
+      }),
+    ).toThrow(/only valid MCP content blocks/);
+  });
+});
 
 describe("textResult", () => {
   it("returns only purpose-written text", () => {

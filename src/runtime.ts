@@ -4,9 +4,11 @@ import {
   OAuthErrorCode,
   buildOAuthProtectedResourceMetadata,
   createMcpHandler,
+  isCallToolResult,
   isInputRequiredResult,
   requireBearerAuth,
   type AuthInfo,
+  type CallToolResult,
   type McpServer as McpServerType,
   type OAuthMetadata,
   type ServerContext,
@@ -30,6 +32,7 @@ import type {
   SupabaseMcpLifecycleOutcome,
   SupabaseMcpProtectedAuth,
   SupabaseMcpPostgresRateLimit,
+  SupabaseMcpResultMiddleware,
   SupabaseMcpRunFact,
   SupabaseMcpServer,
   SupabaseMcpSurfaceProof,
@@ -37,7 +40,11 @@ import type {
   SupabaseMcpSurfaceToolAnnotations,
   VerifiedSupabaseIdentity,
 } from "./types.js";
-import type { JsonValue } from "./results.js";
+import {
+  composeResultContent,
+  type JsonValue,
+  type ResultContentComposition,
+} from "./results.js";
 import {
   createSupabaseMcpStateFactory,
   SupabaseMcpStateUnavailableError,
@@ -64,6 +71,7 @@ const MAX_SURFACE_NAME_BYTES = 256;
 const MAX_SURFACE_PROSE_BYTES = 32 * 1024;
 const MAX_SURFACE_SERVER_NAME_BYTES = 1024;
 const MAX_SURFACE_SERVER_VERSION_BYTES = 256;
+const MAX_RESULT_MIDDLEWARE = 16;
 type InlineJwks = Exclude<NonNullable<SupabaseEnv["jwks"]>, URL>;
 const remoteJwksCache = new Map<
   string,
@@ -218,6 +226,7 @@ function scopedServer<Database>(
   server: McpServerType,
   context: SupabaseMcpContext<Database>,
   lifecycle: LifecycleEmitter<Database> | undefined,
+  resultMiddleware: ResultMiddlewareRunner<Database> | undefined,
   requiredScopes: readonly string[] = [],
 ): SupabaseMcpServer {
   const required = normalizedScopes(requiredScopes);
@@ -225,7 +234,7 @@ function scopedServer<Database>(
     get(target, property) {
       if (property === "withScopes") {
         return (additional: readonly string[]) =>
-          scopedServer(target, context, lifecycle, [
+          scopedServer(target, context, lifecycle, resultMiddleware, [
             ...required,
             ...additional,
           ]);
@@ -236,9 +245,16 @@ function scopedServer<Database>(
       }
       if (!REGISTRATION_METHODS.has(property)) return value.bind(target);
       return (...args: unknown[]) => {
-        const registrationArgs = lifecycle
+        let registrationArgs = lifecycle
           ? lifecycle.wrapRegistration(property, args, context)
           : args;
+        registrationArgs = resultMiddleware
+          ? resultMiddleware.wrapRegistration(
+              property,
+              registrationArgs,
+              context,
+            )
+          : registrationArgs;
         const registration = Reflect.apply(value, target, registrationArgs) as {
           disable?(): void;
         };
@@ -247,6 +263,124 @@ function scopedServer<Database>(
       };
     },
   }) as SupabaseMcpServer;
+}
+
+interface ResultMiddlewareRunner<Database> {
+  wrapRegistration(
+    method: string,
+    args: readonly unknown[],
+    context: SupabaseMcpContext<Database>,
+  ): unknown[];
+}
+
+function deepFreeze<Value>(value: Value, seen = new WeakSet<object>()): Value {
+  if (typeof value !== "object" || value === null || seen.has(value)) {
+    return value;
+  }
+  seen.add(value);
+  for (const nested of Object.values(value)) deepFreeze(nested, seen);
+  return Object.freeze(value);
+}
+
+function createResultMiddlewareRunner<Database>(
+  options: CreateSupabaseMcpOptions<Database>,
+): ResultMiddlewareRunner<Database> | undefined {
+  if (!options.resultMiddleware) return undefined;
+  const configured = Array.isArray(options.resultMiddleware)
+    ? [...options.resultMiddleware]
+    : [options.resultMiddleware as SupabaseMcpResultMiddleware<Database>];
+  if (configured.length === 0) return undefined;
+  if (configured.length > MAX_RESULT_MIDDLEWARE) {
+    throw new RangeError(
+      `createSupabaseMcp accepts at most ${MAX_RESULT_MIDDLEWARE} result middleware functions`,
+    );
+  }
+  if (configured.some((middleware) => typeof middleware !== "function")) {
+    throw new TypeError("resultMiddleware must contain only functions");
+  }
+
+  const reportFailure = (error: unknown, traceId: string): void => {
+    try {
+      const reported = options.onError?.({
+        error: normalizeError(error),
+        phase: "results",
+        traceId,
+      });
+      void Promise.resolve(reported).catch(() => {});
+    } catch {
+      // An operator hook must not change the authored tool result.
+    }
+  };
+
+  return {
+    wrapRegistration(method, args, context) {
+      const name = args[0];
+      const callbackIndex = args.length - 1;
+      const callback = args[callbackIndex];
+      if (
+        method !== "registerTool" ||
+        typeof name !== "string" ||
+        typeof callback !== "function"
+      ) {
+        return [...args];
+      }
+
+      const wrapped = async function (
+        this: unknown,
+        ...callbackArgs: unknown[]
+      ): Promise<unknown> {
+        const original = await Reflect.apply(callback, this, callbackArgs);
+        if (
+          !isCallToolResult(original) ||
+          isInputRequiredResult(original) ||
+          original.isError === true
+        ) {
+          return original;
+        }
+
+        let snapshot: CallToolResult;
+        try {
+          snapshot = deepFreeze(structuredClone(original));
+        } catch (error) {
+          reportFailure(error, context.traceId);
+          return original;
+        }
+
+        let composition: ResultContentComposition = {};
+        let composed = original;
+        const input = Object.freeze({
+          context,
+          tool: Object.freeze({ name }),
+          result: snapshot,
+        });
+        for (const middleware of configured) {
+          try {
+            const addition = await middleware(input);
+            if (!addition) continue;
+            const candidate = {
+              prepend: [
+                ...(composition.prepend ?? []),
+                ...(addition.prepend ?? []),
+              ],
+              append: [
+                ...(composition.append ?? []),
+                ...(addition.append ?? []),
+              ],
+            } satisfies ResultContentComposition;
+            composed = composeResultContent(original, candidate);
+            composition = candidate;
+          } catch (error) {
+            reportFailure(error, context.traceId);
+          }
+        }
+        return composed;
+      };
+
+      const wrappedArgs = [...args];
+      wrappedArgs[callbackIndex] = wrapped;
+      return wrappedArgs;
+    },
+  };
 }
 
 interface LifecycleEmitter<Database> {
@@ -968,6 +1102,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
     ? createSupabaseMcpStateFactory(options.state)
     : undefined;
   const lifecycle = createLifecycleEmitter(options, dependencies);
+  const resultMiddleware = createResultMiddlewareRunner(options);
   const oauthStrategy = strategies.find(
     (strategy) => strategy.mode === "oauth",
   );
@@ -1101,7 +1236,10 @@ export function createSupabaseMcpInternal<Database = unknown>(
         options.server,
         instructions ? { instructions } : undefined,
       );
-      await options.register(scopedServer(server, context, lifecycle), context);
+      await options.register(
+        scopedServer(server, context, lifecycle, resultMiddleware),
+        context,
+      );
       return server;
     },
     {

@@ -5,6 +5,20 @@
 - Make the first-party `chumbo` skill the recommended agent-assisted
   development path. New installs use the canonical `skills/chumbo/` path.
 
+## 0.10.3 – 2026-08-31
+
+- Add bounded `appendResultText`, `prependResultText`, and
+  `composeResultContent` helpers plus optional successful-tool result
+  middleware. Additions preserve authored structured data, Resources, Apps
+  metadata, and future result fields; invalid or failed middleware leaves the
+  last valid composition intact and reports through the application error
+  hook.
+- Complete the local-first generated Edge Function loop with explicit
+  Supabase start/serve/probe guidance, classified doctor checks for MCP
+  initialization, discovery, and an opt-in named tool call, plus local
+  API-key environment loading that stays separate from hosted secrets. Local
+  URLs follow each project's configured Supabase API port.
+
 ## 0.10.2 – 2026-08-31
 
 - Add an optional builder-owned `onSurface` sink that receives a bounded,

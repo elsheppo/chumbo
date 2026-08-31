@@ -1,6 +1,6 @@
 Deno.env.set(
   "SUPABASE_URL",
-  Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321",
+  Deno.env.get("SUPABASE_URL") ?? "{{LOCAL_ORIGIN}}",
 );
 Deno.env.set("MCP_API_KEY", "generated-test-key");
 Deno.env.set(
@@ -22,7 +22,7 @@ function mcpRequest(
   if (token) headers.set("authorization", `Bearer ${token}`);
   if (typeof params.name === "string") headers.set("mcp-name", params.name);
   return new Request(
-    "http://127.0.0.1:54321/functions/v1/{{FUNCTION_NAME}}",
+    "{{LOCAL_ENDPOINT}}",
     {
       method: "POST",
       headers,

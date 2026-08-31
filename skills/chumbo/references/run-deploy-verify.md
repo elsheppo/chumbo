@@ -19,6 +19,10 @@ From the repository containing `supabase/config.toml`:
    npx chumbo dev --function mcp
    ```
 
+   For a generated static API-key server, keep `MCP_API_KEY` in the project's
+   gitignored local environment file and pass it with `--env-file`. Hosted
+   Edge Function secrets are configured separately.
+
 3. Run the generated mode-specific contract test:
 
    ```sh
@@ -35,12 +39,16 @@ From the repository containing `supabase/config.toml`:
    ```sh
    npx chumbo doctor \
      --function mcp \
-     --url http://127.0.0.1:54321/functions/v1/mcp
+     --url http://127.0.0.1:API_PORT/functions/v1/mcp \
+     --call-tool <SAFE_TOOL>
    ```
 
-Use the actual function name when it is not `mcp`. Add `--token` for bearer or
-API-key discovery. Use a real user token when proving OAuth capabilities and
-RLS locally.
+Use the exact Local MCP URL printed by `chumbo dev`; `API_PORT` is the
+project's configured `[api].port`, or `54321` when absent. Use the actual
+function name when it is not `mcp`. Add `--token` for bearer or API-key
+discovery. Use a real user token when proving OAuth capabilities and RLS
+locally. For public mode, first apply the generated rate-limit migration with
+`supabase migration up --local`.
 
 5. Invoke one explicitly safe application tool through the updated test or a
    configured MCP client. Check the application result, not just HTTP 200.

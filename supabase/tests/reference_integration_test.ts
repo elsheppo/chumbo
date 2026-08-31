@@ -495,8 +495,16 @@ Deno.test(
           mcpRequest(url, "tools/call", { name, arguments: {} }),
         ),
       );
-      const text = body.result.content[0].text;
-      assert(text.includes("→ Next:"), `${name} has a next step`);
+      const text = body.result.content
+        .filter((item: { type: string }) => item.type === "text")
+        .map((item: { text: string }) => item.text)
+        .join("\n");
+      assert(
+        name === "list_examples"
+          ? text.includes("Optional follow-up:")
+          : text.includes("→ Next:"),
+        `${name} has a useful follow-up`,
+      );
       assert(!text.trimStart().startsWith("{"), `${name} is not a JSON dump`);
     }
 
@@ -513,6 +521,25 @@ Deno.test(
       structured.result.structuredContent.modes,
       ["text", "structured", "hybrid", "resource"],
       "structured result value",
+    );
+
+    const guided = await json(
+      await modelResultsApp.fetch(
+        mcpRequest(url, "tools/call", {
+          name: "list_examples",
+          arguments: {},
+        }),
+      ),
+    );
+    equal(
+      guided.result.content[1].text,
+      "Optional follow-up: call show_empty_state or show_recoverable_error if you want to inspect those result branches.",
+      "successful-result middleware appends optional guidance",
+    );
+    equal(
+      guided.result.structuredContent.examples.length,
+      2,
+      "successful-result middleware preserves structured content",
     );
 
     const linked = await json(

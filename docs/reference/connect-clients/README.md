@@ -40,7 +40,8 @@ Omit `headers` for OAuth mode; Cursor initiates the OAuth flow itself.
 **MCP Inspector** – `npx @modelcontextprotocol/inspector`, transport
 Streamable HTTP, paste the endpoint. The most direct way to watch requests
 and results while developing locally against
-`http://127.0.0.1:54321/functions/v1/mcp`.
+the local MCP URL printed by `chumbo dev`. Its port comes from `[api].port` in
+`supabase/config.toml`, with `54321` used only when the project does not set one.
 
 ## Verification status
 
