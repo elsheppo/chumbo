@@ -671,6 +671,24 @@ authorization, worker execution, early close, revocation, or per-account run
 quotas. Applications add Supabase or Durable storage only when those behaviors
 are real product requirements.
 
+### 13.9 Effective MCP surface proofs
+
+Applications may opt into `onSurface` to capture what a real caller can
+actually discover. The runtime derives one versioned proof only after a
+complete successful `tools/list`; authentication rejection, protocol errors,
+non-discovery requests, malformed or oversized results, and paginated partial
+results emit nothing. Scope-filtered tools remain absent exactly as they are in
+the caller's response.
+
+The proof normalizes and bounds the returned tool catalog, strips arbitrary
+protocol metadata, and includes a stable SHA-256 digest over canonical tool
+content. It may identify the server, Chumbo runtime, requested protocol version
+when available, and effective authentication strategy. It never contains the
+principal, effective scopes, credential, headers, request ID, arguments,
+results, prompts, errors, or pagination cursors. The builder owns persistence
+and delivery; Chumbo adds no account, network, or hosted-service dependency.
+An unconfigured runtime does no proof inspection or hashing.
+
 ## 14. OAuth metadata routing: resolved implementation spike
 
 The highest-priority technical uncertainty was how the Supabase gateway routes

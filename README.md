@@ -261,6 +261,35 @@ the MCP response. Use the deployment platform's background-work primitive when
 delivery must continue after the response. Sink failures reach `onError` with
 `phase: "events"` and never recursively produce another event.
 
+### Capture the advertised tool surface
+
+Add `onSurface` when your application needs durable evidence of the tool
+catalog an authenticated client can actually discover:
+
+```ts
+const app = createSupabaseMcp({
+  // server, resourceUrl, auth, and register...
+  onSurface(proof) {
+    return applicationSurfaceProofs.write(proof);
+  },
+});
+```
+
+Chumbo calls the sink only after a complete successful `tools/list`. The
+versioned proof contains normalized tool names, descriptions, supported
+annotations, input and output schemas, truthful server/runtime/auth metadata,
+the requested protocol version when available, and a stable SHA-256 content
+digest. Tools disabled for the current request are
+absent, so protected callers can prove different effective surfaces without
+exporting the caller, scopes, credentials, headers, arguments, results,
+prompts, errors, cursors, or arbitrary `_meta`.
+
+The callback is optional and application-owned. Its returned promise is
+observed but not awaited, and failures reach `onError` with `phase: "surface"`
+without changing discovery. When `onSurface` is absent, the runtime performs no
+request cloning, response inspection, hashing, delivery, account, or network
+work for surface proofs.
+
 ### Correlate an application run
 
 Some products need several tool calls to belong to one application-defined run

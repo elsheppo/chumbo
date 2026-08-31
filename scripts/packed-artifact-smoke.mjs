@@ -114,10 +114,15 @@ if (typeof api.durableStateLimits !== "object") throw new Error("durableStateLim
   type SupabaseMcpContext,
   type SupabaseMcpRunCorrelation,
   type SupabaseMcpState,
+  type SupabaseMcpSurfaceProof,
 } from "./package/dist/index.js";
 
 function stateFrom(context: SupabaseMcpContext): SupabaseMcpState | undefined {
   return context.state;
+}
+
+function surfaceFrom(proof: SupabaseMcpSurfaceProof): string {
+  return proof.contentDigest;
 }
 
 const runs: SupabaseMcpRunCorrelation = createRunCorrelation({
@@ -145,6 +150,9 @@ createSupabaseMcp({
   runCorrelation: runs,
   register(_server, context) {
     void stateFrom(context);
+  },
+  onSurface(proof) {
+    void surfaceFrom(proof);
   },
 });
 `,
@@ -214,10 +222,15 @@ createSupabaseMcp({
   type SupabaseMcpContext,
   type SupabaseMcpRunCorrelation,
   type SupabaseMcpState,
+  type SupabaseMcpSurfaceProof,
 } from "chumbo";
 
 function stateFrom(context: SupabaseMcpContext): SupabaseMcpState | undefined {
   return context.state;
+}
+
+function surfaceFrom(proof: SupabaseMcpSurfaceProof): string {
+  return proof.contentDigest;
 }
 
 const runs: SupabaseMcpRunCorrelation = createRunCorrelation({
@@ -245,6 +258,9 @@ const app = createSupabaseMcp({
   runCorrelation: runs,
   register(_server, context) {
     void stateFrom(context);
+  },
+  onSurface(proof) {
+    void surfaceFrom(proof);
   },
 });
 
