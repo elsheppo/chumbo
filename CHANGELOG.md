@@ -3,9 +3,7 @@
 ## Unreleased
 
 - Make the first-party `chumbo` skill the recommended agent-assisted
-  development path. New installs use `skills/chumbo/`; clean managed legacy
-  installs migrate without duplicate active skills, while locally edited
-  files or pointers block before any write.
+  development path. New installs use the canonical `skills/chumbo/` path.
 
 ## 0.10.2 – 2026-08-31
 

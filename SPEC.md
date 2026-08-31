@@ -340,11 +340,8 @@ npx chumbo skill update
 
 The skill is versioned inside the npm artifact and installed at
 `skills/chumbo/`. It is the recommended operating path for agent-assisted
-development and remains optional for manual work. A clean managed legacy
-`skills/supa-mcp/` installation migrates to the canonical path without leaving
-two active skills. A locally edited legacy managed file or pointer blocks the
-migration before any write. The skill teaches Chumbo's current API and
-commands, translates application operations into coherent MCP capabilities,
+development and remains optional for manual work. The skill teaches Chumbo's
+current API and commands, translates application operations into coherent MCP capabilities,
 chooses explicit result contracts, preserves request-scoped authority, and
 verifies the protocol boundary. It is not a copy of Supabase documentation or
 an automatic schema-to-tools generator.
@@ -353,10 +350,9 @@ The installer appends one marked pointer to the root `AGENTS.md` while
 preserving all existing content. A managed manifest records the installed
 package version and exact file hashes. Updates replace or remove a managed file
 only when its current hash still matches the manifest; otherwise they report a
-conflict without writing. The canonical manifest is written last, after any
-clean legacy managed files and pointer have migrated. `--plan`, `--yes`, and
-`--json` follow setup's non-interactive conventions. Setup recommends this
-command for agent-assisted work but never runs it implicitly.
+conflict without writing. `--plan`, `--yes`, and `--json` follow setup's
+non-interactive conventions. Setup recommends this command for agent-assisted
+work but never runs it implicitly.
 
 ## 9. Generated project shape
 
