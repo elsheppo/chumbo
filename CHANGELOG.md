@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Make the first-party `chumbo` skill the recommended agent-assisted
+  development path. New installs use the canonical `skills/chumbo/` path.
+
 ## 0.10.3 – 2026-08-31
 
 - Add bounded `appendResultText`, `prependResultText`, and

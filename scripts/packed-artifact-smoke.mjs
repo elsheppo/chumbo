@@ -72,6 +72,21 @@ try {
   if (!cliHelp.includes(`chumbo ${packageVersion}`)) {
     throw new Error("Packed CLI help does not identify Chumbo and its version");
   }
+  const packedSkill = await readFile(
+    join(packageRoot, "skills", "chumbo", "SKILL.md"),
+    "utf8",
+  );
+  if (!packedSkill.startsWith("---\nname: chumbo\n")) {
+    throw new Error(
+      "Packed artifact does not contain the canonical Chumbo skill",
+    );
+  }
+  await readFile(join(packageRoot, "skills", "supa-mcp", "SKILL.md")).then(
+    () => {
+      throw new Error("Packed artifact still contains the legacy active skill");
+    },
+    () => undefined,
+  );
   const declarationFiles = (await filesUnder(join(packageRoot, "dist"))).filter(
     (path) => path.endsWith(".d.ts"),
   );

@@ -338,11 +338,10 @@ npx chumbo skill status
 npx chumbo skill update
 ```
 
-The optional skill is versioned inside the npm artifact and installed at
-`skills/supa-mcp/`. The legacy installation path remains stable so existing
-managed skill installations can update without splitting ownership or losing
-their manifest history; the skill itself teaches Chumbo's current API and
-commands. It translates application operations into coherent MCP capabilities,
+The skill is versioned inside the npm artifact and installed at
+`skills/chumbo/`. It is the recommended operating path for agent-assisted
+development and remains optional for manual work. The skill teaches Chumbo's
+current API and commands, translates application operations into coherent MCP capabilities,
 chooses explicit result contracts, preserves request-scoped authority, and
 verifies the protocol boundary. It is not a copy of Supabase documentation or
 an automatic schema-to-tools generator.
@@ -352,8 +351,8 @@ preserving all existing content. A managed manifest records the installed
 package version and exact file hashes. Updates replace or remove a managed file
 only when its current hash still matches the manifest; otherwise they report a
 conflict without writing. `--plan`, `--yes`, and `--json` follow setup's
-non-interactive conventions. Setup may advertise this command but never runs it
-implicitly.
+non-interactive conventions. Setup recommends this command for agent-assisted
+work but never runs it implicitly.
 
 ## 9. Generated project shape
 

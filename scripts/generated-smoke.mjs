@@ -116,7 +116,7 @@ try {
   const installedAgents = await readFile(join(fixture, "AGENTS.md"), "utf8");
   if (
     !installedAgents.startsWith(existingAgents) ||
-    !installedAgents.includes("skills/supa-mcp/SKILL.md")
+    !installedAgents.includes("skills/chumbo/SKILL.md")
   ) {
     throw new Error("Skill install did not preserve AGENTS.md content");
   }
@@ -183,7 +183,9 @@ try {
     setupReport.agentHandoff?.skillInstallCommand !==
     "npx chumbo skill install --yes --json"
   ) {
-    throw new Error(`Setup omitted the optional agent skill: ${setup.stdout}`);
+    throw new Error(
+      `Setup omitted the recommended agent skill: ${setup.stdout}`,
+    );
   }
   const capabilityPath = join(
     fixture,
@@ -214,6 +216,7 @@ try {
     !generatedReadme.includes(
       "`ctx.supabase` is request-scoped. Its database authority follows",
     ) ||
+    !generatedReadme.includes("npx chumbo skill install") ||
     generatedReadme.includes("authenticated MCP boundary")
   ) {
     throw new Error("Generated README omitted the starter or advanced path");

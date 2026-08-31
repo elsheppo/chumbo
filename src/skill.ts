@@ -12,16 +12,16 @@ import { basename, dirname, join, posix, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PACKAGE_VERSION } from "./version.js";
 
-export const SKILL_RELATIVE_DIRECTORY = "skills/supa-mcp";
-export const SKILL_MANIFEST_NAME = ".supa-mcp-skill.json";
-export const AGENTS_POINTER_START = "<!-- supa-mcp:skill:start -->";
-export const AGENTS_POINTER_END = "<!-- supa-mcp:skill:end -->";
+export const SKILL_RELATIVE_DIRECTORY = "skills/chumbo";
+export const SKILL_MANIFEST_NAME = ".chumbo-skill.json";
+export const AGENTS_POINTER_START = "<!-- chumbo:skill:start -->";
+export const AGENTS_POINTER_END = "<!-- chumbo:skill:end -->";
 
 export const AGENTS_POINTER = `${AGENTS_POINTER_START}
 ## Chumbo agent skill
 
 For designing, implementing, reviewing, or testing Chumbo capabilities, read
-and follow \`skills/supa-mcp/SKILL.md\`.
+and follow \`skills/chumbo/SKILL.md\`.
 ${AGENTS_POINTER_END}`;
 
 export interface SkillBundle {
@@ -31,7 +31,7 @@ export interface SkillBundle {
 
 interface SkillManifest {
   schemaVersion: 1;
-  skill: "supa-mcp";
+  skill: "chumbo";
   installedVersion: string;
   files: Record<string, { sha256: string }>;
   agents: {
@@ -162,7 +162,7 @@ async function readTree(
 }
 
 export async function loadBundledSkill(
-  sourceRoot = fileURLToPath(new URL("../skills/supa-mcp/", import.meta.url)),
+  sourceRoot = fileURLToPath(new URL("../skills/chumbo/", import.meta.url)),
   version = PACKAGE_VERSION,
 ): Promise<SkillBundle> {
   return { version, files: await readTree(sourceRoot) };
@@ -179,7 +179,7 @@ function desiredManifest(bundle: SkillBundle): SkillManifest {
   );
   return {
     schemaVersion: 1,
-    skill: "supa-mcp",
+    skill: "chumbo",
     installedVersion: bundle.version,
     files,
     agents: {
@@ -197,7 +197,7 @@ function parseManifest(source: string): SkillManifest {
   const value = JSON.parse(source) as Partial<SkillManifest>;
   if (
     value.schemaVersion !== 1 ||
-    value.skill !== "supa-mcp" ||
+    value.skill !== "chumbo" ||
     typeof value.installedVersion !== "string" ||
     !value.installedVersion ||
     !value.files ||
@@ -682,7 +682,7 @@ async function atomicWrite(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = join(
     dirname(path),
-    `.${basename(path)}.supa-mcp-${process.pid}-${temporaryCounter++}.tmp`,
+    `.${basename(path)}.chumbo-${process.pid}-${temporaryCounter++}.tmp`,
   );
   try {
     await writeFile(temporary, content, "utf8");

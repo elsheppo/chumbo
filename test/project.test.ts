@@ -1564,7 +1564,7 @@ describe("guided setup", () => {
       `MCP docs: ${SUPA_MCP_DOCUMENTATION_SERVER_URL}`,
     );
     expect(formatSetupReport(report)).toContain(
-      "Agent skill (optional): npx chumbo skill install",
+      "Agent skill (recommended): npx chumbo skill install",
     );
   });
 
