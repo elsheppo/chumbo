@@ -2,7 +2,7 @@
 
 Status: Guided setup and living reference implemented\
 Date: 2026-08-20\
-Current package version: `0.10.2`\
+Current package version: `0.10.3`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the
@@ -745,6 +745,25 @@ an explicit flag. A later release may add Next.js, React Router, SvelteKit, or
 other adapters based on demand.
 
 ## 16. MCP capabilities
+
+### 16.1 Successful-result composition
+
+Builders may add bounded MCP content before or after a successful authored
+tool result without reconstructing it. Composition preserves the original
+content ordering, `structuredContent`, `_meta`, Resources, and unknown valid
+top-level fields. The package validates and bounds only the added content.
+
+Optional `resultMiddleware` runs in declaration order for successful tool
+results registered through the ordinary official MCP API, including scoped
+registrations. Every middleware receives the same immutable snapshot of the
+authored result plus the request context and tool name. Middleware can return
+only additive `prepend` or `append` blocks. It does not run for tool errors,
+input-required results, or thrown handler failures. Invalid additions and
+middleware failures leave the last valid composition intact and reach the
+application error hook without changing the tool outcome.
+
+Added result text is model-facing content. It is not a system message, cannot
+force another tool call, and does not create a workflow engine.
 
 ### Required in `0.1.0`
 

@@ -113,10 +113,14 @@ npx chumbo dev --function mcp
 deno task --config supabase/functions/mcp/deno.json test
 npx chumbo doctor \
   --function mcp \
-  --url http://127.0.0.1:54321/functions/v1/mcp
+  --url http://127.0.0.1:API_PORT/functions/v1/mcp \
+  --call-tool <SAFE_TOOL>
 ```
 
-Supply `--token` when the selected access mode requires one. Generated tests
+Use the exact Local MCP URL printed by `chumbo dev`; `API_PORT` follows the
+project's configured Supabase API port. Supply `--token` when the selected
+access mode requires one. Public mode requires the generated local rate-limit
+migration first. Generated tests
 prove the mode-specific scaffold contract: API-key mode invokes the starter,
 OAuth and bearer modes prove their unauthenticated rejection, and public mode
 proves the fetch handler boots. Separately discover and invoke one real

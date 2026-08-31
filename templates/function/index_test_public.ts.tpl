@@ -1,6 +1,6 @@
 Deno.env.set(
   "SUPABASE_URL",
-  Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321",
+  Deno.env.get("SUPABASE_URL") ?? "{{LOCAL_ORIGIN}}",
 );
 const { default: app } = await import("./index.ts");
 
