@@ -320,6 +320,159 @@ describe("surface proofs", () => {
       dependencies(),
     );
     expect((await oversized.fetch(request("tools/list"))).status).toBe(200);
+
+    const oversizedMetadata = createSupabaseMcpInternal(
+      {
+        server: { name: "s".repeat(200_000), version: "v".repeat(200_000) },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "public" },
+        register(server) {
+          server.registerTool("ping", { inputSchema: z.object({}) }, async () =>
+            structuredResult({ pong: true }),
+          );
+        },
+        onSurface(proof) {
+          proofs.push(proof);
+        },
+      },
+      dependencies(),
+    );
+    expect((await oversizedMetadata.fetch(request("tools/list"))).status).toBe(
+      200,
+    );
+
+    const oversizedAuth = createSupabaseMcpInternal(
+      {
+        server: { name: "auth-bounded", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "bearer", strategy: "a".repeat(200_000) },
+        register(server) {
+          server.registerTool("ping", { inputSchema: z.object({}) }, async () =>
+            structuredResult({ pong: true }),
+          );
+        },
+        onSurface(proof) {
+          proofs.push(proof);
+        },
+      },
+      dependencies({ "credential-alice": identity("alice") }),
+    );
+    expect(
+      (await oversizedAuth.fetch(request("tools/list", "credential-alice")))
+        .status,
+    ).toBe(200);
+    expect(proofs).toEqual([]);
+  });
+
+  it("returns a real streamed discovery promptly when observation exceeds its byte bound", async () => {
+    const proofs: SupabaseMcpSurfaceProof[] = [];
+    const hugeDescription = "x".repeat(600 * 1024);
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "streamed", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "public" },
+        register(server) {
+          server.registerTool(
+            "huge",
+            { description: hugeDescription, inputSchema: z.object({}) },
+            async () => structuredResult({ ok: true }),
+          );
+        },
+        onSurface(proof) {
+          proofs.push(proof);
+        },
+      },
+      dependencies(),
+    );
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("oversized surface observation stalled")),
+        1_000,
+      );
+    });
+    let response: Response;
+    try {
+      response = await Promise.race([
+        app.fetch(request("tools/list")),
+        timeout,
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-length")).toBeNull();
+    const body = await response.json();
+    expect(body.result.tools[0].description).toHaveLength(600 * 1024);
+    expect(proofs).toEqual([]);
+  });
+
+  it("caps the complete proof envelope after metadata is added", async () => {
+    const proofs: SupabaseMcpSurfaceProof[] = [];
+    const server = {
+      name: "s".repeat(1_024),
+      version: "v".repeat(256),
+    };
+    const title = "t".repeat(32 * 1024);
+    const description = "d".repeat(32 * 1024);
+    const annotationTitle = "a".repeat(32 * 1024);
+    const app = createSupabaseMcpInternal(
+      {
+        server,
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "public" },
+        register(mcp) {
+          mcp.registerTool(
+            "alpha",
+            {
+              title,
+              description,
+              annotations: { title: annotationTitle },
+              inputSchema: z.object({}).describe("i".repeat(64_000)),
+            },
+            async () => structuredResult({ ok: true }),
+          );
+          mcp.registerTool(
+            "beta",
+            {
+              title,
+              description,
+              annotations: { title: annotationTitle },
+              inputSchema: z.object({}),
+            },
+            async () => structuredResult({ ok: true }),
+          );
+        },
+        onSurface(proof) {
+          proofs.push(proof);
+        },
+      },
+      dependencies(),
+    );
+
+    const response = await app.fetch(request("tools/list"));
+    const body = await response.json();
+    const content = { schemaVersion: 1, tools: body.result.tools };
+    const contentBytes = new TextEncoder().encode(
+      JSON.stringify(content),
+    ).byteLength;
+    const completeBytes = new TextEncoder().encode(
+      JSON.stringify({
+        ...content,
+        server,
+        runtime: { name: "chumbo", version: PACKAGE_VERSION },
+        authentication: { mode: "public", strategy: "public" },
+        protocolVersion: "2026-07-28",
+        contentDigest: `sha256:${"0".repeat(64)}`,
+      }),
+    ).byteLength;
+
+    expect(response.status).toBe(200);
+    expect(contentBytes).toBeLessThan(256 * 1024);
+    expect(completeBytes).toBeGreaterThan(256 * 1024);
     expect(proofs).toEqual([]);
   });
 
@@ -381,6 +534,61 @@ describe("surface proofs", () => {
       "alpha",
       "beta",
     ]);
+    expect(proofs[0]?.contentDigest).toBe(proofs[1]?.contentDigest);
+  });
+
+  it("uses runtime-independent UTF-16 ordering while preserving schema arrays", async () => {
+    const proofs: SupabaseMcpSurfaceProof[] = [];
+    const toolNames = ["😀", "é", "z", "e\u0301"];
+    const propertyNames = ["😀", "é", "z", "e\u0301"];
+    const create = (reverse: boolean) =>
+      createSupabaseMcpInternal(
+        {
+          server: { name: "unicode", version: "1.0.0" },
+          resourceUrl: RESOURCE_URL,
+          auth: { mode: "public" },
+          register(server) {
+            const orderedTools = reverse ? [...toolNames].reverse() : toolNames;
+            for (const name of orderedTools) {
+              const orderedProperties = reverse
+                ? [...propertyNames].reverse()
+                : propertyNames;
+              const shape = Object.fromEntries(
+                orderedProperties.map((property) => [
+                  property,
+                  property === "é"
+                    ? z.enum(["é", "e\u0301", "😀"]).optional()
+                    : z.string().optional(),
+                ]),
+              );
+              server.registerTool(
+                name,
+                { inputSchema: z.object(shape) },
+                async () => structuredResult({ ok: true }),
+              );
+            }
+          },
+          onSurface(proof) {
+            proofs.push(proof);
+          },
+        },
+        dependencies(),
+      );
+
+    await create(false).fetch(request("tools/list"));
+    await create(true).fetch(request("tools/list"));
+
+    const expectedOrder = ["e\u0301", "z", "é", "😀"];
+    expect(proofs).toHaveLength(2);
+    for (const proof of proofs) {
+      expect(proof.tools.map((tool) => tool.name)).toEqual(expectedOrder);
+      const properties = proof.tools[0]?.inputSchema.properties as Record<
+        string,
+        { enum?: string[] }
+      >;
+      expect(Object.keys(properties)).toEqual(expectedOrder);
+      expect(properties["é"]?.enum).toEqual(["é", "e\u0301", "😀"]);
+    }
     expect(proofs[0]?.contentDigest).toBe(proofs[1]?.contentDigest);
   });
 

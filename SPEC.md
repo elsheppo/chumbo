@@ -680,10 +680,12 @@ non-discovery requests, malformed or oversized results, and paginated partial
 results emit nothing. Scope-filtered tools remain absent exactly as they are in
 the caller's response.
 
-The proof normalizes and bounds the returned tool catalog, strips arbitrary
-protocol metadata, and includes a stable SHA-256 digest over canonical tool
-content. It may identify the server, Chumbo runtime, requested protocol version
-when available, and effective authentication strategy. It never contains the
+The proof normalizes and bounds the returned tool catalog, explicitly bounds
+its server and authentication metadata, caps the complete serialized envelope,
+strips arbitrary protocol metadata, and includes a stable SHA-256 digest over
+canonical tool content. It may identify the server, Chumbo runtime, requested
+protocol version when available, and effective authentication strategy. It
+never contains the
 principal, effective scopes, credential, headers, request ID, arguments,
 results, prompts, errors, or pagination cursors. The builder owns persistence
 and delivery; Chumbo adds no account, network, or hosted-service dependency.

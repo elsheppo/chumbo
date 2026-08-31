@@ -57,10 +57,13 @@ const MAX_JWKS_BYTES = 64 * 1024;
 const MAX_SURFACE_REQUEST_BYTES = 64 * 1024;
 const MAX_SURFACE_RESPONSE_BYTES = 512 * 1024;
 const MAX_SURFACE_CANONICAL_BYTES = 256 * 1024;
+const MAX_SURFACE_PROOF_BYTES = 256 * 1024;
 const MAX_SURFACE_TOOLS = 256;
 const MAX_SURFACE_JSON_DEPTH = 32;
 const MAX_SURFACE_NAME_BYTES = 256;
 const MAX_SURFACE_PROSE_BYTES = 32 * 1024;
+const MAX_SURFACE_SERVER_NAME_BYTES = 1024;
+const MAX_SURFACE_SERVER_VERSION_BYTES = 256;
 type InlineJwks = Exclude<NonNullable<SupabaseEnv["jwks"]>, URL>;
 const remoteJwksCache = new Map<
   string,
@@ -458,6 +461,18 @@ function boundedUtf8(value: unknown, maxBytes: number): value is string {
   );
 }
 
+function compareCanonicalText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+  try {
+    void reader.cancel().catch(() => {});
+  } catch {
+    // The observed clone is disposable; the actual protocol body is untouched.
+  }
+}
+
 async function boundedBodyText(
   body: Request | Response,
   maxBytes: number,
@@ -484,18 +499,16 @@ async function boundedBodyText(
       if (done) break;
       total += value.byteLength;
       if (total > maxBytes) {
-        await reader.cancel();
+        // A cloned response is a tee. Waiting for cancellation can wait for the
+        // untouched response branch, so cancellation must remain non-blocking.
+        cancelReader(reader);
         return null;
       }
       text += decoder.decode(value, { stream: true });
     }
     return text + decoder.decode();
   } catch {
-    try {
-      await reader.cancel();
-    } catch {
-      // The observed clone is disposable; the actual protocol body is untouched.
-    }
+    cancelReader(reader);
     return null;
   }
 }
@@ -554,7 +567,7 @@ function canonicalJsonValue(value: unknown, depth = 0): JsonValue | null {
   }
   if (!isRecord(value)) return null;
   const result: Record<string, JsonValue> = {};
-  for (const key of Object.keys(value).sort()) {
+  for (const key of Object.keys(value).sort(compareCanonicalText)) {
     const entry = value[key];
     const normalized = canonicalJsonValue(entry, depth + 1);
     if (normalized === null && entry !== null) return null;
@@ -660,6 +673,16 @@ async function createSurfaceProof(
   authentication: SupabaseMcpAuthentication,
 ): Promise<SupabaseMcpSurfaceProof | null> {
   if (!response.ok) return null;
+  if (
+    !boundedUtf8(server.name, MAX_SURFACE_SERVER_NAME_BYTES) ||
+    !server.name ||
+    !boundedUtf8(server.version, MAX_SURFACE_SERVER_VERSION_BYTES) ||
+    !server.version ||
+    !boundedUtf8(authentication.strategy, MAX_SURFACE_NAME_BYTES) ||
+    !authentication.strategy
+  ) {
+    return null;
+  }
   const text = await boundedBodyText(response, MAX_SURFACE_RESPONSE_BYTES);
   if (text === null) return null;
   const payload = jsonRpcPayloadFromResponse(text);
@@ -679,7 +702,7 @@ async function createSurfaceProof(
     names.add(tool.name);
     tools.push(tool);
   }
-  tools.sort((left, right) => left.name.localeCompare(right.name));
+  tools.sort((left, right) => compareCanonicalText(left.name, right.name));
   const frozenTools = Object.freeze(tools);
   const canonicalContent = JSON.stringify({
     schemaVersion: 1,
@@ -692,7 +715,7 @@ async function createSurfaceProof(
     return null;
   }
   const contentDigest = `sha256:${await sha256(canonicalContent)}` as const;
-  return Object.freeze({
+  const proof: SupabaseMcpSurfaceProof = {
     schemaVersion: 1,
     server: Object.freeze({ name: server.name, version: server.version }),
     runtime: Object.freeze({
@@ -705,7 +728,14 @@ async function createSurfaceProof(
       : {}),
     tools: frozenTools,
     contentDigest,
-  });
+  };
+  if (
+    new TextEncoder().encode(JSON.stringify(proof)).byteLength >
+    MAX_SURFACE_PROOF_BYTES
+  ) {
+    return null;
+  }
+  return Object.freeze(proof);
 }
 
 function callerAddress(request: Request): string {
