@@ -76,6 +76,18 @@ architecture on the ordinary one-MCP path.
 - Setup must remain resumable, idempotent, and agent-friendly. `--json` never
   prompts, never leaks tokens, and returns stable step IDs and next actions.
 
+## Strategy authority
+
+Linear team Chumbo documents own active commercial strategy and cross-repository
+commercial sequencing. Start with the
+[commercial thesis](https://linear.app/penumbra-systems/document/chumbo-commercial-product-thesis-2f12299d9d8e)
+and [Cloud roadmap](https://linear.app/penumbra-systems/document/chumbo-cloud-roadmap-and-evidence-gates-7c74253e1f82).
+Linear issues own executable coordination. This repository's `ROADMAP.md`,
+`SPEC.md`, technical decisions, code, tests, and release documentation remain
+Git-authoritative. Cloud's local commercial thesis and roadmap are frozen
+historical snapshots, not parallel active roadmaps. If Linear is inaccessible,
+report the limitation rather than silently planning from those snapshots.
+
 ## Repository map
 
 - `src/runtime.ts`: request handling and MCP server lifecycle.
