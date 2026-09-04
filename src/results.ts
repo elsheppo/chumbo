@@ -1,3 +1,4 @@
+import { assertCollectionBudget } from "./internal/collection-budget.js";
 import {
   isCallToolResult,
   type CallToolResult,
@@ -63,7 +64,8 @@ function addedContent(
 
 /**
  * Add MCP content blocks without replacing any field on the authored result.
- * Only the additions are bounded; the original result remains untouched.
+ * Additions are bounded; collection results also enforce their complete byte budget.
+ * The original result remains untouched.
  */
 export function composeResultContent(
   result: CallToolResult,
@@ -71,10 +73,12 @@ export function composeResultContent(
 ): CallToolResult {
   const added = addedContent(composition);
   if (added.prepend.length === 0 && added.append.length === 0) return result;
-  return {
+  const composed = {
     ...result,
     content: [...added.prepend, ...result.content, ...added.append],
   };
+  assertCollectionBudget(composed);
+  return composed;
 }
 
 /** Append bounded model-facing text while preserving the authored result. */
