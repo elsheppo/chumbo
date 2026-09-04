@@ -1,5 +1,8 @@
 import {
   createSupabaseMcp,
+  collectionInputSchema,
+  collectionOutputSchema,
+  collectionResult,
   errorResult,
   resourceResult,
   type SupabaseMcpContext,
@@ -92,6 +95,24 @@ function documentCard(document: ReferenceDocument): string {
 
 const documentInputSchema = z.object({ slug: z.string().min(1) });
 
+const searchCursor = z
+  .object({
+    version: z.literal(1),
+    after: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    query: z.string().min(1).max(500),
+    kind: z
+      .enum(["reference", "pattern", "example", "troubleshooting"])
+      .nullable(),
+  })
+  .strict();
+function parseSearchCursor(value: string) {
+  try {
+    return searchCursor.safeParse(JSON.parse(value));
+  } catch {
+    return searchCursor.safeParse(null);
+  }
+}
+
 async function getDocument(
   ctx: SupabaseMcpContext<ReferenceDatabase>,
   kind: DocumentKind,
@@ -165,76 +186,110 @@ function register(
     },
   );
 
+  const documentSummary = z.object({
+    slug: z.string(),
+    kind: z.string(),
+    title: z.string(),
+    summary: z.string(),
+    uri: z.string(),
+  });
   server.registerTool(
     "search_docs",
     {
       title: "Search Chumbo docs",
       description:
-        "Search Chumbo-owned setup guidance, patterns, examples, and troubleshooting. Returns source-linked results; use Supabase docs for the underlying platform.",
-      inputSchema: z.object({
-        query: z.string().min(1).describe("What you want to build or resolve."),
+        "Search Chumbo guidance in stable slug order. Returns compact pages; read a selected uri with resources/read. Changes between calls are live, not a snapshot.",
+      inputSchema: collectionInputSchema({
+        defaultLimit: 5,
+        maxLimit: 10,
+        cursorSchema: z
+          .string()
+          .refine(
+            (value) => parseSearchCursor(value).success,
+            "Invalid documentation cursor; restart search without cursor.",
+          ),
+      }).extend({
+        query: z
+          .string()
+          .min(1)
+          .max(500)
+          .describe("What you want to build or resolve."),
         kind: z
           .enum(["reference", "pattern", "example", "troubleshooting"])
           .optional(),
-        limit: z.number().int().min(1).max(10).default(5),
       }),
+      outputSchema: collectionOutputSchema(documentSummary),
     },
-    async ({ query, kind, limit }) => {
+    async ({ query, kind, limit, cursor }) => {
+      const position = cursor ? parseSearchCursor(cursor) : null;
+      if (
+        position &&
+        (!position.success ||
+          position.data.query !== query ||
+          position.data.kind !== (kind ?? null))
+      ) {
+        return errorResult(
+          "The documentation cursor belongs to a different search.",
+          "restart search_docs with the new query/kind and omit cursor.",
+        );
+      }
       let request = ctx.supabase
         .from("reference_documents")
-        .select(
-          "slug, kind, title, summary, body_markdown, source_path, source_url, package_version, content_hash, metadata",
-        )
+        .select("slug, kind, title, summary")
         .textSearch("search_document", query, {
           config: "english",
           type: "websearch",
         })
-        .limit(limit);
+        .order("slug")
+        .limit(limit + 1);
       if (kind) request = request.eq("kind", kind);
+      if (position?.success) request = request.gt("slug", position.data.after);
       const { data, error } = await request;
       if (error) throw error;
-      const matches = (data ?? []) as unknown as Array<
-        Pick<
-          ReferenceDocument,
-          | "slug"
-          | "kind"
-          | "title"
-          | "summary"
-          | "source_path"
-          | "source_url"
-          | "package_version"
-          | "content_hash"
-        >
-      >;
-      if (matches.length === 0) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `No Chumbo documentation matched “${query}”.\n\n→ Next: broaden the query or call get_setup_steps for the supported starting paths.`,
-            },
-          ],
-        };
-      }
-      const documents = matches as unknown as ReferenceDocument[];
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: [
-              `## Chumbo docs – ${matches.length} match${matches.length === 1 ? "" : "es"}`,
-              "",
-              ...matches.map(
-                (match) =>
-                  `- **${match.title}** (${match.kind}/${match.slug}) – ${match.summary}`,
-              ),
-              "",
-              "→ Next: read the most relevant linked resource.",
-            ].join("\n"),
-          },
-          ...documents.map(documentLink),
-        ],
-      };
+      const matches = (data ?? []) as Pick<
+        ReferenceDocument,
+        "slug" | "kind" | "title" | "summary"
+      >[];
+      return collectionResult({
+        items: matches,
+        limit,
+        maxLimit: 10,
+        hasMore: false,
+        tool: "search_docs",
+        arguments: {
+          query,
+          ...(kind ? { kind } : {}),
+          ...(cursor ? { cursor } : {}),
+        },
+        itemSchema: documentSummary,
+        project: (document) => ({
+          slug: document.slug,
+          kind: document.kind,
+          title: document.title,
+          summary: document.summary,
+          uri: documentUri(document),
+        }),
+        cursorFor: (document) =>
+          JSON.stringify({
+            version: 1,
+            after: document.slug,
+            query,
+            kind: kind ?? null,
+          }),
+        mode: "hybrid",
+        maxBytes: 8000,
+        render: ({ items }) =>
+          items.length
+            ? items
+                .map(
+                  (item) =>
+                    `- **${item.title}** (${item.kind}/${item.slug}) – ${item.summary}\n  Read: ${item.uri}`,
+                )
+                .join("\n")
+            : "No matching Chumbo documentation. Broaden the query or call get_setup_steps.",
+        onOversizedItem: (document) =>
+          `read ${documentUri(document)} with resources/read for the complete document.`,
+      });
     },
   );
 
@@ -348,11 +403,25 @@ function register(
 const app = createSupabaseMcp<ReferenceDatabase>({
   server: {
     name: "Chumbo documentation",
-    version: "0.8.0",
+    version: "0.11.0",
   },
   resourceUrl,
   auth: { mode: "public", rateLimit: true },
   register,
+  resultMiddleware({ result, tool }) {
+    if (tool.name !== "search_docs") return;
+    const page = result.structuredContent as { next_call?: unknown };
+    return {
+      append: [
+        {
+          type: "text",
+          text: page.next_call
+            ? "Read the most relevant uri with resources/read. Use the exact next call above only if this page does not answer your question; stop when you have enough evidence."
+            : "Read the most relevant uri with resources/read, or broaden the query if you need different guidance.",
+        },
+      ],
+    };
+  },
 });
 
 if (import.meta.main) Deno.serve(app.fetch);

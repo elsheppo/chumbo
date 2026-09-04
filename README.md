@@ -62,7 +62,8 @@ and prompts.
 
 ```ts
 import {
-  textResult,
+  collectionInputSchema,
+  collectionResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
 } from "chumbo";
@@ -72,31 +73,43 @@ export function registerCapabilities(
   server: SupabaseMcpServer,
   ctx: SupabaseMcpContext,
 ) {
+  const taskSummary = z.object({
+    id: z.string().uuid(),
+    title: z.string(),
+    status: z.string(),
+  });
   server.registerTool(
     "list_tasks",
     {
-      description: "List tasks visible to the connected user.",
-      inputSchema: z.object({}),
+      description:
+        "Browse tasks visible to the connected user in stable ID order.",
+      inputSchema: collectionInputSchema({ cursorSchema: z.string().uuid() }),
     },
-    async () => {
-      const { data, error } = await ctx.supabase
+    async ({ limit, cursor }) => {
+      let query = ctx.supabase
         .from("tasks")
         .select("id, title, status")
-        .order("title");
-
+        .order("id")
+        .limit(limit + 1);
+      if (cursor) query = query.gt("id", cursor);
+      const { data, error } = await query;
       if (error) throw error;
-      if (!data?.length) {
-        return textResult("No tasks are visible to the connected user.");
-      }
-
-      return textResult(
-        [
-          `## Tasks – ${data.length}`,
-          ...data.map(
-            (task) => `- **${task.title}** – ${task.status} · ID: ${task.id}`,
-          ),
-        ].join("\n"),
-      );
+      return collectionResult({
+        items: data ?? [],
+        limit,
+        hasMore: false,
+        itemSchema: taskSummary,
+        project: ({ id, title, status }) => ({ id, title, status }),
+        cursorFor: ({ id }) => id,
+        tool: "list_tasks",
+        arguments: cursor ? { cursor } : {},
+        render: ({ items }) =>
+          items.length
+            ? items
+                .map((task) => `- ${task.title} – ${task.status} (${task.id})`)
+                .join("\n")
+            : "No tasks are visible to the connected user.",
+      });
     },
   );
 }
@@ -491,6 +504,31 @@ To rebuild the reference project from a clean clone:
 pnpm install --frozen-lockfile
 pnpm reference:check
 ```
+
+## Bounded list and search responses
+
+Chumbo 0.11 adds collection building blocks. They make compact, navigable pages
+easy to implement while you keep control of queries, authorization and response
+meaning. Existing tools and single-record helpers keep their current behavior.
+
+The `list_tasks` capability above demonstrates the default text contract.
+
+Defaults are 20 records per page, at most 100, and 16 KiB for the complete
+serialized result. Fetch one extra record to detect continuation. The helper
+bounds the returned prefix by count and bytes and includes an exact next call
+from the last returned cursor. Supply safe filter arguments when your query
+has filters. A first item that cannot fit returns an explicit recoverable error;
+add `onOversizedItem` to point to your implemented detail tool or Resource.
+
+Text is the default and requires a deliberate renderer. For typed clients use
+`mode: "structured"` with `collectionOutputSchema(taskSummary)`; for both consumers
+use `mode: "hybrid"` plus that output schema. Both lanes describe the same page.
+Additive result middleware also respects the complete collection budget.
+
+The builder owns semantic cursor validation and stable ordering. Each page uses
+the current caller's authority; a cursor does not grant access or promise a
+snapshot. The shipped [result-design guide](skills/chumbo/references/results.md)
+covers filters, live-data consistency, details, mutation receipts and recovery.
 
 ## Documentation
 

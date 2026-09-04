@@ -5,6 +5,16 @@ a compatibility promise. A roadmap item ships only after a real application
 proves the abstraction and the public package, living reference, and hosted
 verification agree.
 
+## 0.11.0: bounded collection response contracts
+
+- **Status:** Implementation and release verification in progress (CHUMBO-34)
+- **Outcome:** Builders get validated pagination inputs, compact projected
+  pages bounded by count and encoded bytes, explicit continuation and overflow
+  recovery, and skill guidance for collection/detail/receipt contracts. The
+  docs MCP and result showcase dogfood the same API and navigation middleware.
+- **Boundary:** Query ordering, cursor semantics, filters, snapshots and every
+  caller authorization check remain application-owned. Existing tools opt in.
+
 ## 0.10.1: first useful tool path
 
 - **Status:** Prepared for release
