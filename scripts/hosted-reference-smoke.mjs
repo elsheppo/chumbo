@@ -107,6 +107,10 @@ function assert(condition, message) {
 }
 
 function assertRuntimeVersion(response, endpoint) {
+  const configured = deployment.functions?.[endpoint.split("/")[0]];
+  const expectedRuntimeName = configured?.packageName ?? deployment.packageName;
+  const expectedRuntimeVersion =
+    configured?.packageVersion ?? deployment.packageVersion;
   const canonicalHeader =
     expectedRuntimeName === "chumbo"
       ? "x-chumbo-version"
@@ -183,12 +187,37 @@ const search = await mcp("docs-mcp", "tools/call", {
   arguments: { query: "many MCPs one function" },
 });
 assert(
-  search.content.some((item) => item.type === "resource_link"),
-  "Hosted documentation search returned no linked resources.",
+  search.structuredContent?.items.length > 0,
+  "Hosted search returned no compact matches.",
 );
 assert(
-  JSON.stringify(search).length < 4_000,
-  "Hosted documentation search exceeded the compact response budget.",
+  search.structuredContent.items.every((item) =>
+    item.uri.startsWith("supa-mcp://docs/"),
+  ),
+  "Hosted search omitted resource paths.",
+);
+assert(
+  new TextEncoder().encode(JSON.stringify(search)).byteLength <= 8000,
+  "Hosted search exceeded its complete response budget.",
+);
+const firstDocsPage = await mcp("docs-mcp", "tools/call", {
+  name: "search_docs",
+  arguments: { query: "Chumbo", limit: 1 },
+});
+assert(
+  firstDocsPage.structuredContent.has_more,
+  "Hosted docs did not offer another page.",
+);
+const nextDocsCall = firstDocsPage.structuredContent.next_call;
+assert(
+  nextDocsCall.arguments.query === "Chumbo",
+  "Hosted docs continuation lost its query.",
+);
+const nextDocsPage = await mcp("docs-mcp", "tools/call", nextDocsCall);
+assert(
+  nextDocsPage.structuredContent.items[0].slug !==
+    firstDocsPage.structuredContent.items[0].slug,
+  "Hosted docs continuation repeated its first record.",
 );
 
 const templates = await mcp("docs-mcp", "resources/templates/list");
@@ -299,8 +328,27 @@ const modelResult = await mcp("model-facing-results", "tools/call", {
   arguments: {},
 });
 assert(
-  modelResult.content[0].text.includes("→ Next:"),
-  "Hosted result text has no next step.",
+  modelResult.structuredContent.items.length === 1 &&
+    modelResult.structuredContent.has_more,
+  "Hosted example must return one bounded first page.",
+);
+assert(
+  modelResult.content.some((item) => item.text?.includes("exact next call")),
+  "Hosted middleware omitted navigation guidance.",
+);
+const nextExample = await mcp(
+  "model-facing-results",
+  "tools/call",
+  modelResult.structuredContent.next_call,
+);
+assert(
+  nextExample.structuredContent.items[0].id === "2" &&
+    !nextExample.structuredContent.has_more,
+  "Hosted exact continuation failed or did not terminate.",
+);
+assert(
+  !JSON.stringify(modelResult).includes("internalNotes"),
+  "Hosted projection leaked source fields.",
 );
 verifiedFunctions.add("model-facing-results");
 verifiedSurfaces.add("model-facing-results");

@@ -116,6 +116,10 @@ try {
     "--eval",
     `const api = await import(${JSON.stringify(runtimeUrl)});
 if (typeof api.createSupabaseMcp !== "function") throw new Error("createSupabaseMcp missing");
+for (const name of ["collectionInputSchema", "collectionOutputSchema", "collectionResult"]) {
+  if (typeof api[name] !== "function") throw new Error(name + " missing");
+}
+if (api.collectionInputSchema().parse({}).limit !== 20) throw new Error("Collection default drifted");
 if (typeof api.createRunCorrelation !== "function") throw new Error("createRunCorrelation missing");
 if (typeof api.durableStateLimits !== "object") throw new Error("durableStateLimits missing");`,
   ]);

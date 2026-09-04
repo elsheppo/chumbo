@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.11.0 – 2026-09-04
+
+- Add `collectionInputSchema`, `collectionOutputSchema`, `collectionResult` and
+  `collectionLimits` for validated, compact list/search pages bounded by count
+  and complete encoded response size. Builders own projections and keyset
+  queries; continuation follows the last returned item, and oversized records
+  produce explicit recoverable errors without skipping.
+- Bound additive middleware by each collection's complete response budget.
+  Text, structured and deliberate hybrid modes retain their separate uses.
+  Dogfood pagination and navigation guidance in docs search and result examples.
+- Expand the shipped Chumbo skill with collection, detail, mutation receipt,
+  consistency and recovery contracts, and use bounded pagination in its starter
+  capability example.
+
 - Make the first-party `chumbo` skill the recommended agent-assisted
   development path. New installs use the canonical `skills/chumbo/` path.
 
