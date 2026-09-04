@@ -2,7 +2,7 @@
 
 Status: Guided setup and living reference implemented\
 Date: 2026-08-20\
-Current package version: `0.10.3`\
+Current package version: `0.11.0`\
 License: MIT\
 Primary runtime: Supabase Edge Functions (Deno/TypeScript)\
 Protocol target: MCP `2026-07-28`, with stateless legacy compatibility where the
@@ -746,12 +746,58 @@ other adapters based on demand.
 
 ## 16. MCP capabilities
 
+### 16.0 Bounded collection contracts
+
+`collectionInputSchema` supplies default limit 20, maximum 100 and a bounded
+string cursor, with optional application cursor validation and configurable
+smaller limits. Builders extend the schema with their query filters.
+`collectionOutputSchema(itemSchema)` describes `{items, has_more, next_cursor,
+next_call}` for structured or hybrid modes. Terminal continuation is `null`.
+
+`collectionResult` takes a bounded source window, a required compact projection
+and item schema, stable per-row cursor function, explicit tool name and safe
+filter arguments. It validates projected JSON and chooses the largest prefix
+within the caller's count limit and configured UTF-8 JSON-encoded result budget
+(default 16 KiB, configurable 512 bytes to 1 MiB). The budget includes all MCP
+content, structured data, exact continuation and namespaced budget metadata;
+transport envelopes and downstream host limits remain outside this contract.
+A terminal page is tested before partial pages because removing continuation
+can reduce its size. Source windows are limited to maxLimit + 1 records.
+
+The builder fetches limit + 1 ordered rows to detect continuation, or explicitly
+reports more rows beyond the supplied window with hasMore. Byte-limited pages
+resume strictly after the last returned row, never after the source window.
+An empty window cannot claim hasMore. Duplicate/nonadvancing candidate cursors
+are rejected. An oversized first item or continuation returns a bounded
+recoverable MCP error; no item is silently skipped. Builder-supplied recovery
+can point to an authorized detail tool or Resource. Existing results and tool
+output schemas are unchanged until deliberately migrated.
+
+Text mode is the default and requires purpose-written rendering; structured
+mode has no manufactured text; hybrid deliberately supplies both and validates
+the same page. Text/hybrid carry explicit has_more, next_cursor and exact
+next-call instructions; structured mode carries the same facts as data.
+Middleware may add contextual guidance but cannot exceed the complete marked
+collection budget, change the page, or infer source-query pagination.
+
+The source query, stable total order, meaning and validation of cursors,
+projection semantics, detail/Resource capabilities and every authorization
+check remain application-owned. There is no total-count query, cursor store,
+snapshot manager, implicit database query or automatic slicing of arbitrary
+JSON. Live keyset reads can observe inserts and updates; applications needing
+snapshot consistency must bind their own snapshot/version and filters to the
+cursor. A cursor grants no authority; every page rechecks the current caller.
+The docs reference uses immutable unique slug order, query/kind-bound cursors
+and compact URI summaries;
+the result showcase demonstrates middleware-guided page navigation.
+
 ### 16.1 Successful-result composition
 
 Builders may add bounded MCP content before or after a successful authored
 tool result without reconstructing it. Composition preserves the original
 content ordering, `structuredContent`, `_meta`, Resources, and unknown valid
-top-level fields. The package validates and bounds only the added content.
+top-level fields. The package validates and bounds additions. For collection results, it also
+enforces the complete result budget carried by the helper.
 
 Optional `resultMiddleware` runs in declaration order for successful tool
 results registered through the ordinary official MCP API, including scoped

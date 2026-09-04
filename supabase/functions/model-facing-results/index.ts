@@ -1,8 +1,10 @@
 import { acceptedContent, inputRequired } from "@modelcontextprotocol/server";
 import {
   createSupabaseMcp,
+  collectionInputSchema,
+  collectionOutputSchema,
+  collectionResult,
   errorResult,
-  renderResult,
   resourceResult,
   structuredResult,
   textResult,
@@ -58,32 +60,64 @@ function register(server: SupabaseMcpServer) {
     }),
   );
 
+  const exampleSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    status: z.string(),
+  });
+  const examples = [
+    {
+      id: "1",
+      name: "Authenticated tools",
+      status: "tested",
+      internalNotes: "Never expose source-only fields.",
+    },
+    {
+      id: "2",
+      name: "Many MCPs from one function",
+      status: "tested",
+      internalNotes: "Never expose source-only fields.",
+    },
+  ];
   server.registerTool(
     "list_examples",
     {
       title: "List result examples",
       description:
-        "Return a populated result whose model-facing text remains useful without structuredContent.",
-      inputSchema: z.object({}),
-      outputSchema: z.object({
-        examples: z.array(z.object({ name: z.string(), status: z.string() })),
+        "Browse compact examples one page at a time; use open_result_guide for full design guidance.",
+      inputSchema: collectionInputSchema({
+        defaultLimit: 1,
+        maxLimit: 2,
+        cursorSchema: z.string().regex(/^[12]$/),
       }),
+      outputSchema: collectionOutputSchema(exampleSchema),
     },
-    async () => {
-      const examples = [
-        { name: "Authenticated tools", status: "tested" },
-        { name: "Many MCPs from one function", status: "tested" },
-      ];
-      return renderResult({ examples }, ({ examples }) =>
-        [
-          `## Tested examples – ${examples.length}`,
-          "",
-          ...examples.map(
-            (example) => `- **${example.name}** – ${example.status}`,
-          ),
-        ].join("\n"),
-      );
-    },
+    async ({ limit, cursor }) =>
+      collectionResult({
+        items: examples
+          .filter((item) => !cursor || item.id > cursor)
+          .slice(0, limit + 1),
+        limit,
+        maxLimit: 2,
+        hasMore: false,
+        itemSchema: exampleSchema,
+        project: ({ id, name, status }) => ({ id, name, status }),
+        cursorFor: ({ id }) => id,
+        tool: "list_examples",
+        arguments: cursor ? { cursor } : {},
+        mode: "hybrid",
+        maxBytes: 2000,
+        render: ({ items }) =>
+          items.length
+            ? items
+                .map(
+                  (item) => `- **${item.name}** – ${item.status} (${item.id})`,
+                )
+                .join("\n")
+            : "No examples remain. Call open_result_guide for complete design guidance.",
+        onOversizedItem: () =>
+          "call open_result_guide for complete design guidance.",
+      }),
   );
 
   server.registerTool(
@@ -184,17 +218,19 @@ function register(server: SupabaseMcpServer) {
 }
 
 const app = createSupabaseMcp({
-  server: { name: "Model-facing result examples", version: "0.8.0" },
+  server: { name: "Model-facing result examples", version: "0.11.0" },
   resourceUrl,
   auth: { mode: "public", rateLimit: true },
   register,
-  resultMiddleware({ tool }) {
+  resultMiddleware({ tool, result }) {
     if (tool.name !== "list_examples") return;
     return {
       append: [
         {
           type: "text",
-          text: "Optional follow-up: call show_empty_state or show_recoverable_error if you want to inspect those result branches.",
+          text: (result.structuredContent as { has_more: boolean }).has_more
+            ? "Optional follow-up: use the exact next call above to see another example. Stop once you have a suitable pattern; call open_result_guide for full guidance."
+            : "Optional follow-up: all examples have been shown. Call open_result_guide for full guidance, or show_empty_state and show_recoverable_error to inspect those branches.",
         },
       ],
     };

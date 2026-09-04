@@ -1,3 +1,14 @@
+export {
+  collectionInputSchema,
+  collectionOutputSchema,
+  collectionResult,
+  collectionLimits,
+} from "./collections.js";
+export type {
+  CollectionPage,
+  CollectionNextCall,
+  CollectionResultOptions,
+} from "./collections.js";
 export { createSupabaseMcp, oauthDefaults, runtimeUrls } from "./runtime.js";
 export {
   createRunCorrelation,

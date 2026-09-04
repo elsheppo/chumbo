@@ -224,14 +224,80 @@ Deno.test("documentation MCP retrieves the tested patterns", async () => {
     ),
   );
   assert(
-    search.result.content.some(
-      (item: { type: string }) => item.type === "resource_link",
-    ),
-    "search returns linked resources",
+    search.result.structuredContent.items.length > 0,
+    "search returns compact matches",
   );
   assert(
-    JSON.stringify(search.result).length < 4_000,
-    "search result is bounded",
+    search.result.structuredContent.items.every((item: { uri: string }) =>
+      item.uri.startsWith("supa-mcp://docs/"),
+    ),
+    "search returns detail resource URIs",
+  );
+  assert(
+    new TextEncoder().encode(JSON.stringify(search.result)).byteLength <= 8000,
+    "complete search result including middleware is bounded",
+  );
+  assert(
+    !JSON.stringify(search.result).includes("body_markdown"),
+    "search never embeds full document bodies",
+  );
+  let args: Record<string, unknown> = { query: "Chumbo", limit: 1 };
+  const seen = new Set<string>();
+  for (let index = 0; index < 100; index++) {
+    const response = await json(
+      await docsApp.fetch(
+        mcpRequest(url, "tools/call", { name: "search_docs", arguments: args }),
+      ),
+    );
+    const page = response.result.structuredContent;
+    assert(page, "pagination response satisfies the typed contract");
+    for (const item of page.items) {
+      assert(!seen.has(item.slug), "no duplicate docs across pages");
+      seen.add(item.slug);
+    }
+    if (!page.has_more) break;
+    assert(
+      page.next_call.arguments.query === "Chumbo",
+      "continuation preserves search query",
+    );
+    args = page.next_call.arguments;
+    assert(index < 99, "pagination terminates");
+  }
+  assert(seen.size > 1, "docs search exercises multiple pages");
+  const boundPage = await json(
+    await docsApp.fetch(
+      mcpRequest(url, "tools/call", {
+        name: "search_docs",
+        arguments: { query: "Chumbo", limit: 1 },
+      }),
+    ),
+  );
+  const wrongQuery = await json(
+    await docsApp.fetch(
+      mcpRequest(url, "tools/call", {
+        name: "search_docs",
+        arguments: {
+          ...boundPage.result.structuredContent.next_call.arguments,
+          query: "different",
+        },
+      }),
+    ),
+  );
+  assert(
+    wrongQuery.result.isError,
+    "cursor reuse with changed query requires restart",
+  );
+  const invalid = await json(
+    await docsApp.fetch(
+      mcpRequest(url, "tools/call", {
+        name: "search_docs",
+        arguments: { query: "Chumbo", cursor: "invalid cursor!" },
+      }),
+    ),
+  );
+  assert(
+    invalid.error || invalid.result?.isError,
+    "malformed cursor fails explicitly",
   );
 });
 
@@ -531,15 +597,44 @@ Deno.test(
         }),
       ),
     );
-    equal(
-      guided.result.content[1].text,
-      "Optional follow-up: call show_empty_state or show_recoverable_error if you want to inspect those result branches.",
-      "successful-result middleware appends optional guidance",
+    assert(
+      guided.result.content.at(-1).text.includes("exact next call"),
+      "middleware teaches continuation",
     );
     equal(
-      guided.result.structuredContent.examples.length,
-      2,
-      "successful-result middleware preserves structured content",
+      guided.result.structuredContent.items.length,
+      1,
+      "default collection page has one compact item",
+    );
+    assert(
+      guided.result.structuredContent.has_more,
+      "first page advertises continuation",
+    );
+    const continuation = guided.result.structuredContent.next_call;
+    const secondPage = await json(
+      await modelResultsApp.fetch(
+        mcpRequest(url, "tools/call", {
+          name: continuation.name,
+          arguments: continuation.arguments,
+        }),
+      ),
+    );
+    equal(
+      secondPage.result.structuredContent.items[0].id,
+      "2",
+      "client can execute exact next call",
+    );
+    assert(
+      !secondPage.result.structuredContent.has_more,
+      "second page is terminal",
+    );
+    assert(
+      secondPage.result.content.at(-1).text.includes("all examples"),
+      "middleware teaches when to stop",
+    );
+    assert(
+      !JSON.stringify(guided.result).includes("internalNotes"),
+      "source fields do not leak",
     );
 
     const linked = await json(

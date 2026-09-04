@@ -63,7 +63,8 @@ update `index_test.ts` to discover and invoke the replacement. For example:
 
 ```ts
 import {
-  textResult,
+  collectionInputSchema,
+  collectionResult,
   type SupabaseMcpContext,
   type SupabaseMcpServer,
 } from "chumbo";
@@ -73,35 +74,51 @@ export function registerCapabilities(
   server: SupabaseMcpServer,
   ctx: SupabaseMcpContext,
 ) {
+  const taskSummary = z.object({
+    id: z.string().uuid(),
+    title: z.string(),
+    status: z.string(),
+  });
   server.registerTool(
     "list_tasks",
     {
-      description: "List tasks visible to the connected user.",
-      inputSchema: z.object({}),
+      description:
+        "Browse tasks visible to the connected user in stable ID order.",
+      inputSchema: collectionInputSchema({ cursorSchema: z.string().uuid() }),
     },
-    async () => {
-      const { data, error } = await ctx.supabase
+    async ({ limit, cursor }) => {
+      let query = ctx.supabase
         .from("tasks")
         .select("id, title, status")
-        .order("title");
-
+        .order("id")
+        .limit(limit + 1);
+      if (cursor) query = query.gt("id", cursor);
+      const { data, error } = await query;
       if (error) throw error;
-      if (!data?.length) {
-        return textResult("No tasks are visible to the connected user.");
-      }
-
-      return textResult(
-        data
-          .map((task) => `- ${task.title} – ${task.status} (${task.id})`)
-          .join("\n"),
-      );
+      return collectionResult({
+        items: data ?? [],
+        limit,
+        hasMore: false,
+        itemSchema: taskSummary,
+        project: ({ id, title, status }) => ({ id, title, status }),
+        cursorFor: ({ id }) => id,
+        tool: "list_tasks",
+        arguments: cursor ? { cursor } : {},
+        render: ({ items }) =>
+          items.length
+            ? items
+                .map((task) => `- ${task.title} – ${task.status} (${task.id})`)
+                .join("\n")
+            : "No tasks are visible to the connected user.",
+      });
     },
   );
 }
 ```
 
 The tool describes a user-visible operation. Identity comes from `ctx`; it is
-not accepted as a tool argument.
+not accepted as a tool argument. For collection/detail contracts, overflow recovery,
+and consistency choices, read [Design results](references/results.md).
 
 ### 3. Run the local proof loop
 
