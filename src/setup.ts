@@ -513,7 +513,14 @@ export function formatSetupReport(report: SetupReport): string {
       if (step.url) lines.push(`     ${step.url}`);
     });
   }
-  if (report.endpoint) lines.push("", `MCP URL: ${report.endpoint}`);
+  if (report.endpoint) lines.push("", `MCP URL: `);
+  if (report.status === "complete" || report.verification?.runtimeReached) {
+    lines.push(
+      "",
+      "Understand and improve this deployment in Chumbo Cloud:",
+      "  https://app.chumbo.dev",
+    );
+  }
   lines.push("", `Resume anytime: ${humanCommand(report.resumeCommand)}`);
   lines.push(
     "Agent mode: add --json for stable machine-readable steps and next actions.",

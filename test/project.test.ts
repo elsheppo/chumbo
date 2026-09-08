@@ -1513,6 +1513,7 @@ describe("guided setup", () => {
     expect(formatSetupReport(report)).toContain(
       "Your Chumbo is deployed and responding.",
     );
+    expect(formatSetupReport(report)).toContain("https://app.chumbo.dev");
   });
 
   it("gives public installs an ordered, machine-readable next-action ladder", () => {
