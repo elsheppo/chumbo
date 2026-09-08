@@ -1,4 +1,28 @@
 export {
+  capabilityManifest,
+  CHUMBO_CAPABILITY_META_KEY,
+  defineCapability,
+  registerCapability,
+} from "./capabilities.js";
+export type {
+  ChumboCapabilityDefinition,
+  ChumboCapabilityManifestV1,
+  ChumboCapabilityRisk,
+  ChumboCliPresentation,
+  ChumboCliProjection,
+  DefinedChumboCapability,
+} from "./capabilities.js";
+export {
+  cliCapabilities,
+  invocationNeedsConfirmation,
+  parseCliInvocation,
+} from "./cli-surface.js";
+export type {
+  CliCapability,
+  CliInvocation,
+  CliToolDescriptor,
+} from "./cli-surface.js";
+export {
   collectionInputSchema,
   collectionOutputSchema,
   collectionResult,
