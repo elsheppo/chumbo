@@ -43,6 +43,29 @@ capabilities.
 Requirements: Node 22+, the Supabase CLI, and preferably Deno for the generated
 local type-check and tests.
 
+### Finish Chumbo Cloud setup with your agent
+
+After Chumbo Cloud installs the observation plane and shows “one code change
+left,” run this from the same Supabase repository:
+
+```sh
+npx chumbo cloud setup
+```
+
+The CLI shows a short pairing code and opens Cloud for approval. Approval is
+bound to the selected project and this CLI instance; it does not copy a browser
+session or Supabase credential to the terminal. Chumbo then finds the approved
+MCP Edge Function, previews a bounded analytics-hook change, and stops for
+confirmation. Deployment remains explicit:
+
+```sh
+npx chumbo cloud setup --deploy --yes
+```
+
+For agents and automation, add `--json`. Pairing information is written to
+stderr while the final machine-readable receipt stays on stdout. Use `--plan`
+to inspect the exact local file change without writing it.
+
 The generated server lives at:
 
 ```text

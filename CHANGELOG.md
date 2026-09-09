@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `chumbo cloud setup`, a PKCE-bound device-style handoff that lets a
+  builder approve one selected Chumbo Cloud installation in the browser while
+  a local agent safely plans, applies, checks, deploys, and verifies the
+  corresponding Chumbo analytics hooks. The pairing grant is short-lived and
+  scoped; deployment and conflicting customer hooks remain explicit stops.
+
 ## 0.11.0 – 2026-09-04
 
 - Add `collectionInputSchema`, `collectionOutputSchema`, `collectionResult` and
