@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Add a shared capability metadata seam that lowers to ordinary scoped MCP tool
+  registration while advertising an optional domain-oriented CLI command,
+  stable risk/idempotency facts, and presentation hints. Existing raw MCP tool
+  registration remains compatible through an explicit CLI fallback.
+- Add a configurable Node CLI host for customer-branded packages. It discovers
+  only the authenticated caller's tools, invokes the same MCP endpoint, supports
+  browser PKCE login/status/logout, stores OAuth state in the operating-system
+  credential store partitioned by issuer, emits human or stable JSON receipts,
+  and fails closed for unconfirmed writes in non-interactive sessions.
+- Add a pure customer-package renderer for branded Cloud delivery. Package name,
+  binary name, display identity, endpoint, support URL, and optional Chumbo
+  attribution are configuration; registry publication remains an external
+  release step.
+
 ## 0.11.0 – 2026-09-04
 
 - Add `collectionInputSchema`, `collectionOutputSchema`, `collectionResult` and

@@ -123,6 +123,68 @@ You choose the application operations worth exposing and shape each result for
 its real consumer. Chumbo handles the protocol and request-authority boundary
 around that application code.
 
+### Project one capability into a customer CLI
+
+A capability can carry an optional command projection while remaining an
+ordinary MCP tool. Define and register it inside the request-scoped
+`registerCapabilities` function so the handler retains the same `ctx.supabase`
+user and RLS authority:
+
+```ts
+import {
+  defineCapability,
+  registerCapability,
+  structuredResult,
+  type SupabaseMcpContext,
+  type SupabaseMcpServer,
+} from "chumbo";
+import { z } from "zod";
+
+export function registerCapabilities(
+  server: SupabaseMcpServer,
+  ctx: SupabaseMcpContext,
+) {
+  registerCapability(
+    server,
+    defineCapability({
+      id: "tasks.get",
+      mcpName: "get_task",
+      title: "Get task",
+      description: "Get one task visible to the signed-in user.",
+      inputSchema: z.object({ id: z.string().uuid() }),
+      outputSchema: z.object({ id: z.string(), title: z.string() }),
+      scopes: ["tasks:read"],
+      risk: "read",
+      idempotent: true,
+      cli: { command: ["tasks", "get"] },
+      async handler({ id }) {
+        const { data, error } = await ctx.supabase
+          .from("tasks")
+          .select("id, title")
+          .eq("id", id)
+          .single();
+        if (error) throw error;
+        return structuredResult(data);
+      },
+    }),
+  );
+}
+```
+
+Authenticated MCP clients still discover `get_task`. A client-branded CLI can
+render the same visible tool as `customer tasks get --id ...`, call the same MCP
+endpoint, and return human output or a stable `--json` receipt. Tools registered
+directly with `server.registerTool()` remain available through the explicit
+`customer run <tool-name> --args '{}'` fallback.
+
+The Node-only `chumbo/cli-host` entry provides browser PKCE login, OS-keychain
+credential storage partitioned by authorization-server issuer, authenticated
+command discovery, logout, and fail-closed write confirmation. The
+`chumbo/cli-package` entry renders a tiny customer-owned npm package whose
+package name, binary, display name, endpoint, support URL, and optional
+“powered by” attribution are configuration. Rendering does not publish a
+package or put Chumbo Cloud in the application's data path.
+
 <img src="https://raw.githubusercontent.com/elsheppo/chumbo/main/docs/assets/readme/chapter-02-ship.png" alt="" width="100%">
 
 ## Run, deploy, and verify
