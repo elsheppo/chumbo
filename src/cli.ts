@@ -10,8 +10,11 @@ import {
   CloudSetupApiError,
   createCloudSetupClient,
   createPkce,
+  cloudSetupNeedsMachineConfirmation,
+  formatCloudPatchPlan,
   loadCloudPatch,
   openPairingUrl,
+  reportCloudSetupEvent,
 } from "./cloud-setup.js";
 import { runDoctor, type DoctorCheck } from "./doctor.js";
 import {
@@ -533,8 +536,17 @@ async function cloud(args: string[]): Promise<void> {
     throw new Error(
       "The pairing code expired. Run `chumbo cloud setup` again.",
     );
+  const warnings: string[] = [];
+  const warn = (message: string) => {
+    warnings.push(message);
+    if (!machine) process.stderr.write(`Warning: ${message}\n`);
+  };
   const report = (event: Parameters<typeof client.event>[1]) =>
-    client.event(token!, event);
+    reportCloudSetupEvent(
+      (reportedEvent) => client.event(token!, reportedEvent),
+      event,
+      warn,
+    );
   const task = await client.task(token);
   const linkedProject = await detectLinkedProjectRef(root);
   if (linkedProject && linkedProject !== task.project.ref) {
@@ -563,7 +575,11 @@ async function cloud(args: string[]): Promise<void> {
       detail: `Update ${relative(root, plan.functionPath)} and generate ${relative(root, plan.adapterPath)}.`,
     });
 
-  const result = (status: string, nextAction?: string) => ({
+  const result = (
+    status: string,
+    nextAction?: string,
+    includeChanges = false,
+  ) => ({
     schemaVersion: 1 as const,
     command: "cloud setup" as const,
     status,
@@ -575,17 +591,50 @@ async function cloud(args: string[]): Promise<void> {
       relative(root, plan.adapterPath),
     ],
     changed: plan.changed,
+    ...(includeChanges
+      ? {
+          changes: plan.changes.map((change) => ({
+            path: relative(root, change.path),
+            action: change.action,
+            addedText: change.addedText,
+          })),
+        }
+      : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
     ...(nextAction ? { nextAction } : {}),
   });
   if (parsed.values.plan) {
     if (machine)
       printJson(
-        result("planned", "Re-run with --yes to apply this exact change."),
+        result(
+          "planned",
+          "Re-run with --yes to apply this exact change.",
+          true,
+        ),
       );
     else
       console.log(
-        `Plan ready:\n  ${relative(root, plan.functionPath)}\n  ${relative(root, plan.adapterPath)}\nNo files changed.`,
+        `Exact file plan:\n\n${formatCloudPatchPlan(plan, root)}\n\nNo files changed.`,
       );
+    return;
+  }
+  if (!machine) {
+    console.log(`Exact file plan:\n\n${formatCloudPatchPlan(plan, root)}\n`);
+  }
+  if (
+    cloudSetupNeedsMachineConfirmation({
+      machine,
+      yes: Boolean(parsed.values.yes),
+      planOnly: false,
+    })
+  ) {
+    printJson(
+      result(
+        "needs_confirmation",
+        "Review changes, then rerun with --yes.",
+        true,
+      ),
+    );
     return;
   }
   if (
@@ -666,7 +715,17 @@ async function cloud(args: string[]): Promise<void> {
     kind: "verification_started",
     summary: "Checking for verified MCP activity.",
   });
-  const verification = await client.verify(token);
+  let verification: Awaited<ReturnType<typeof client.verify>>;
+  try {
+    verification = await client.verify(token);
+  } catch {
+    const next =
+      "The function was deployed, but Cloud verification is temporarily unavailable. Open Chumbo Cloud and check again.";
+    warn("Cloud verification is temporarily unavailable after deployment.");
+    if (machine) printJson(result("deployed_unverified", next));
+    else console.log(`\nDeployment completed. ${next}`);
+    return;
+  }
   if (verification.state === "verified") {
     if (machine) printJson(result("complete"));
     else console.log("\nChumbo Cloud setup is complete.");

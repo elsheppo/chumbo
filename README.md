@@ -63,8 +63,10 @@ npx chumbo cloud setup --deploy --yes
 ```
 
 For agents and automation, add `--json`. Pairing information is written to
-stderr while the final machine-readable receipt stays on stdout. Use `--plan`
-to inspect the exact local file change without writing it.
+stderr while the final machine-readable receipt stays on stdout. JSON mode
+never prompts; without `--yes`, it returns the exact proposed additions with a
+`needs_confirmation` status. Use `--plan` to inspect the same local file change
+without writing it.
 
 The generated server lives at:
 
