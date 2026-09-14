@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.11.2 – 2026-09-14
+
+- Let `chumbo cloud setup` recognize typed `createSupabaseMcp<Database>(...)`
+  calls. If Cloud task validation or safe patch planning fails after pairing,
+  report the session as failed instead of leaving an apparently active agent
+  behind.
+
 ## 0.11.1 – 2026-09-14
 
 - Add `chumbo cloud setup`, a PKCE-bound device-style handoff that lets a
