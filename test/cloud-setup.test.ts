@@ -253,13 +253,13 @@ describe("Chumbo Cloud setup command policy", () => {
     expect(
       planCloudDeployCommand({
         root: "/repo",
-        functionSlug: "mjx-mcp",
+        functionSlug: "agent-tools",
         projectRef: "abcdefghijklmnopqrst",
         packageJson: JSON.stringify({
           scripts: { supabase: "./scripts/supabase-project" },
         }),
         supabaseConfig:
-          '[functions.mjx-mcp]\nverify_jwt = false\nentrypoint = "./functions/mjx-mcp/index.ts"\n',
+          '[functions.agent-tools]\nverify_jwt = false\nentrypoint = "./functions/agent-tools/index.ts"\n',
         hasImportMap: true,
         hasLocalSupabase: true,
       }),
@@ -272,13 +272,13 @@ describe("Chumbo Cloud setup command policy", () => {
         "--",
         "functions",
         "deploy",
-        "mjx-mcp",
+        "agent-tools",
         "--no-verify-jwt",
         "--yes",
         "--project-ref",
         "abcdefghijklmnopqrst",
         "--import-map",
-        "supabase/functions/mjx-mcp/deno.json",
+        "supabase/functions/agent-tools/deno.json",
         "--use-api",
       ],
     });
