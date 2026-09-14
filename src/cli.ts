@@ -14,6 +14,7 @@ import {
   formatCloudPatchPlan,
   loadCloudPatch,
   openPairingUrl,
+  resolveCloudDeployCommand,
   reportCloudSetupEvent,
 } from "./cloud-setup.js";
 import { runDoctor, type DoctorCheck } from "./doctor.js";
@@ -704,17 +705,14 @@ async function cloud(args: string[]): Promise<void> {
     kind: "deployment_started",
     summary: `Deploying only ${task.functionSlug}.`,
   });
+  const deployCommand = await resolveCloudDeployCommand({
+    root,
+    functionSlug: task.functionSlug,
+    projectRef: task.project.ref,
+  });
   const deploy = await runCommand(
-    "supabase",
-    [
-      "functions",
-      "deploy",
-      task.functionSlug,
-      "--no-verify-jwt",
-      "--yes",
-      "--project-ref",
-      task.project.ref,
-    ],
+    deployCommand.command,
+    deployCommand.args,
     root,
     machine,
   );

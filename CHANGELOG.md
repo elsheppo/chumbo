@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.11.3 – 2026-09-14
+
+- Make `chumbo cloud setup --deploy` follow the project's declared Supabase
+  command when one exists, otherwise prefer its installed local CLI. Function
+  import maps now select server-side bundling, and an explicit
+  `verify_jwt = true` setting is preserved instead of being overridden.
+
 ## 0.11.2 – 2026-09-14
 
 - Let `chumbo cloud setup` recognize typed `createSupabaseMcp<Database>(...)`

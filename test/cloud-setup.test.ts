@@ -6,6 +6,7 @@ import {
   formatCloudPatchPlan,
   normalizeCloudOrigin,
   planCloudPatch,
+  planCloudDeployCommand,
   reportCloudSetupEvent,
 } from "../src/cloud-setup.js";
 
@@ -248,6 +249,69 @@ export async function chumboCloudOnSurface(_proof: SupabaseMcpSurfaceProof) { vo
 });
 
 describe("Chumbo Cloud setup command policy", () => {
+  it("uses a project Supabase wrapper and the function import map", () => {
+    expect(
+      planCloudDeployCommand({
+        root: "/repo",
+        functionSlug: "agent-tools",
+        projectRef: "abcdefghijklmnopqrst",
+        packageJson: JSON.stringify({
+          scripts: { supabase: "./scripts/supabase-project" },
+        }),
+        supabaseConfig:
+          '[functions.agent-tools]\nverify_jwt = false\nentrypoint = "./functions/agent-tools/index.ts"\n',
+        hasImportMap: true,
+        hasLocalSupabase: true,
+      }),
+    ).toEqual({
+      command: "npm",
+      args: [
+        "run",
+        "--silent",
+        "supabase",
+        "--",
+        "functions",
+        "deploy",
+        "agent-tools",
+        "--no-verify-jwt",
+        "--yes",
+        "--project-ref",
+        "abcdefghijklmnopqrst",
+        "--import-map",
+        "supabase/functions/agent-tools/deno.json",
+        "--use-api",
+      ],
+    });
+  });
+
+  it("honors explicit Supabase JWT verification", () => {
+    expect(
+      planCloudDeployCommand({
+        root: "/repo",
+        functionSlug: "mcp",
+        projectRef: "abcdefghijklmnopqrst",
+        packageJson: null,
+        supabaseConfig: "[functions.mcp]\nverify_jwt = true\n",
+        hasImportMap: false,
+        hasLocalSupabase: false,
+      }).args,
+    ).not.toContain("--no-verify-jwt");
+  });
+
+  it("prefers an installed local Supabase CLI without a project wrapper", () => {
+    expect(
+      planCloudDeployCommand({
+        root: "/repo",
+        functionSlug: "mcp",
+        projectRef: "abcdefghijklmnopqrst",
+        packageJson: "{}",
+        supabaseConfig: null,
+        hasImportMap: false,
+        hasLocalSupabase: true,
+      }).command,
+    ).toBe("/repo/node_modules/.bin/supabase");
+  });
+
   it("never prompts for confirmation in JSON mode", () => {
     expect(
       cloudSetupNeedsMachineConfirmation({
