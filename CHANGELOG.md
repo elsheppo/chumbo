@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.11.1 – 2026-09-14
+
 - Add `chumbo cloud setup`, a PKCE-bound device-style handoff that lets a
   builder approve one selected Chumbo Cloud installation in the browser while
   a local agent safely plans, applies, checks, deploys, and verifies the
