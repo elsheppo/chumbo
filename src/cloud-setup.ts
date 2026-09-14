@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { hostname } from "node:os";
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 const MAX_RESPONSE_BYTES = 64 * 1_024;
@@ -434,6 +434,124 @@ export interface CloudPatchChange {
   path: string;
   action: "create" | "update";
   addedText: string;
+}
+
+export interface CloudDeployCommand {
+  command: string;
+  args: string[];
+}
+
+function functionVerifiesJwt(config: string, functionSlug: string): boolean {
+  const escapedSlug = functionSlug.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const section = new RegExp(
+    `^\\[functions\\.(?:${escapedSlug}|["']${escapedSlug}["'])\\]\\s*$`,
+    "mu",
+  ).exec(config);
+  if (!section) return false;
+  const remainder = config.slice(section.index + section[0].length);
+  const nextSection = /^\s*\[/mu.exec(remainder);
+  const body = remainder.slice(0, nextSection?.index ?? remainder.length);
+  return /^\s*verify_jwt\s*=\s*true\s*(?:#.*)?$/mu.test(body);
+}
+
+export function planCloudDeployCommand(input: {
+  root: string;
+  functionSlug: string;
+  projectRef: string;
+  packageJson: string | null;
+  supabaseConfig: string | null;
+  hasImportMap: boolean;
+  hasLocalSupabase: boolean;
+}): CloudDeployCommand {
+  let hasSupabaseScript = false;
+  if (input.packageJson) {
+    try {
+      const manifest = JSON.parse(input.packageJson) as {
+        scripts?: Record<string, unknown>;
+      };
+      hasSupabaseScript = typeof manifest.scripts?.supabase === "string";
+    } catch {
+      // An invalid package manifest is not a safe source for a deploy command.
+    }
+  }
+  const command = hasSupabaseScript
+    ? "npm"
+    : input.hasLocalSupabase
+      ? join(input.root, "node_modules", ".bin", "supabase")
+      : "supabase";
+  const args = hasSupabaseScript ? ["run", "--silent", "supabase", "--"] : [];
+  args.push("functions", "deploy", input.functionSlug);
+  if (
+    !input.supabaseConfig ||
+    !functionVerifiesJwt(input.supabaseConfig, input.functionSlug)
+  ) {
+    args.push("--no-verify-jwt");
+  }
+  args.push("--yes", "--project-ref", input.projectRef);
+  if (input.hasImportMap) {
+    args.push(
+      "--import-map",
+      relative(
+        input.root,
+        join(
+          input.root,
+          "supabase",
+          "functions",
+          input.functionSlug,
+          "deno.json",
+        ),
+      ),
+      "--use-api",
+    );
+  }
+  return { command, args };
+}
+
+async function optionalFile(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveCloudDeployCommand(input: {
+  root: string;
+  functionSlug: string;
+  projectRef: string;
+}): Promise<CloudDeployCommand> {
+  const functionDirectory = join(
+    input.root,
+    "supabase",
+    "functions",
+    input.functionSlug,
+  );
+  const [packageJson, supabaseConfig, hasImportMap, hasLocalSupabase] =
+    await Promise.all([
+      optionalFile(join(input.root, "package.json")),
+      optionalFile(join(input.root, "supabase", "config.toml")),
+      exists(join(functionDirectory, "deno.json")),
+      exists(join(input.root, "node_modules", ".bin", "supabase")),
+    ]);
+  return planCloudDeployCommand({
+    ...input,
+    packageJson,
+    supabaseConfig,
+    hasImportMap,
+    hasLocalSupabase,
+  });
 }
 
 function findCreateSupabaseMcpCall(source: string): number {
