@@ -5,8 +5,9 @@
 ## 0.11.2 – 2026-09-14
 
 - Let `chumbo cloud setup` recognize typed `createSupabaseMcp<Database>(...)`
-  calls. If safe patch planning fails after pairing, report the session as
-  failed in Chumbo Cloud instead of leaving an apparently active agent behind.
+  calls. If Cloud task validation or safe patch planning fails after pairing,
+  report the session as failed instead of leaving an apparently active agent
+  behind.
 
 ## 0.11.1 – 2026-09-14
 

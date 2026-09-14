@@ -547,7 +547,16 @@ async function cloud(args: string[]): Promise<void> {
       event,
       warn,
     );
-  const task = await client.task(token);
+  let task: Awaited<ReturnType<typeof client.task>>;
+  try {
+    task = await client.task(token);
+  } catch (error) {
+    await report({
+      kind: "session_failed",
+      summary: "Cloud did not provide a valid setup task.",
+    });
+    throw error;
+  }
   const linkedProject = await detectLinkedProjectRef(root);
   if (linkedProject && linkedProject !== task.project.ref) {
     await report({
