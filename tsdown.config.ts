@@ -13,6 +13,7 @@ export default defineConfig({
     "node:child_process",
     "node:crypto",
     "node:fs/promises",
+    "node:os",
     "node:path",
     "node:readline/promises",
     "node:url",

@@ -4,6 +4,18 @@ import { access, readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
+import {
+  applyCloudPatch,
+  cloudDeviceName,
+  CloudSetupApiError,
+  createCloudSetupClient,
+  createPkce,
+  cloudSetupNeedsMachineConfirmation,
+  formatCloudPatchPlan,
+  loadCloudPatch,
+  openPairingUrl,
+  reportCloudSetupEvent,
+} from "./cloud-setup.js";
 import { runDoctor, type DoctorCheck } from "./doctor.js";
 import {
   applyPlan,
@@ -45,11 +57,18 @@ Usage:
   chumbo doctor [options]  Check local or deployed setup
   chumbo dev [options]     Serve the function locally
   chumbo skill <action>    Install, inspect, or update the project agent skill
+  chumbo cloud setup       Pair with Cloud and finish analytics setup
 
 Skill actions:
   skill install           Install the versioned skill into this project
   skill status            Inspect the managed installation without writing
   skill update            Safely update unmodified managed skill files
+
+Cloud setup options:
+  --cloud-url <url>        Chumbo Cloud origin (default: https://app.chumbo.dev)
+  --agent-name <name>      Name shown in browser activity (default: Coding agent)
+  --no-browser             Print the pairing URL without opening it
+  --deploy                 Check and deploy the selected function after patching
 
 Setup options:
   --function <name>       Edge Function name (default: mcp)
@@ -96,9 +115,11 @@ function parse(commandArgs: string[]) {
     options: {
       "apply-migrations": { type: "boolean" },
       auth: { type: "string" },
+      "agent-name": { type: "string" },
       "call-args": { type: "string" },
       "call-tool": { type: "string" },
       consent: { type: "string" },
+      "cloud-url": { type: "string" },
       deploy: { type: "boolean" },
       "dry-run": { type: "boolean" },
       "env-file": { type: "string" },
@@ -106,6 +127,7 @@ function parse(commandArgs: string[]) {
       help: { type: "boolean" },
       json: { type: "boolean" },
       "no-config": { type: "boolean" },
+      "no-browser": { type: "boolean" },
       plan: { type: "boolean" },
       "project-ref": { type: "string" },
       "public-url": { type: "string" },
@@ -467,6 +489,253 @@ async function skill(args: string[]): Promise<void> {
   const reportPlan = { ...plan, action };
   if (machine) printJson(skillReport(reportPlan, "complete"));
   else printSkillReport(reportPlan, "complete");
+}
+
+async function pause(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function cloud(args: string[]): Promise<void> {
+  const parsed = parse(args);
+  const [action, ...extra] = parsed.positionals;
+  if (action !== "setup" || extra.length > 0) {
+    throw new Error("Use `chumbo cloud setup`.");
+  }
+  const machine = parsed.values.json ?? false;
+  const root = await findSupabaseProject(process.cwd());
+  const origin = parsed.values["cloud-url"] ?? "https://app.chumbo.dev";
+  const client = createCloudSetupClient(origin);
+  const pkce = createPkce();
+  const started = await client.start({
+    codeChallenge: pkce.challenge,
+    deviceName: cloudDeviceName(),
+    agentName: parsed.values["agent-name"] ?? "Coding agent",
+  });
+  const pairingMessage = `Approve Chumbo Cloud setup:\n  ${started.verificationUriComplete}\n  Code: ${started.userCode}`;
+  if (machine) process.stderr.write(`${pairingMessage}\n`);
+  else console.log(`\n${pairingMessage}\n`);
+  if (!parsed.values["no-browser"])
+    openPairingUrl(started.verificationUriComplete);
+
+  let token: string | undefined;
+  while (Date.now() < new Date(started.expiresAt).getTime()) {
+    try {
+      token = (await client.token(started.deviceCode, pkce.verifier))
+        .accessToken;
+      break;
+    } catch (error) {
+      if (
+        !(error instanceof CloudSetupApiError) ||
+        error.code !== "AUTHORIZATION_PENDING"
+      )
+        throw error;
+      await pause(Math.max(1, started.intervalSeconds) * 1_000);
+    }
+  }
+  if (!token)
+    throw new Error(
+      "The pairing code expired. Run `chumbo cloud setup` again.",
+    );
+  const warnings: string[] = [];
+  const warn = (message: string) => {
+    warnings.push(message);
+    if (!machine) process.stderr.write(`Warning: ${message}\n`);
+  };
+  const report = (event: Parameters<typeof client.event>[1]) =>
+    reportCloudSetupEvent(
+      (reportedEvent) => client.event(token!, reportedEvent),
+      event,
+      warn,
+    );
+  const task = await client.task(token);
+  const linkedProject = await detectLinkedProjectRef(root);
+  if (linkedProject && linkedProject !== task.project.ref) {
+    await report({
+      kind: "session_failed",
+      summary:
+        "The local Supabase project did not match the approved Cloud project.",
+    });
+    throw new Error(
+      `This repository is linked to ${linkedProject}, but Cloud approved ${task.project.ref}. Select the matching project and pair again.`,
+    );
+  }
+  await report({
+    kind: "inspection_started",
+    summary: `Inspecting ${task.functionSlug}.`,
+  });
+  const plan = await loadCloudPatch(root, task);
+  await report({
+    kind: "inspection_completed",
+    summary: `Found the Chumbo MCP function ${task.functionSlug}.`,
+  });
+  if (plan.changed)
+    await report({
+      kind: "change_proposed",
+      summary: "Ready to connect lifecycle and capability telemetry.",
+      detail: `Update ${relative(root, plan.functionPath)} and generate ${relative(root, plan.adapterPath)}.`,
+    });
+
+  const result = (
+    status: string,
+    nextAction?: string,
+    includeChanges = false,
+  ) => ({
+    schemaVersion: 1 as const,
+    command: "cloud setup" as const,
+    status,
+    sessionId: task.sessionId,
+    project: task.project,
+    functionName: task.functionSlug,
+    files: [
+      relative(root, plan.functionPath),
+      relative(root, plan.adapterPath),
+    ],
+    changed: plan.changed,
+    ...(includeChanges
+      ? {
+          changes: plan.changes.map((change) => ({
+            path: relative(root, change.path),
+            action: change.action,
+            addedText: change.addedText,
+          })),
+        }
+      : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
+    ...(nextAction ? { nextAction } : {}),
+  });
+  if (parsed.values.plan) {
+    if (machine)
+      printJson(
+        result(
+          "planned",
+          "Re-run with --yes to apply this exact change.",
+          true,
+        ),
+      );
+    else
+      console.log(
+        `Exact file plan:\n\n${formatCloudPatchPlan(plan, root)}\n\nNo files changed.`,
+      );
+    return;
+  }
+  if (!machine) {
+    console.log(`Exact file plan:\n\n${formatCloudPatchPlan(plan, root)}\n`);
+  }
+  if (
+    cloudSetupNeedsMachineConfirmation({
+      machine,
+      yes: Boolean(parsed.values.yes),
+      planOnly: false,
+    })
+  ) {
+    printJson(
+      result(
+        "needs_confirmation",
+        "Review changes, then rerun with --yes.",
+        true,
+      ),
+    );
+    return;
+  }
+  if (
+    !parsed.values.yes &&
+    !(await confirm("Let Chumbo connect this function to Cloud?"))
+  ) {
+    if (machine) printJson(result("needs_confirmation", "Re-run with --yes."));
+    else console.log("No files changed.");
+    return;
+  }
+  await applyCloudPatch(plan);
+  await report({
+    kind: "change_applied",
+    summary: plan.changed
+      ? "Connected the local Chumbo function to Cloud."
+      : "The local Chumbo Cloud adapter was already current.",
+  });
+
+  if (!parsed.values.deploy) {
+    const next = `Review the files, then run: npx chumbo cloud setup --deploy --yes`;
+    if (machine) printJson(result("ready_to_deploy", next));
+    else console.log(`\nLocal setup is ready.\n${next}`);
+    return;
+  }
+
+  await report({
+    kind: "checks_started",
+    summary: `Checking ${task.functionSlug}.`,
+  });
+  const functionDir = join(root, "supabase", "functions", task.functionSlug);
+  const check = await runCommand(
+    "deno",
+    ["check", "index.ts"],
+    functionDir,
+    machine,
+  );
+  if (!check.ok) {
+    await report({
+      kind: "session_failed",
+      summary: "The local function check failed.",
+    });
+    throw new Error(`Local check failed: ${check.detail}`);
+  }
+  await report({
+    kind: "checks_completed",
+    summary: "The local function check passed.",
+  });
+  await report({
+    kind: "deployment_started",
+    summary: `Deploying only ${task.functionSlug}.`,
+  });
+  const deploy = await runCommand(
+    "supabase",
+    [
+      "functions",
+      "deploy",
+      task.functionSlug,
+      "--no-verify-jwt",
+      "--yes",
+      "--project-ref",
+      task.project.ref,
+    ],
+    root,
+    machine,
+  );
+  if (!deploy.ok) {
+    await report({
+      kind: "session_failed",
+      summary: "The function deployment failed.",
+    });
+    throw new Error(`Deployment failed: ${deploy.detail}`);
+  }
+  await report({
+    kind: "deployment_completed",
+    summary: `${task.functionSlug} was deployed.`,
+  });
+  await report({
+    kind: "verification_started",
+    summary: "Checking for verified MCP activity.",
+  });
+  let verification: Awaited<ReturnType<typeof client.verify>>;
+  try {
+    verification = await client.verify(token);
+  } catch {
+    const next =
+      "The function was deployed, but Cloud verification is temporarily unavailable. Open Chumbo Cloud and check again.";
+    warn("Cloud verification is temporarily unavailable after deployment.");
+    if (machine) printJson(result("deployed_unverified", next));
+    else console.log(`\nDeployment completed. ${next}`);
+    return;
+  }
+  if (verification.state === "verified") {
+    if (machine) printJson(result("complete"));
+    else console.log("\nChumbo Cloud setup is complete.");
+  } else {
+    const next =
+      verification.nextAction ??
+      "Run one real MCP tool call, then open Chumbo Cloud.";
+    if (machine) printJson(result("waiting_for_activity", next));
+    else console.log(`\nDeployment is ready. ${next}`);
+  }
 }
 
 async function init(args: string[]): Promise<void> {
@@ -1265,6 +1534,7 @@ async function main(): Promise<void> {
   if (command === "doctor") return doctor(args);
   if (command === "dev") return dev(args);
   if (command === "skill") return skill(args);
+  if (command === "cloud") return cloud(args);
   throw new Error(`Unknown command '${command}'.\n\n${HELP}`);
 }
 
