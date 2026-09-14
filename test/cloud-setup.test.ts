@@ -49,6 +49,19 @@ describe("Chumbo Cloud setup patch", () => {
     expect(second.changed).toBe(false);
   });
 
+  it("finds a typed createSupabaseMcp call", () => {
+    const plan = planCloudPatch({
+      ...input,
+      currentSource: input.currentSource.replace(
+        "createSupabaseMcp({",
+        "createSupabaseMcp<AppDatabase>({",
+      ),
+    });
+    expect(plan.functionSource).toContain(
+      "createSupabaseMcp<AppDatabase>({\n  onEvent: chumboCloudOnEvent,",
+    );
+  });
+
   it("refuses to overwrite a custom lifecycle hook", () => {
     expect(() =>
       planCloudPatch({

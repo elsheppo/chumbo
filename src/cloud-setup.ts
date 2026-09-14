@@ -436,6 +436,28 @@ export interface CloudPatchChange {
   addedText: string;
 }
 
+function findCreateSupabaseMcpCall(source: string): number {
+  const identifier = /\bcreateSupabaseMcp\b/gu;
+  for (const match of source.matchAll(identifier)) {
+    let cursor = match.index + match[0].length;
+    while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
+    if (source[cursor] === "<") {
+      let depth = 0;
+      for (; cursor < source.length; cursor += 1) {
+        if (source[cursor] === "<") depth += 1;
+        if (source[cursor] === ">" && --depth === 0) {
+          cursor += 1;
+          break;
+        }
+      }
+      if (depth !== 0) continue;
+      while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
+    }
+    if (source[cursor] === "(") return match.index;
+  }
+  return -1;
+}
+
 export function planCloudPatch(input: {
   root: string;
   functionSlug: string;
@@ -475,7 +497,7 @@ export function planCloudPatch(input: {
     functionSource = `${importLine}\n${functionSource}`;
     functionAdditions.push(`${importLine}\n`);
   }
-  const call = functionSource.indexOf("createSupabaseMcp(");
+  const call = findCreateSupabaseMcpCall(functionSource);
   if (call < 0)
     throw new Error(
       `Could not find createSupabaseMcp(...) in ${input.functionSlug}/index.ts.`,

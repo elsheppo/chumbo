@@ -563,7 +563,16 @@ async function cloud(args: string[]): Promise<void> {
     kind: "inspection_started",
     summary: `Inspecting ${task.functionSlug}.`,
   });
-  const plan = await loadCloudPatch(root, task);
+  let plan: Awaited<ReturnType<typeof loadCloudPatch>>;
+  try {
+    plan = await loadCloudPatch(root, task);
+  } catch (error) {
+    await report({
+      kind: "session_failed",
+      summary: `Could not safely prepare ${task.functionSlug}.`,
+    });
+    throw error;
+  }
   await report({
     kind: "inspection_completed",
     summary: `Found the Chumbo MCP function ${task.functionSlug}.`,
