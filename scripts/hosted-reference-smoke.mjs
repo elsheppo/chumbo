@@ -102,15 +102,22 @@ async function mcp(endpoint, method, params = {}, bearer) {
   return body.result;
 }
 
-async function eventually(operation, accepts, attempts = 5) {
+async function eventually(
+  operation,
+  accepts,
+  { timeoutMs = 60_000, intervalMs = 5_000 } = {},
+) {
+  const deadline = Date.now() + timeoutMs;
   let result;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+  do {
     result = await operation();
     if (accepts(result)) return result;
-    if (attempt < attempts) {
-      await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
-    }
-  }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return result;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(intervalMs, remainingMs)),
+    );
+  } while (Date.now() < deadline);
   return result;
 }
 
