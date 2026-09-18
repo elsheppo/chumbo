@@ -4,6 +4,7 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/app.ts",
+    "src/node.ts",
     "src/testing.ts",
     "src/cli.ts",
     "src/types.ts",
@@ -23,11 +24,14 @@ export default defineConfig({
   external: [
     "node:child_process",
     "node:crypto",
+    "node:events",
     "node:fs/promises",
     "node:http",
     "node:os",
     "node:path",
     "node:readline/promises",
+    "node:stream",
+    "node:stream/promises",
     "node:url",
     "node:util",
     "@modelcontextprotocol/server",

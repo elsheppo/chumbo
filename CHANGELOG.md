@@ -15,6 +15,46 @@
   binary name, display identity, endpoint, support URL, and optional Chumbo
   attribution are configuration; registry publication remains an external
   release step.
+- Make Next.js and standalone Node servers first-class host targets.
+  `npx chumbo setup --target next` generates a colocated App Router route
+  handler and `--target node` generates a server entry served through the new
+  `chumbo/node` adapter (`toNodeHandler` and `serve` over `node:http`, with
+  streamed SSE bodies and reverse-proxy URL reconstruction). Both share the
+  ordinary `capabilities.ts` seam, access modes, and result contracts; the
+  Supabase Edge Function remains the unchanged default target, and the
+  application's Supabase project remains the identity and data plane
+  everywhere.
+- Let `chumbo doctor` probe any deployed MCP URL from any directory: it no
+  longer requires `supabase/config.toml`, detects host-target scaffolds for
+  local checks, and setup/status resume host targets idempotently with the
+  same stable step IDs. The generated smoke now type-checks both host
+  scaffolds and proves a live generated Node server through a complete
+  doctor round trip.
+
+## 0.11.3 – 2026-09-14
+
+- Make `chumbo cloud setup --deploy` follow the project's declared Supabase
+  command when one exists, otherwise prefer its installed local CLI. Function
+  import maps now select server-side bundling, and an explicit
+  `verify_jwt = true` setting is preserved instead of being overridden.
+
+## 0.11.2 – 2026-09-14
+
+- Let `chumbo cloud setup` recognize typed `createSupabaseMcp<Database>(...)`
+  calls. If Cloud task validation or safe patch planning fails after pairing,
+  report the session as failed instead of leaving an apparently active agent
+  behind.
+
+## 0.11.1 – 2026-09-14
+
+- Add `chumbo cloud setup`, a PKCE-bound device-style handoff that lets a
+  builder approve one selected Chumbo Cloud installation in the browser while
+  a local agent safely plans, applies, checks, deploys, and verifies the
+  corresponding Chumbo analytics hooks. The pairing grant is short-lived and
+  scoped; deployment and conflicting customer hooks remain explicit stops.
+  Cloud responses are schema- and path-validated before use, machine mode
+  never prompts, plans show the exact additions, and progress-reporting outages
+  do not hide completed local work or deployment.
 
 ## 0.11.0 – 2026-09-04
 

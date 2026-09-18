@@ -43,6 +43,31 @@ capabilities.
 Requirements: Node 22+, the Supabase CLI, and preferably Deno for the generated
 local type-check and tests.
 
+### Finish Chumbo Cloud setup with your agent
+
+After Chumbo Cloud installs the observation plane and shows “one code change
+left,” run this from the same Supabase repository:
+
+```sh
+npx chumbo cloud setup
+```
+
+The CLI shows a short pairing code and opens Cloud for approval. Approval is
+bound to the selected project and this CLI instance; it does not copy a browser
+session or Supabase credential to the terminal. Chumbo then finds the approved
+MCP Edge Function, previews a bounded analytics-hook change, and stops for
+confirmation. Deployment remains explicit:
+
+```sh
+npx chumbo cloud setup --deploy --yes
+```
+
+For agents and automation, add `--json`. Pairing information is written to
+stderr while the final machine-readable receipt stays on stdout. JSON mode
+never prompts; without `--yes`, it returns the exact proposed additions with a
+`needs_confirmation` status. Use `--plan` to inspect the same local file change
+without writing it.
+
 The generated server lives at:
 
 ```text
@@ -288,6 +313,28 @@ with dynamic client registration enabled.
 Cursor, MCP Inspector, and other Streamable HTTP clients use the same endpoint.
 See [Connect your MCP client](./docs/reference/connect-clients) for exact setup
 and verified combinations.
+
+### Host it where your app runs
+
+A Chumbo app is a web-standard fetch handler. The Supabase Edge Function is
+the default home, not a requirement: your Supabase project stays authoritative
+for auth and data wherever the handler runs.
+
+```sh
+npx chumbo setup --target next   # App Router route handler in your Next.js app
+npx chumbo setup --target node   # standalone server for Cloud Run, Fly, Railway
+```
+
+`--target next` generates a colocated `app/mcp/` scaffold whose route handler
+serves `/mcp` and its OAuth discovery suffixes alongside the rest of your
+application. `--target node` generates a server entry that listens on `PORT`
+through `chumbo/node`. Both share the same `capabilities.ts` seam, access
+modes, and result contracts as the Edge Function path, and
+`npx chumbo doctor --url <MCP_URL>` verifies any of them.
+
+[Host targets](./docs/reference/host-targets) covers environment configuration,
+deployment verification, and when to prefer a proxy to the Edge Function
+instead.
 
 <img src="https://raw.githubusercontent.com/elsheppo/chumbo/main/docs/assets/readme/chapter-03-stay-in-control.png" alt="" width="100%">
 

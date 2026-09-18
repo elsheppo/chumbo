@@ -1,6 +1,6 @@
 {
   "name": "chumbo",
-  "version": "0.11.0",
+  "version": "0.11.3",
   "description": "MCP made easy on Supabase.",
   "type": "module",
   "license": "MIT",
@@ -49,6 +49,10 @@
     "./cli-package": {
       "types": "./dist/cli-package.d.ts",
       "import": "./dist/cli-package.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
     }
   },
   "files": [

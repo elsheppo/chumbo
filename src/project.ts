@@ -11,6 +11,16 @@ export interface PlannedFile {
   status: "create" | "unchanged" | "update" | "conflict";
 }
 
+/**
+ * Where the generated MCP server runs. The Supabase Edge Function remains the
+ * default; `next` generates an App Router route handler and `node` generates a
+ * standalone server served through `chumbo/node`. Every target keeps the
+ * application's Supabase project as the identity and data plane.
+ */
+export type SetupTarget = "edge-function" | "next" | "node";
+
+export const SETUP_TARGETS = ["edge-function", "next", "node"] as const;
+
 export interface InitOptions {
   cwd: string;
   functionName: string;
@@ -19,6 +29,7 @@ export interface InitOptions {
   consent: "none" | "minimal";
   patchConfig: boolean;
   stateNamespace?: string;
+  target?: SetupTarget;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -42,6 +53,29 @@ export async function findSupabaseProject(start: string): Promise<string> {
     }
     current = parent;
   }
+}
+
+export async function findPackageProject(start: string): Promise<string> {
+  let current = resolve(start);
+  while (true) {
+    if (await exists(join(current, "package.json"))) return current;
+    const parent = dirname(current);
+    if (parent === current || current === parse(current).root) {
+      throw new Error(
+        "No package.json found. Run this command inside your application repository.",
+      );
+    }
+    current = parent;
+  }
+}
+
+export async function findProjectRoot(
+  cwd: string,
+  target: SetupTarget,
+): Promise<string> {
+  return target === "edge-function"
+    ? await findSupabaseProject(cwd)
+    : await findPackageProject(cwd);
 }
 
 function apiPortFromConfig(source: string): number {
@@ -77,6 +111,33 @@ export async function resolveLocalMcpEndpoint(
   const config = await readFile(join(root, "supabase", "config.toml"), "utf8");
   const port = apiPortFromConfig(config);
   return `http://127.0.0.1:${port}/functions/v1/${functionName}`;
+}
+
+/** Development URL where the generated MCP answers for each target. */
+export async function resolveTargetLocalEndpoint(
+  root: string,
+  functionName: string,
+  target: SetupTarget,
+): Promise<string> {
+  if (target === "edge-function") {
+    return resolveLocalMcpEndpoint(root, functionName);
+  }
+  return target === "next"
+    ? `http://localhost:3000/${functionName}`
+    : `http://127.0.0.1:8080/${functionName}`;
+}
+
+/** The package-manager install prefix matching the repository's lockfile. */
+export async function packageInstallCommand(root: string): Promise<string> {
+  if (await exists(join(root, "pnpm-lock.yaml"))) return "pnpm add";
+  if (await exists(join(root, "yarn.lock"))) return "yarn add";
+  if (
+    (await exists(join(root, "bun.lockb"))) ||
+    (await exists(join(root, "bun.lock")))
+  ) {
+    return "bun add";
+  }
+  return "npm install";
 }
 
 function escapeRegExp(value: string): string {
@@ -151,28 +212,18 @@ async function classifyFile(
   };
 }
 
-export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
-  const root = await findSupabaseProject(options.cwd);
-  const localEndpoint = await resolveLocalMcpEndpoint(
-    root,
-    options.functionName,
-  );
-  if (options.stateNamespace) {
-    if (options.auth === "public") {
-      throw new Error("Durable state requires protected authentication");
-    }
-    validateDurableStateNamespace(options.stateNamespace);
-  }
-  const functionDirectory = join(
-    root,
-    "supabase",
-    "functions",
-    options.functionName,
-  );
-  const replacements = {
+const RATE_LIMIT_MIGRATION = "20260813000000_create_supa_mcp_rate_limits.sql";
+const DURABLE_STATE_MIGRATION =
+  "20260826000000_create_supa_mcp_durable_state.sql";
+
+function sharedReplacements(
+  options: InitOptions,
+  envRead: (name: string) => string,
+): Record<string, string> {
+  return {
     AUTH_SETUP:
       options.auth === "api-key"
-        ? 'const mcpApiKey = Deno.env.get("MCP_API_KEY");\nif (!mcpApiKey) throw new Error("MCP_API_KEY is not configured");\n'
+        ? `const mcpApiKey = ${envRead("MCP_API_KEY")};\nif (!mcpApiKey) throw new Error("MCP_API_KEY is not configured");\n`
         : "",
     AUTH_CONFIG:
       options.auth === "public"
@@ -188,10 +239,6 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
         : options.auth === "api-key"
           ? "Requests use your application's API key. Tools receive `ctx.subject` and an anonymous Supabase client; your capability code decides what the key may do."
           : "A request's `ctx.supabase` client carries that user's Supabase access token, so your existing Row Level Security policies decide which rows are visible.",
-    API_KEY_SETUP:
-      options.auth === "api-key"
-        ? '\nFor local development, create the gitignored file `supabase/functions/.env.local`:\n\n```dotenv\nMCP_API_KEY=replace-with-a-long-random-key\n```\n\nLoad it with `npx chumbo dev --function {{FUNCTION_NAME}} --env-file supabase/functions/.env.local`. For the hosted function, set the same secret separately:\n\n```sh\nsupabase secrets set MCP_API_KEY="replace-with-a-long-random-key"\n```\n\nPass that value as `Authorization: Bearer <key>` from MCP clients.\n'
-        : "",
     FUNCTION_NAME: options.functionName,
     LOCAL_DOCTOR_AUTH:
       options.auth === "public"
@@ -199,6 +246,44 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
         : options.auth === "api-key"
           ? "--token <MCP_API_KEY> \\\n  "
           : "--token <LOCAL_USER_JWT> \\\n  ",
+    PACKAGE_VERSION,
+    STATE_CONFIG: options.stateNamespace
+      ? `  state: {\n    hmacKey: stateHmacKey,\n    namespaces: { ${JSON.stringify(options.stateNamespace)}: { ttlSeconds: 86400 } },\n  },\n`
+      : "",
+    STATE_SETUP: options.stateNamespace
+      ? `const stateHmacKey = ${envRead("CHUMBO_STATE_HMAC_KEY")};\nif (!stateHmacKey) throw new Error("CHUMBO_STATE_HMAC_KEY is not configured");\n`
+      : "",
+    SERVER_NAME: options.serverName,
+  };
+}
+
+function validateStateOptions(options: InitOptions): void {
+  if (!options.stateNamespace) return;
+  if (options.auth === "public") {
+    throw new Error("Durable state requires protected authentication");
+  }
+  validateDurableStateNamespace(options.stateNamespace);
+}
+
+async function planEdgeInit(options: InitOptions): Promise<PlannedFile[]> {
+  const root = await findSupabaseProject(options.cwd);
+  const localEndpoint = await resolveLocalMcpEndpoint(
+    root,
+    options.functionName,
+  );
+  validateStateOptions(options);
+  const functionDirectory = join(
+    root,
+    "supabase",
+    "functions",
+    options.functionName,
+  );
+  const replacements = {
+    ...sharedReplacements(options, (name) => `Deno.env.get("${name}")`),
+    API_KEY_SETUP:
+      options.auth === "api-key"
+        ? '\nFor local development, create the gitignored file `supabase/functions/.env.local`:\n\n```dotenv\nMCP_API_KEY=replace-with-a-long-random-key\n```\n\nLoad it with `npx chumbo dev --function {{FUNCTION_NAME}} --env-file supabase/functions/.env.local`. For the hosted function, set the same secret separately:\n\n```sh\nsupabase secrets set MCP_API_KEY="replace-with-a-long-random-key"\n```\n\nPass that value as `Authorization: Bearer <key>` from MCP clients.\n'
+        : "",
     LOCAL_DEV_AUTH:
       options.auth === "api-key"
         ? " --env-file supabase/functions/.env.local"
@@ -207,24 +292,16 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
       options.auth === "public" ? "supabase migration up --local\n" : "",
     LOCAL_ENDPOINT: localEndpoint,
     LOCAL_ORIGIN: new URL(localEndpoint).origin,
-    PACKAGE_VERSION,
     PUBLIC_SETUP:
       options.auth === "public"
         ? "\nPublic mode is intentionally anonymous and rate limited. After starting local Supabase, apply the generated migration before probing the function:\n\n```sh\nsupabase migration up --local\n```\n\nApply the same migration to the linked project with `supabase db push` before deployment.\n"
         : "",
-    STATE_CONFIG: options.stateNamespace
-      ? `  state: {\n    hmacKey: stateHmacKey,\n    namespaces: { ${JSON.stringify(options.stateNamespace)}: { ttlSeconds: 86400 } },\n  },\n`
-      : "",
     STATE_README: options.stateNamespace
       ? `\nThis function opts into credential-partitioned durable state in the ${JSON.stringify(options.stateNamespace)} namespace. Apply the generated migration, then set a unique deployment HMAC secret before starting or deploying:\n\n\`\`\`sh\nsupabase db push\nsupabase secrets set CHUMBO_STATE_HMAC_KEY=\"replace-with-at-least-32-random-bytes\"\n\`\`\`\n\nThe runtime keeps its service-role client private. Capability code sees only \`ctx.state.get\`, revision-checked \`put\`, and revision-checked \`delete\`.\n`
-      : "",
-    STATE_SETUP: options.stateNamespace
-      ? 'const stateHmacKey = Deno.env.get("CHUMBO_STATE_HMAC_KEY");\nif (!stateHmacKey) throw new Error("CHUMBO_STATE_HMAC_KEY is not configured");\n'
       : "",
     STATE_TEST_SETUP: options.stateNamespace
       ? 'Deno.env.set("CHUMBO_STATE_HMAC_KEY", "generated-state-test-hmac-key-32-bytes");\nDeno.env.set("SUPABASE_SECRET_KEY", Deno.env.get("SUPABASE_SECRET_KEY") ?? "generated-secret-key");\n'
       : "",
-    SERVER_NAME: options.serverName,
   };
   const templates = [
     ["function/index.ts.tpl", join(functionDirectory, "index.ts")],
@@ -251,12 +328,7 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
   }
 
   if (options.auth === "public") {
-    const path = join(
-      root,
-      "supabase",
-      "migrations",
-      "20260813000000_create_supa_mcp_rate_limits.sql",
-    );
+    const path = join(root, "supabase", "migrations", RATE_LIMIT_MIGRATION);
     files.push(
       await classifyFile(
         path,
@@ -269,12 +341,7 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
   }
 
   if (options.stateNamespace) {
-    const path = join(
-      root,
-      "supabase",
-      "migrations",
-      "20260826000000_create_supa_mcp_durable_state.sql",
-    );
+    const path = join(root, "supabase", "migrations", DURABLE_STATE_MIGRATION);
     files.push(
       await classifyFile(
         path,
@@ -314,6 +381,191 @@ export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
     });
   }
   return files;
+}
+
+async function readPackageManifest(
+  root: string,
+): Promise<Record<string, unknown>> {
+  try {
+    return JSON.parse(
+      await readFile(join(root, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      "package.json could not be read. Run this command inside your application repository.",
+    );
+  }
+}
+
+function hasDependency(
+  manifest: Record<string, unknown>,
+  name: string,
+): boolean {
+  for (const field of ["dependencies", "devDependencies"]) {
+    const dependencies = manifest[field];
+    if (
+      dependencies &&
+      typeof dependencies === "object" &&
+      name in dependencies
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The App Router base directory of a Next.js repository, if present. */
+export async function nextAppBase(root: string): Promise<string | undefined> {
+  if (await exists(join(root, "src", "app"))) return join("src", "app");
+  if (await exists(join(root, "app"))) return "app";
+  return undefined;
+}
+
+/** Directory holding the generated host-target scaffold for a repository. */
+export async function hostScaffoldDirectory(
+  root: string,
+  functionName: string,
+  target: SetupTarget,
+): Promise<string> {
+  if (target === "next") {
+    const base = await nextAppBase(root);
+    return join(root, base ?? "app", functionName);
+  }
+  return join(root, functionName);
+}
+
+async function planHostInit(options: InitOptions): Promise<PlannedFile[]> {
+  const target = options.target as Exclude<SetupTarget, "edge-function">;
+  const root = await findPackageProject(options.cwd);
+  validateStateOptions(options);
+  if (options.consent === "minimal") {
+    throw new Error(
+      "The generated consent function targets Supabase Edge Functions. On this target, your application's signed-in UI owns consent.",
+    );
+  }
+  const manifest = await readPackageManifest(root);
+  if (target === "next" && !hasDependency(manifest, "next")) {
+    throw new Error(
+      "--target next requires a Next.js application: package.json does not list a 'next' dependency.",
+    );
+  }
+  let scaffoldDirectory: string;
+  let entryTemplate: string;
+  let entryPath: string;
+  let readmeTemplate: string;
+  if (target === "next") {
+    const base = await nextAppBase(root);
+    if (!base) {
+      throw new Error(
+        "No App Router directory was found. Create app/ or src/app/, or use --target node for a standalone server.",
+      );
+    }
+    scaffoldDirectory = join(root, base, options.functionName);
+    entryTemplate = "host/next-route.ts.tpl";
+    entryPath = join(scaffoldDirectory, "[[...path]]", "route.ts");
+    readmeTemplate = "host/next-README.md.tpl";
+  } else {
+    scaffoldDirectory = join(root, options.functionName);
+    entryTemplate = "host/node-index.ts.tpl";
+    entryPath = join(scaffoldDirectory, "index.ts");
+    readmeTemplate = "host/node-README.md.tpl";
+  }
+
+  const localEndpoint = await resolveTargetLocalEndpoint(
+    root,
+    options.functionName,
+    target,
+  );
+  const installCommand = await packageInstallCommand(root);
+  const hasSupabaseConfig = await exists(join(root, "supabase", "config.toml"));
+  const migrationDirectory = hasSupabaseConfig
+    ? join(root, "supabase", "migrations")
+    : join(scaffoldDirectory, "migrations");
+  const applyMigrationInstruction = hasSupabaseConfig
+    ? "Apply it to your Supabase project with `supabase db push`."
+    : "Apply it to your Supabase project through the SQL editor or `psql` before serving traffic.";
+
+  const envLines: string[] = [];
+  if (options.auth === "api-key") {
+    envLines.push("MCP_API_KEY=replace-with-a-long-random-key");
+  }
+  if (options.auth === "public") {
+    envLines.push("SUPABASE_SECRET_KEY=your-secret-or-service-role-key");
+  }
+  if (options.stateNamespace) {
+    envLines.push(
+      "CHUMBO_STATE_HMAC_KEY=replace-with-at-least-32-random-bytes",
+      "SUPABASE_SECRET_KEY=your-secret-or-service-role-key",
+    );
+  }
+  const migrationNotes: string[] = [];
+  if (options.auth === "public") {
+    migrationNotes.push(
+      `Public mode is intentionally anonymous and rate limited. The endpoint returns 503 until the generated \`${RATE_LIMIT_MIGRATION}\` migration is installed. ${applyMigrationInstruction}`,
+    );
+  }
+  if (options.stateNamespace) {
+    migrationNotes.push(
+      `Durable state stays unavailable until the generated \`${DURABLE_STATE_MIGRATION}\` migration is installed. ${applyMigrationInstruction} The runtime keeps its service-role client private; capability code sees only \`ctx.state.get\`, revision-checked \`put\`, and revision-checked \`delete\`.`,
+    );
+  }
+
+  const replacements = {
+    ...sharedReplacements(options, (name) => `process.env.${name}`),
+    HOST_ENV_SETUP: envLines.length > 0 ? `${envLines.join("\n")}\n` : "",
+    HOST_MIGRATION_SETUP:
+      migrationNotes.length > 0
+        ? `\n${migrationNotes.map((note) => `${note}\n`).join("\n")}`
+        : "",
+    INSTALL_COMMAND: installCommand,
+    LOCAL_ENDPOINT: localEndpoint,
+  };
+
+  const files: PlannedFile[] = [
+    await classifyFile(
+      entryPath,
+      render(await loadTemplate(entryTemplate), replacements),
+    ),
+    await classifyFile(
+      join(scaffoldDirectory, "capabilities.ts"),
+      render(await loadTemplate("function/capabilities.ts.tpl"), replacements),
+    ),
+    await classifyFile(
+      join(scaffoldDirectory, "README.md"),
+      render(await loadTemplate(readmeTemplate), replacements),
+    ),
+  ];
+
+  if (options.auth === "public") {
+    files.push(
+      await classifyFile(
+        join(migrationDirectory, RATE_LIMIT_MIGRATION),
+        render(
+          await loadTemplate("migrations/rate-limit.sql.tpl"),
+          replacements,
+        ),
+      ),
+    );
+  }
+  if (options.stateNamespace) {
+    files.push(
+      await classifyFile(
+        join(migrationDirectory, DURABLE_STATE_MIGRATION),
+        render(
+          await loadTemplate("migrations/durable-state.sql.tpl"),
+          replacements,
+        ),
+      ),
+    );
+  }
+  return files;
+}
+
+export async function planInit(options: InitOptions): Promise<PlannedFile[]> {
+  const target = options.target ?? "edge-function";
+  return target === "edge-function"
+    ? planEdgeInit(options)
+    : planHostInit({ ...options, target });
 }
 
 export async function applyPlan(files: readonly PlannedFile[]): Promise<void> {

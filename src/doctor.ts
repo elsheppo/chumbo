@@ -1,9 +1,16 @@
 import { access, readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { findSupabaseProject, PACKAGE_VERSION } from "./project.js";
+import { dirname, join } from "node:path";
 import {
-  inspectGeneratedAuth,
+  findPackageProject,
+  findSupabaseProject,
+  PACKAGE_VERSION,
+  type SetupTarget,
+} from "./project.js";
+import {
+  detectGeneratedScaffold,
+  inspectGeneratedAuthAt,
   type ApiKeyStrategy,
+  type GeneratedScaffold,
   type SetupAuthMode,
 } from "./setup.js";
 
@@ -14,6 +21,7 @@ export interface DoctorOptions {
   token?: string;
   auth?: SetupAuthMode;
   apiKeyStrategy?: ApiKeyStrategy;
+  target?: SetupTarget;
   callTool?: string;
   callArgs?: Record<string, unknown>;
 }
@@ -135,9 +143,18 @@ function isLocalEndpoint(value: string): boolean {
   return hostname === "127.0.0.1" || hostname === "localhost";
 }
 
+function localServeGuidance(functionName: string, target: SetupTarget): string {
+  if (target === "next") return "Start your app's dev server";
+  if (target === "node") {
+    return `Run node --experimental-strip-types ${functionName}/index.ts`;
+  }
+  return `Run npx chumbo dev --function ${functionName}`;
+}
+
 async function unreachableCheck(
   url: string,
   functionName: string,
+  target: SetupTarget,
 ): Promise<DoctorCheck> {
   if (!isLocalEndpoint(url)) {
     return {
@@ -145,6 +162,13 @@ async function unreachableCheck(
       ok: false,
       detail:
         "The endpoint did not respond. Check the URL and deployment, then retry doctor.",
+    };
+  }
+  if (target !== "edge-function") {
+    return {
+      name: "local-server-running",
+      ok: false,
+      detail: `The local server did not respond. ${localServeGuidance(functionName, target)}, then retry doctor.`,
     };
   }
   const origin = endpointUrl(url)!.origin;
@@ -167,6 +191,7 @@ async function unreachableCheck(
 
 async function mcpProbe(
   options: DoctorOptions,
+  target: SetupTarget,
   checks: DoctorCheck[],
   token?: string,
 ): Promise<void> {
@@ -182,7 +207,9 @@ async function mcpProbe(
       body: initializeRequest(),
     });
   } catch {
-    checks.push(await unreachableCheck(options.url!, options.functionName));
+    checks.push(
+      await unreachableCheck(options.url!, options.functionName, target),
+    );
     return;
   }
   const initializeBody = await responseBody(initializeResponse);
@@ -290,72 +317,154 @@ function challengeMetadataUrl(value: string | null): string | undefined {
     .find(Boolean);
 }
 
-export async function runDoctor(
-  options: DoctorOptions,
-): Promise<DoctorCheck[]> {
-  const root = await findSupabaseProject(options.cwd);
-  const inspection = await inspectGeneratedAuth(root, options.functionName);
-  const configuredAuth = options.auth ?? inspection?.mode;
-  let auth: SetupAuthMode | "multi" = configuredAuth ?? "oauth";
-  let apiKeyStrategy =
-    options.apiKeyStrategy ?? inspection?.apiKeyStrategy ?? "unknown";
-  const checks: DoctorCheck[] = [];
-  const config = await readFile(join(root, "supabase", "config.toml"), "utf8");
-  const escaped = options.functionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const section = new RegExp(
-    `\\[functions\\.${escaped}\\][\\s\\S]*?(?=\\n\\[|$)`,
-  ).exec(config)?.[0];
-  const gatewayConfigured = Boolean(
-    section && /verify_jwt\s*=\s*false/.test(section),
-  );
-  checks.push({
-    name: "gateway",
-    ok: gatewayConfigured,
-    detail: gatewayConfigured
-      ? "function handles authentication and MCP challenges"
-      : section
-        ? `set verify_jwt = false in [functions.${options.functionName}] so requests reach Chumbo`
-        : `missing [functions.${options.functionName}] configuration`,
-  });
-
-  const functionDir = join(root, "supabase", "functions", options.functionName);
-  for (const name of [
-    "index.ts",
-    "capabilities.ts",
-    "deno.json",
-    "index_test.ts",
-  ]) {
-    const ok = await fileExists(join(functionDir, name));
-    checks.push({
-      name: `file:${name}`,
-      ok,
-      detail: ok ? "present" : "missing",
-      ...(name === "index.ts" ? {} : { blocking: false }),
-    });
-  }
-
-  const indexPath = join(functionDir, "index.ts");
-  const denoPath = join(functionDir, "deno.json");
-  const packagePath = join(root, "package.json");
-  const dependencySources = await Promise.all(
-    [indexPath, denoPath, packagePath].map(async (path) =>
-      (await fileExists(path)) ? readFile(path, "utf8") : "",
-    ),
-  );
-  const pinnedRuntime = dependencySources.some(
+function pinnedRuntimeSources(sources: readonly string[]): boolean {
+  return sources.some(
     (source) =>
       /(?:chumbo|supa-mcp)@\d+\.\d+\.\d+/.test(source) ||
       /["'](?:chumbo|supa-mcp)["']\s*:\s*["'](?:npm:)?(?:chumbo@|supa-mcp@)?\d+\.\d+\.\d+["']/.test(
         source,
       ),
   );
-  checks.push({
-    name: "dependencies",
-    ok: pinnedRuntime,
-    detail: pinnedRuntime
-      ? "runtime import is pinned"
-      : "pin chumbo to an exact version in index.ts, deno.json, or package.json",
-  });
+}
+
+export async function runDoctor(
+  options: DoctorOptions,
+): Promise<DoctorCheck[]> {
+  let supabaseRoot: string | undefined;
+  try {
+    supabaseRoot = await findSupabaseProject(options.cwd);
+  } catch {
+    supabaseRoot = undefined;
+  }
+  let packageRoot: string | undefined;
+  try {
+    packageRoot = await findPackageProject(options.cwd);
+  } catch {
+    packageRoot = undefined;
+  }
+  let root = supabaseRoot;
+  let scaffold: GeneratedScaffold | undefined = supabaseRoot
+    ? await detectGeneratedScaffold(supabaseRoot, options.functionName)
+    : undefined;
+  if (!scaffold && packageRoot && packageRoot !== supabaseRoot) {
+    const detected = await detectGeneratedScaffold(
+      packageRoot,
+      options.functionName,
+    );
+    if (detected) {
+      root = packageRoot;
+      scaffold = detected;
+    }
+  }
+  if (!supabaseRoot && !scaffold && !options.url) {
+    throw new Error(
+      "No Chumbo scaffold was found. Run this command inside a project with a generated MCP, or pass --url to probe a deployed endpoint.",
+    );
+  }
+  const target: SetupTarget =
+    scaffold?.target ??
+    options.target ??
+    (supabaseRoot ? "edge-function" : "edge-function");
+  const inspection = scaffold
+    ? await inspectGeneratedAuthAt(scaffold.entryPath)
+    : undefined;
+  const configuredAuth = options.auth ?? inspection?.mode;
+  let auth: SetupAuthMode | "multi" = configuredAuth ?? "oauth";
+  let apiKeyStrategy =
+    options.apiKeyStrategy ?? inspection?.apiKeyStrategy ?? "unknown";
+  const checks: DoctorCheck[] = [];
+
+  if (target === "edge-function" && supabaseRoot) {
+    const config = await readFile(
+      join(supabaseRoot, "supabase", "config.toml"),
+      "utf8",
+    );
+    const escaped = options.functionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const section = new RegExp(
+      `\\[functions\\.${escaped}\\][\\s\\S]*?(?=\\n\\[|$)`,
+    ).exec(config)?.[0];
+    const gatewayConfigured = Boolean(
+      section && /verify_jwt\s*=\s*false/.test(section),
+    );
+    checks.push({
+      name: "gateway",
+      ok: gatewayConfigured,
+      detail: gatewayConfigured
+        ? "function handles authentication and MCP challenges"
+        : section
+          ? `set verify_jwt = false in [functions.${options.functionName}] so requests reach Chumbo`
+          : `missing [functions.${options.functionName}] configuration`,
+    });
+
+    const functionDir = join(
+      supabaseRoot,
+      "supabase",
+      "functions",
+      options.functionName,
+    );
+    for (const name of [
+      "index.ts",
+      "capabilities.ts",
+      "deno.json",
+      "index_test.ts",
+    ]) {
+      const ok = await fileExists(join(functionDir, name));
+      checks.push({
+        name: `file:${name}`,
+        ok,
+        detail: ok ? "present" : "missing",
+        ...(name === "index.ts" ? {} : { blocking: false }),
+      });
+    }
+
+    const indexPath = join(functionDir, "index.ts");
+    const denoPath = join(functionDir, "deno.json");
+    const packagePath = join(supabaseRoot, "package.json");
+    const dependencySources = await Promise.all(
+      [indexPath, denoPath, packagePath].map(async (path) =>
+        (await fileExists(path)) ? readFile(path, "utf8") : "",
+      ),
+    );
+    const pinnedRuntime = pinnedRuntimeSources(dependencySources);
+    checks.push({
+      name: "dependencies",
+      ok: pinnedRuntime,
+      detail: pinnedRuntime
+        ? "runtime import is pinned"
+        : "pin chumbo to an exact version in index.ts, deno.json, or package.json",
+    });
+  } else if (scaffold && root) {
+    const scaffoldDirectory =
+      target === "next"
+        ? dirname(dirname(scaffold.entryPath))
+        : dirname(scaffold.entryPath);
+    const entryName = target === "next" ? "route.ts" : "index.ts";
+    checks.push({
+      name: `file:${entryName}`,
+      ok: true,
+      detail: "present",
+    });
+    const capabilitiesPresent = await fileExists(
+      join(scaffoldDirectory, "capabilities.ts"),
+    );
+    checks.push({
+      name: "file:capabilities.ts",
+      ok: capabilitiesPresent,
+      detail: capabilitiesPresent ? "present" : "missing",
+      blocking: false,
+    });
+    const packageSource = (await fileExists(join(root, "package.json")))
+      ? await readFile(join(root, "package.json"), "utf8")
+      : "";
+    const pinnedRuntime = pinnedRuntimeSources([packageSource]);
+    checks.push({
+      name: "dependencies",
+      ok: pinnedRuntime,
+      detail: pinnedRuntime
+        ? "runtime dependency is pinned"
+        : "pin chumbo to an exact version in package.json",
+    });
+  }
 
   if (!options.url) return checks;
   if (!endpointUrl(options.url)) {
@@ -375,7 +484,9 @@ export async function runDoctor(
       body: modernRequest("tools/list"),
     });
   } catch {
-    checks.push(await unreachableCheck(options.url, options.functionName));
+    checks.push(
+      await unreachableCheck(options.url, options.functionName, target),
+    );
     return checks;
   }
   const runtimeVersion =
@@ -417,8 +528,8 @@ export async function runDoctor(
       name: "function-reachable",
       ok: false,
       detail: isLocalEndpoint(options.url)
-        ? `The local function '${options.functionName}' returned HTTP 404. Run npx chumbo dev --function ${options.functionName}, then retry doctor.`
-        : `The function returned HTTP 404. Check --url and deploy '${options.functionName}', then retry doctor.`,
+        ? `The local endpoint '${options.functionName}' returned HTTP 404. ${localServeGuidance(options.functionName, target)}, then retry doctor.`
+        : `The endpoint returned HTTP 404. Check --url and deploy '${options.functionName}', then retry doctor.`,
     });
     return checks;
   }
@@ -494,7 +605,7 @@ export async function runDoctor(
         ? `${response.headers.get("x-ratelimit-limit")} requests per window`
         : "missing rate-limit response headers; apply the generated public rate-limit migration to the local database, then retry",
     });
-    await mcpProbe(options, checks);
+    await mcpProbe(options, target, checks);
     return checks;
   }
 
@@ -507,7 +618,7 @@ export async function runDoctor(
         : `HTTP ${response.status}; responding layer is unconfirmed`,
     });
     if (!options.token) return checks;
-    await mcpProbe(options, checks, options.token);
+    await mcpProbe(options, target, checks, options.token);
     return checks;
   }
 
@@ -564,7 +675,7 @@ export async function runDoctor(
   }
 
   if (options.token) {
-    await mcpProbe(options, checks, options.token);
+    await mcpProbe(options, target, checks, options.token);
   }
   return checks;
 }

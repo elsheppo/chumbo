@@ -4,22 +4,43 @@ import { access, readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
+import {
+  applyCloudPatch,
+  cloudDeviceName,
+  CloudSetupApiError,
+  createCloudSetupClient,
+  createPkce,
+  cloudSetupNeedsMachineConfirmation,
+  formatCloudPatchPlan,
+  loadCloudPatch,
+  openPairingUrl,
+  resolveCloudDeployCommand,
+  reportCloudSetupEvent,
+} from "./cloud-setup.js";
 import { runDoctor, type DoctorCheck } from "./doctor.js";
+import { buildHostTargetReport, type HostTarget } from "./host-target.js";
 import {
   applyPlan,
   displayPlan,
+  findPackageProject,
   findSupabaseProject,
+  packageInstallCommand,
   PACKAGE_VERSION,
   planInit,
   resolveLocalMcpEndpoint,
+  resolveTargetLocalEndpoint,
+  SETUP_TARGETS,
   type PlannedFile,
+  type SetupTarget,
 } from "./project.js";
 import {
   buildSetupReport,
+  detectGeneratedScaffold,
   detectLinkedProjectRef,
   endpointFor,
   formatSetupReport,
   inspectGeneratedAuth,
+  inspectGeneratedAuthAt,
   normalizePublicUrl,
   type ApiKeyStrategy,
   type RemoteVerificationEvidence,
@@ -45,17 +66,25 @@ Usage:
   chumbo doctor [options]  Check local or deployed setup
   chumbo dev [options]     Serve the function locally
   chumbo skill <action>    Install, inspect, or update the project agent skill
+  chumbo cloud setup       Pair with Cloud and finish analytics setup
 
 Skill actions:
   skill install           Install the versioned skill into this project
   skill status            Inspect the managed installation without writing
   skill update            Safely update unmodified managed skill files
 
+Cloud setup options:
+  --cloud-url <url>        Chumbo Cloud origin (default: https://app.chumbo.dev)
+  --agent-name <name>      Name shown in browser activity (default: Coding agent)
+  --no-browser             Print the pairing URL without opening it
+  --deploy                 Check and deploy the selected function after patching
+
 Setup options:
-  --function <name>       Edge Function name (default: mcp)
+  --target <target>       edge-function (default), next, or node
+  --function <name>       MCP name and route segment (default: mcp)
   --server-name <name>    MCP display name (default: repository name)
   --auth <mode>           oauth, api-key, bearer, or public (guided interactively)
-  --consent <mode>        none or minimal (default: none)
+  --consent <mode>        none or minimal (default: none; edge-function only)
   --project-ref <ref>     Supabase project ref for deploy and endpoint discovery
   --public-url <url>      Clean URL clients will use, such as https://app.com/mcp
   --state-namespace <id>  Opt into credential-partitioned Postgres state
@@ -79,6 +108,7 @@ Shared options:
 
 Agent quickstart:
   chumbo setup --auth oauth --yes --json
+  chumbo setup --target next --yes --json
   chumbo status --json
   chumbo skill install --yes --json
 `;
@@ -96,9 +126,11 @@ function parse(commandArgs: string[]) {
     options: {
       "apply-migrations": { type: "boolean" },
       auth: { type: "string" },
+      "agent-name": { type: "string" },
       "call-args": { type: "string" },
       "call-tool": { type: "string" },
       consent: { type: "string" },
+      "cloud-url": { type: "string" },
       deploy: { type: "boolean" },
       "dry-run": { type: "boolean" },
       "env-file": { type: "string" },
@@ -106,6 +138,7 @@ function parse(commandArgs: string[]) {
       help: { type: "boolean" },
       json: { type: "boolean" },
       "no-config": { type: "boolean" },
+      "no-browser": { type: "boolean" },
       plan: { type: "boolean" },
       "project-ref": { type: "string" },
       "public-url": { type: "string" },
@@ -113,6 +146,7 @@ function parse(commandArgs: string[]) {
       "server-name": { type: "string" },
       "skip-checks": { type: "boolean" },
       "state-namespace": { type: "string" },
+      target: { type: "string" },
       token: { type: "string" },
       url: { type: "string" },
       yes: { type: "boolean", short: "y" },
@@ -469,12 +503,284 @@ async function skill(args: string[]): Promise<void> {
   else printSkillReport(reportPlan, "complete");
 }
 
+async function pause(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function cloud(args: string[]): Promise<void> {
+  const parsed = parse(args);
+  const [action, ...extra] = parsed.positionals;
+  if (action !== "setup" || extra.length > 0) {
+    throw new Error("Use `chumbo cloud setup`.");
+  }
+  const machine = parsed.values.json ?? false;
+  const root = await findSupabaseProject(process.cwd());
+  const origin = parsed.values["cloud-url"] ?? "https://app.chumbo.dev";
+  const client = createCloudSetupClient(origin);
+  const pkce = createPkce();
+  const started = await client.start({
+    codeChallenge: pkce.challenge,
+    deviceName: cloudDeviceName(),
+    agentName: parsed.values["agent-name"] ?? "Coding agent",
+  });
+  const pairingMessage = `Approve Chumbo Cloud setup:\n  ${started.verificationUriComplete}\n  Code: ${started.userCode}`;
+  if (machine) process.stderr.write(`${pairingMessage}\n`);
+  else console.log(`\n${pairingMessage}\n`);
+  if (!parsed.values["no-browser"])
+    openPairingUrl(started.verificationUriComplete);
+
+  let token: string | undefined;
+  while (Date.now() < new Date(started.expiresAt).getTime()) {
+    try {
+      token = (await client.token(started.deviceCode, pkce.verifier))
+        .accessToken;
+      break;
+    } catch (error) {
+      if (
+        !(error instanceof CloudSetupApiError) ||
+        error.code !== "AUTHORIZATION_PENDING"
+      )
+        throw error;
+      await pause(Math.max(1, started.intervalSeconds) * 1_000);
+    }
+  }
+  if (!token)
+    throw new Error(
+      "The pairing code expired. Run `chumbo cloud setup` again.",
+    );
+  const warnings: string[] = [];
+  const warn = (message: string) => {
+    warnings.push(message);
+    if (!machine) process.stderr.write(`Warning: ${message}\n`);
+  };
+  const report = (event: Parameters<typeof client.event>[1]) =>
+    reportCloudSetupEvent(
+      (reportedEvent) => client.event(token!, reportedEvent),
+      event,
+      warn,
+    );
+  let task: Awaited<ReturnType<typeof client.task>>;
+  try {
+    task = await client.task(token);
+  } catch (error) {
+    await report({
+      kind: "session_failed",
+      summary: "Cloud did not provide a valid setup task.",
+    });
+    throw error;
+  }
+  const linkedProject = await detectLinkedProjectRef(root);
+  if (linkedProject && linkedProject !== task.project.ref) {
+    await report({
+      kind: "session_failed",
+      summary:
+        "The local Supabase project did not match the approved Cloud project.",
+    });
+    throw new Error(
+      `This repository is linked to ${linkedProject}, but Cloud approved ${task.project.ref}. Select the matching project and pair again.`,
+    );
+  }
+  await report({
+    kind: "inspection_started",
+    summary: `Inspecting ${task.functionSlug}.`,
+  });
+  let plan: Awaited<ReturnType<typeof loadCloudPatch>>;
+  try {
+    plan = await loadCloudPatch(root, task);
+  } catch (error) {
+    await report({
+      kind: "session_failed",
+      summary: `Could not safely prepare ${task.functionSlug}.`,
+    });
+    throw error;
+  }
+  await report({
+    kind: "inspection_completed",
+    summary: `Found the Chumbo MCP function ${task.functionSlug}.`,
+  });
+  if (plan.changed)
+    await report({
+      kind: "change_proposed",
+      summary: "Ready to connect lifecycle and capability telemetry.",
+      detail: `Update ${relative(root, plan.functionPath)} and generate ${relative(root, plan.adapterPath)}.`,
+    });
+
+  const result = (
+    status: string,
+    nextAction?: string,
+    includeChanges = false,
+  ) => ({
+    schemaVersion: 1 as const,
+    command: "cloud setup" as const,
+    status,
+    sessionId: task.sessionId,
+    project: task.project,
+    functionName: task.functionSlug,
+    files: [
+      relative(root, plan.functionPath),
+      relative(root, plan.adapterPath),
+    ],
+    changed: plan.changed,
+    ...(includeChanges
+      ? {
+          changes: plan.changes.map((change) => ({
+            path: relative(root, change.path),
+            action: change.action,
+            addedText: change.addedText,
+          })),
+        }
+      : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
+    ...(nextAction ? { nextAction } : {}),
+  });
+  if (parsed.values.plan) {
+    if (machine)
+      printJson(
+        result(
+          "planned",
+          "Re-run with --yes to apply this exact change.",
+          true,
+        ),
+      );
+    else
+      console.log(
+        `Exact file plan:\n\n${formatCloudPatchPlan(plan, root)}\n\nNo files changed.`,
+      );
+    return;
+  }
+  if (!machine) {
+    console.log(`Exact file plan:\n\n${formatCloudPatchPlan(plan, root)}\n`);
+  }
+  if (
+    cloudSetupNeedsMachineConfirmation({
+      machine,
+      yes: Boolean(parsed.values.yes),
+      planOnly: false,
+    })
+  ) {
+    printJson(
+      result(
+        "needs_confirmation",
+        "Review changes, then rerun with --yes.",
+        true,
+      ),
+    );
+    return;
+  }
+  if (
+    !parsed.values.yes &&
+    !(await confirm("Let Chumbo connect this function to Cloud?"))
+  ) {
+    if (machine) printJson(result("needs_confirmation", "Re-run with --yes."));
+    else console.log("No files changed.");
+    return;
+  }
+  await applyCloudPatch(plan);
+  await report({
+    kind: "change_applied",
+    summary: plan.changed
+      ? "Connected the local Chumbo function to Cloud."
+      : "The local Chumbo Cloud adapter was already current.",
+  });
+
+  if (!parsed.values.deploy) {
+    const next = `Review the files, then run: npx chumbo cloud setup --deploy --yes`;
+    if (machine) printJson(result("ready_to_deploy", next));
+    else console.log(`\nLocal setup is ready.\n${next}`);
+    return;
+  }
+
+  await report({
+    kind: "checks_started",
+    summary: `Checking ${task.functionSlug}.`,
+  });
+  const functionDir = join(root, "supabase", "functions", task.functionSlug);
+  const check = await runCommand(
+    "deno",
+    ["check", "index.ts"],
+    functionDir,
+    machine,
+  );
+  if (!check.ok) {
+    await report({
+      kind: "session_failed",
+      summary: "The local function check failed.",
+    });
+    throw new Error(`Local check failed: ${check.detail}`);
+  }
+  await report({
+    kind: "checks_completed",
+    summary: "The local function check passed.",
+  });
+  await report({
+    kind: "deployment_started",
+    summary: `Deploying only ${task.functionSlug}.`,
+  });
+  const deployCommand = await resolveCloudDeployCommand({
+    root,
+    functionSlug: task.functionSlug,
+    projectRef: task.project.ref,
+  });
+  const deploy = await runCommand(
+    deployCommand.command,
+    deployCommand.args,
+    root,
+    machine,
+  );
+  if (!deploy.ok) {
+    await report({
+      kind: "session_failed",
+      summary: "The function deployment failed.",
+    });
+    throw new Error(`Deployment failed: ${deploy.detail}`);
+  }
+  await report({
+    kind: "deployment_completed",
+    summary: `${task.functionSlug} was deployed.`,
+  });
+  await report({
+    kind: "verification_started",
+    summary: "Checking for verified MCP activity.",
+  });
+  let verification: Awaited<ReturnType<typeof client.verify>>;
+  try {
+    verification = await client.verify(token);
+  } catch {
+    const next =
+      "The function was deployed, but Cloud verification is temporarily unavailable. Open Chumbo Cloud and check again.";
+    warn("Cloud verification is temporarily unavailable after deployment.");
+    if (machine) printJson(result("deployed_unverified", next));
+    else console.log(`\nDeployment completed. ${next}`);
+    return;
+  }
+  if (verification.state === "verified") {
+    if (machine) printJson(result("complete"));
+    else console.log("\nChumbo Cloud setup is complete.");
+  } else {
+    const next =
+      verification.nextAction ??
+      "Run one real MCP tool call, then open Chumbo Cloud.";
+    if (machine) printJson(result("waiting_for_activity", next));
+    else console.log(`\nDeployment is ready. ${next}`);
+  }
+}
+
 async function init(args: string[]): Promise<void> {
   const parsed = parse(args);
   const machine = parsed.values.json ?? false;
-  const root = await findSupabaseProject(process.cwd());
+  const target =
+    parsedTarget(parsed.values.target, "--target") ?? "edge-function";
+  const root =
+    target === "edge-function"
+      ? await requireSupabaseProject()
+      : await findPackageProject(process.cwd());
   const functionName = parsed.values.function ?? "mcp";
-  const localEndpoint = await resolveLocalMcpEndpoint(root, functionName);
+  const localEndpoint = await resolveTargetLocalEndpoint(
+    root,
+    functionName,
+    target,
+  );
+  const targetFlag = target === "edge-function" ? "" : ` --target ${target}`;
   const auth = choice(
     parsed.values.auth,
     ["oauth", "api-key", "bearer", "public"] as const,
@@ -500,6 +806,7 @@ async function init(args: string[]): Promise<void> {
     consent,
     patchConfig: !parsed.values["no-config"],
     stateNamespace: parsed.values["state-namespace"],
+    target,
   });
   const conflicts = files.filter((file) => file.status === "conflict");
   if (conflicts.length > 0) {
@@ -518,7 +825,7 @@ async function init(args: string[]): Promise<void> {
       auth,
       files: fileSummary(files, root),
       nextCommand: needsConfirmation
-        ? `npx chumbo init --function ${functionName} --auth ${auth} --yes --json`
+        ? `npx chumbo init${targetFlag} --function ${functionName} --auth ${auth} --yes --json`
         : undefined,
     });
     return;
@@ -540,13 +847,13 @@ async function init(args: string[]): Promise<void> {
       functionName,
       auth,
       files: fileSummary(files, root),
-      nextCommand: `npx chumbo setup --resume --function ${functionName} --auth ${auth} --yes --json`,
+      nextCommand: `npx chumbo setup --resume${targetFlag} --function ${functionName} --auth ${auth} --yes --json`,
     });
     return;
   }
-  console.log(`Created Chumbo function '${functionName}'.`);
+  console.log(`Created Chumbo MCP '${functionName}'.`);
   console.log(
-    `\nContinue with:\n  chumbo setup --resume --function ${functionName}`,
+    `\nContinue with:\n  chumbo setup --resume${targetFlag} --function ${functionName}`,
   );
 }
 
@@ -638,10 +945,323 @@ function verificationDetail(
     : "The endpoint responded, but MCP capability discovery was not completed.";
 }
 
+function parsedTarget(
+  value: string | undefined,
+  label: string,
+): SetupTarget | undefined {
+  return value
+    ? choice(value, SETUP_TARGETS, "edge-function", label)
+    : undefined;
+}
+
+async function readManifest(
+  root: string,
+): Promise<Record<string, unknown> | undefined> {
+  try {
+    return JSON.parse(
+      await readFile(join(root, "package.json"), "utf8"),
+    ) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+function manifestHasDependency(
+  manifest: Record<string, unknown> | undefined,
+  name: string,
+): boolean {
+  if (!manifest) return false;
+  for (const field of ["dependencies", "devDependencies"]) {
+    const dependencies = manifest[field];
+    if (
+      dependencies &&
+      typeof dependencies === "object" &&
+      name in dependencies
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Roots that may hold a generated scaffold, nearest match first. */
+async function candidateRoots(): Promise<string[]> {
+  const roots: string[] = [];
+  try {
+    roots.push(await findSupabaseProject(process.cwd()));
+  } catch {
+    /* not a Supabase repository */
+  }
+  try {
+    const packageRoot = await findPackageProject(process.cwd());
+    if (!roots.includes(packageRoot)) roots.push(packageRoot);
+  } catch {
+    /* not inside a package either */
+  }
+  return roots;
+}
+
+async function detectExistingTarget(
+  functionName: string,
+): Promise<SetupTarget | undefined> {
+  for (const root of await candidateRoots()) {
+    const scaffold = await detectGeneratedScaffold(root, functionName);
+    if (scaffold) return scaffold.target;
+  }
+  return undefined;
+}
+
+/** The Supabase project root, or a targeted error naming the host targets. */
+async function requireSupabaseProject(): Promise<string> {
+  try {
+    return await findSupabaseProject(process.cwd());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    let hint =
+      " To host the MCP inside your application server instead, run npx chumbo setup --target next (Next.js) or --target node (standalone server).";
+    try {
+      const packageRoot = await findPackageProject(process.cwd());
+      if (manifestHasDependency(await readManifest(packageRoot), "next")) {
+        hint =
+          " This looks like a Next.js application: run npx chumbo setup --target next to host the MCP inside it.";
+      }
+    } catch {
+      hint = "";
+    }
+    throw new Error(`${message}${hint}`);
+  }
+}
+
+async function setupHostTarget(
+  args: string[],
+  target: HostTarget,
+): Promise<void> {
+  const parsed = parse(args);
+  const machine = parsed.values.json ?? false;
+  const root = await findPackageProject(process.cwd());
+  const functionName = parsed.values.function ?? "mcp";
+  const localEndpoint = await resolveTargetLocalEndpoint(
+    root,
+    functionName,
+    target,
+  );
+  if (parsed.values.consent === "minimal") {
+    throw new Error(
+      "The generated consent function targets Supabase Edge Functions. On this target, your application's signed-in UI owns consent.",
+    );
+  }
+  const scaffold = await detectGeneratedScaffold(root, functionName);
+  if (scaffold && scaffold.target !== target) {
+    throw new Error(
+      `The existing '${functionName}' scaffold targets ${scaffold.target}, not ${target}.`,
+    );
+  }
+  const existingInspection = scaffold
+    ? await inspectGeneratedAuthAt(scaffold.entryPath)
+    : undefined;
+  const existingAuth = existingInspection?.mode;
+  const requestedStateNamespace = parsed.values["state-namespace"];
+  if (
+    existingAuth &&
+    requestedStateNamespace &&
+    requestedStateNamespace !== existingInspection?.stateNamespace
+  ) {
+    throw new Error(
+      "--state-namespace does not match the existing scaffold configuration.",
+    );
+  }
+  const stateNamespace =
+    requestedStateNamespace ?? existingInspection?.stateNamespace;
+  if (
+    existingAuth &&
+    parsed.values.auth &&
+    existingAuth !== parsed.values.auth
+  ) {
+    throw new Error(
+      `The existing '${functionName}' scaffold uses ${existingAuth}, not ${parsed.values.auth}.`,
+    );
+  }
+  const auth = existingAuth
+    ? existingAuth
+    : parsed.values.auth
+      ? choice(
+          parsed.values.auth,
+          ["oauth", "api-key", "bearer", "public"] as const,
+          "oauth",
+          "--auth",
+        )
+      : process.stdin.isTTY && !machine && !parsed.values.yes
+        ? await guidedAuth()
+        : "oauth";
+  const apiKeyStrategy: ApiKeyStrategy | undefined =
+    auth === "api-key"
+      ? (existingInspection?.apiKeyStrategy ?? "static")
+      : undefined;
+  const publicUrl = parsed.values["public-url"]
+    ? normalizePublicUrl(parsed.values["public-url"])
+    : undefined;
+  const endpoint = parsed.values.url ?? publicUrl;
+  const planOnly = Boolean(parsed.values.plan);
+  let files: PlannedFile[] = [];
+  let applied = Boolean(existingAuth);
+
+  if (!existingAuth) {
+    files = await planInit({
+      cwd: root,
+      functionName,
+      serverName: parsed.values["server-name"] ?? basename(root),
+      auth,
+      consent: parsed.values.consent === "minimal" ? "minimal" : "none",
+      patchConfig: false,
+      stateNamespace,
+      target,
+    });
+    const conflicts = files.filter((file) => file.status === "conflict");
+    if (conflicts.length > 0) {
+      throw new Error(
+        "Resolve the listed file conflicts, then run setup again.",
+      );
+    }
+  }
+
+  const installCommand = await packageInstallCommand(root);
+  const runtimeInstalled = manifestHasDependency(
+    await readManifest(root),
+    "chumbo",
+  );
+  const hasChanges = files.some((file) =>
+    ["create", "update"].includes(file.status),
+  );
+  const needsConfirmation =
+    hasChanges &&
+    machine &&
+    !parsed.values.yes &&
+    !parsed.values.resume &&
+    !planOnly;
+  if (planOnly || needsConfirmation) {
+    const report = buildHostTargetReport({
+      command: "setup",
+      projectRoot: root,
+      functionName,
+      target,
+      auth,
+      localEndpoint,
+      files: fileSummary(files, root),
+      applied,
+      planned: true,
+      needsConfirmation,
+      runtimeInstalled,
+      installCommand,
+      durableState: Boolean(stateNamespace),
+      publicUrl,
+      endpoint,
+      apiKeyStrategy,
+    });
+    if (machine) printJson(report);
+    else {
+      console.log(`\nFile plan:\n${displayPlan(files, root)}\n`);
+      console.log(formatSetupReport(report));
+    }
+    return;
+  }
+
+  if (hasChanges) {
+    if (!machine) console.log(`\nFile plan:\n${displayPlan(files, root)}\n`);
+    if (
+      !parsed.values.yes &&
+      !parsed.values.resume &&
+      !(await confirm("Create this MCP server?"))
+    ) {
+      throw new Error(
+        "No files changed. Re-run with --yes for non-interactive use.",
+      );
+    }
+    await applyPlan(files);
+    applied = true;
+  }
+
+  const shouldVerify = Boolean(
+    parsed.values.url || (parsed.values.resume && endpoint),
+  );
+  let remoteVerified = false;
+  let remoteReady = !shouldVerify;
+  let verification: RemoteVerificationEvidence | undefined;
+  let verifyDetail: string | undefined;
+  if (shouldVerify && endpoint) {
+    try {
+      const remoteChecks = await runDoctor({
+        cwd: root,
+        functionName,
+        auth,
+        apiKeyStrategy,
+        target,
+        url: endpoint,
+        token: parsed.values.token,
+      });
+      const networkChecks = remoteChecks.filter(
+        (check) =>
+          check.name !== "dependencies" && !check.name.startsWith("file:"),
+      );
+      verification = remoteEvidence(
+        networkChecks,
+        auth,
+        Boolean(parsed.values.token),
+        true,
+      );
+      remoteReady = allChecksPass(networkChecks);
+      remoteVerified = remoteReady && verification.mcpDiscoveryVerified;
+      verifyDetail = verificationDetail(
+        verification,
+        auth,
+        remoteVerified,
+        networkChecks.filter((check) => !check.ok && check.blocking !== false),
+      );
+    } catch (error) {
+      remoteReady = false;
+      verifyDetail =
+        error instanceof Error ? error.message : "Remote verification failed.";
+    }
+  }
+
+  const report = buildHostTargetReport({
+    command: "setup",
+    projectRoot: root,
+    functionName,
+    target,
+    auth,
+    localEndpoint,
+    files: fileSummary(files, root),
+    applied,
+    planned: false,
+    runtimeInstalled,
+    installCommand,
+    durableState: Boolean(stateNamespace),
+    publicUrl,
+    endpoint,
+    remoteVerified,
+    remoteAttempted: shouldVerify,
+    remoteReady,
+    verification,
+    verifyDetail,
+    apiKeyStrategy,
+  });
+  if (machine) printJson(report);
+  else console.log(formatSetupReport(report));
+  if (report.status === "blocked") process.exitCode = 1;
+}
+
 async function setup(args: string[]): Promise<void> {
   const parsed = parse(args);
   const machine = parsed.values.json ?? false;
-  const root = await findSupabaseProject(process.cwd());
+  const requestedTarget = parsedTarget(parsed.values.target, "--target");
+  const resolvedTarget =
+    requestedTarget ??
+    (await detectExistingTarget(parsed.values.function ?? "mcp")) ??
+    "edge-function";
+  if (resolvedTarget !== "edge-function") {
+    return setupHostTarget(args, resolvedTarget);
+  }
+  const root = await requireSupabaseProject();
   const functionName = parsed.values.function ?? "mcp";
   const localEndpoint = await resolveLocalMcpEndpoint(root, functionName);
   const existingInspection = await inspectGeneratedAuth(root, functionName);
@@ -1021,10 +1641,136 @@ async function setup(args: string[]): Promise<void> {
   if (report.status === "blocked") process.exitCode = 1;
 }
 
+async function statusHostTarget(
+  args: string[],
+  target: HostTarget,
+): Promise<void> {
+  const parsed = parse(args);
+  const machine = parsed.values.json ?? false;
+  const root = await findPackageProject(process.cwd());
+  const functionName = parsed.values.function ?? "mcp";
+  const localEndpoint = await resolveTargetLocalEndpoint(
+    root,
+    functionName,
+    target,
+  );
+  const scaffold = await detectGeneratedScaffold(root, functionName);
+  const inspection = scaffold
+    ? await inspectGeneratedAuthAt(scaffold.entryPath)
+    : undefined;
+  const configuredAuth = parsed.values.auth
+    ? choice(
+        parsed.values.auth,
+        ["oauth", "api-key", "bearer", "public"] as const,
+        "oauth",
+        "--auth",
+      )
+    : inspection?.mode;
+  let auth = configuredAuth ?? "oauth";
+  let apiKeyStrategy: ApiKeyStrategy | undefined =
+    auth === "api-key" ? (inspection?.apiKeyStrategy ?? "unknown") : undefined;
+  const publicUrl = parsed.values["public-url"]
+    ? normalizePublicUrl(parsed.values["public-url"])
+    : undefined;
+  const endpoint = parsed.values.url ?? publicUrl;
+  const localChecks = await runDoctor({
+    cwd: root,
+    functionName,
+    auth: configuredAuth,
+    target,
+  });
+  const localReady = Boolean(scaffold) && allChecksPass(localChecks);
+  let remote: DoctorCheck[] = [];
+  let remoteError: string | undefined;
+  if (endpoint) {
+    try {
+      const checks = await runDoctor({
+        cwd: root,
+        functionName,
+        auth: configuredAuth,
+        apiKeyStrategy,
+        target,
+        url: endpoint,
+        token: parsed.values.token,
+      });
+      remote = checks.filter(
+        (check) =>
+          check.name !== "dependencies" && !check.name.startsWith("file:"),
+      );
+      if (!configuredAuth) {
+        const observedAuth = remote.find(
+          (check) => check.name === "runtime-auth-mode" && check.ok,
+        )?.detail;
+        if (
+          ["oauth", "api-key", "bearer", "public"].includes(observedAuth ?? "")
+        ) {
+          auth = observedAuth as SetupAuthMode;
+          if (auth === "api-key" && apiKeyStrategy === undefined) {
+            apiKeyStrategy = "unknown";
+          }
+        }
+      }
+    } catch (error) {
+      remoteError =
+        error instanceof Error ? error.message : "Remote verification failed.";
+    }
+  }
+  const remoteAttempted = Boolean(endpoint);
+  const evidence = remoteEvidence(
+    remote,
+    auth,
+    Boolean(parsed.values.token),
+    remoteAttempted,
+  );
+  const remoteReady = remoteAttempted && !remoteError && allChecksPass(remote);
+  const remoteVerified = remoteReady && evidence.mcpDiscoveryVerified;
+  const report = buildHostTargetReport({
+    command: "status",
+    projectRoot: root,
+    functionName,
+    target,
+    auth,
+    localEndpoint,
+    files: [],
+    applied: localReady,
+    planned: false,
+    runtimeInstalled: manifestHasDependency(await readManifest(root), "chumbo"),
+    installCommand: await packageInstallCommand(root),
+    durableState: Boolean(inspection?.stateNamespace),
+    publicUrl,
+    endpoint,
+    remoteVerified,
+    remoteAttempted,
+    remoteReady,
+    verification: evidence,
+    verifyDetail: remoteAttempted
+      ? (remoteError ??
+        verificationDetail(
+          evidence,
+          auth,
+          remoteVerified,
+          remote.filter((check) => !check.ok && check.blocking !== false),
+        ))
+      : undefined,
+    apiKeyStrategy,
+  });
+  if (machine) printJson(report);
+  else console.log(formatSetupReport(report));
+  if (report.status === "blocked") process.exitCode = 1;
+}
+
 async function status(args: string[]): Promise<void> {
   const parsed = parse(args);
   const machine = parsed.values.json ?? false;
-  const root = await findSupabaseProject(process.cwd());
+  const requestedTarget = parsedTarget(parsed.values.target, "--target");
+  const resolvedTarget =
+    requestedTarget ??
+    (await detectExistingTarget(parsed.values.function ?? "mcp")) ??
+    "edge-function";
+  if (resolvedTarget !== "edge-function") {
+    return statusHostTarget(args, resolvedTarget);
+  }
+  const root = await requireSupabaseProject();
   const functionName = parsed.values.function ?? "mcp";
   const localEndpoint = await resolveLocalMcpEndpoint(root, functionName);
   const inspection = await inspectGeneratedAuth(root, functionName);
@@ -1168,6 +1914,7 @@ async function doctor(args: string[]): Promise<void> {
     functionName: parsed.values.function ?? "mcp",
     url: parsed.values.url,
     token: parsed.values.token,
+    target: parsedTarget(parsed.values.target, "--target"),
     auth: parsed.values.auth
       ? choice(
           parsed.values.auth,
@@ -1205,6 +1952,14 @@ async function dev(args: string[]): Promise<void> {
     );
   }
   const functionName = parsed.values.function ?? "mcp";
+  const detectedTarget = await detectExistingTarget(functionName);
+  if (detectedTarget && detectedTarget !== "edge-function") {
+    throw new Error(
+      detectedTarget === "next"
+        ? "This MCP is hosted by your Next.js application. Start your app's dev server (for example `npm run dev`), then probe the route with npx chumbo doctor."
+        : `This MCP is a standalone Node server. Start it with: node --experimental-strip-types ${functionName}/index.ts`,
+    );
+  }
   const root = await findSupabaseProject(process.cwd());
   const localUrl = await resolveLocalMcpEndpoint(root, functionName);
   const authInspection = await inspectGeneratedAuth(root, functionName);
@@ -1265,6 +2020,7 @@ async function main(): Promise<void> {
   if (command === "doctor") return doctor(args);
   if (command === "dev") return dev(args);
   if (command === "skill") return skill(args);
+  if (command === "cloud") return cloud(args);
   throw new Error(`Unknown command '${command}'.\n\n${HELP}`);
 }
 
