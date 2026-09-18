@@ -42,6 +42,14 @@
       "types": "./dist/app.d.ts",
       "import": "./dist/app.js"
     },
+    "./cli-host": {
+      "types": "./dist/cli-host.d.ts",
+      "import": "./dist/cli-host.js"
+    },
+    "./cli-package": {
+      "types": "./dist/cli-package.d.ts",
+      "import": "./dist/cli-package.js"
+    },
     "./node": {
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
@@ -57,7 +65,7 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "check": "pnpm run release:check && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:packed && pnpm run test:generated",
+    "check": "pnpm run release:check && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:packed && pnpm run test:branded-cli-packed && pnpm run test:generated",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "reference:app": "vite build --config supabase/functions/review-queue-app/app/vite.config.ts",
@@ -67,6 +75,7 @@
     "reference:hosted": "node scripts/hosted-reference-smoke.mjs",
     "release:check": "node scripts/release-alignment-check.mjs",
     "test": "vitest run",
+    "test:branded-cli-packed": "node scripts/branded-cli-packed-smoke.mjs",
     "test:generated": "node scripts/generated-smoke.mjs",
     "test:packed": "node scripts/packed-artifact-smoke.mjs",
     "test:rls": "node scripts/rls-integration-check.mjs",
@@ -76,8 +85,10 @@
     "prepack": "pnpm run check"
   },
   "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/server": "2.0.0",
+    "@napi-rs/keyring": "2.0.0",
     "@supabase/server": "1.4.1",
     "@supabase/supabase-js": "2.105.4",
     "zod": "4.2.0"
