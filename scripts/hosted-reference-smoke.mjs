@@ -102,6 +102,18 @@ async function mcp(endpoint, method, params = {}, bearer) {
   return body.result;
 }
 
+async function eventually(operation, accepts, attempts = 5) {
+  let result;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    result = await operation();
+    if (accepts(result)) return result;
+    if (attempt < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+    }
+  }
+  return result;
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -182,10 +194,14 @@ assert(
   "The hosted documentation tool surface drifted.",
 );
 
-const search = await mcp("docs-mcp", "tools/call", {
-  name: "search_docs",
-  arguments: { query: "many MCPs one function" },
-});
+const search = await eventually(
+  () =>
+    mcp("docs-mcp", "tools/call", {
+      name: "search_docs",
+      arguments: { query: "many MCPs one function" },
+    }),
+  (result) => result.structuredContent?.items.length > 0,
+);
 assert(
   search.structuredContent?.items.length > 0,
   "Hosted search returned no compact matches.",
