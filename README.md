@@ -252,6 +252,28 @@ Cursor, MCP Inspector, and other Streamable HTTP clients use the same endpoint.
 See [Connect your MCP client](./docs/reference/connect-clients) for exact setup
 and verified combinations.
 
+### Host it where your app runs
+
+A Chumbo app is a web-standard fetch handler. The Supabase Edge Function is
+the default home, not a requirement: your Supabase project stays authoritative
+for auth and data wherever the handler runs.
+
+```sh
+npx chumbo setup --target next   # App Router route handler in your Next.js app
+npx chumbo setup --target node   # standalone server for Cloud Run, Fly, Railway
+```
+
+`--target next` generates a colocated `app/mcp/` scaffold whose route handler
+serves `/mcp` and its OAuth discovery suffixes alongside the rest of your
+application. `--target node` generates a server entry that listens on `PORT`
+through `chumbo/node`. Both share the same `capabilities.ts` seam, access
+modes, and result contracts as the Edge Function path, and
+`npx chumbo doctor --url <MCP_URL>` verifies any of them.
+
+[Host targets](./docs/reference/host-targets) covers environment configuration,
+deployment verification, and when to prefer a proxy to the Edge Function
+instead.
+
 <img src="https://raw.githubusercontent.com/elsheppo/chumbo/main/docs/assets/readme/chapter-03-stay-in-control.png" alt="" width="100%">
 
 ## What stays in your hands

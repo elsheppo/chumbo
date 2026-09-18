@@ -5,9 +5,30 @@ a compatibility promise. A roadmap item ships only after a real application
 proves the abstraction and the public package, living reference, and hosted
 verification agree.
 
+## 0.12.0: host targets
+
+- **Status:** Implementation in progress
+- **Motivating cases:** real adopters already run the Chumbo runtime inside
+  Next.js applications and Cloud Run services because a Chumbo app is a
+  web-standard fetch handler. Those deployments deserve the same generated
+  scaffold, verification loop, and documentation as the Edge Function path.
+- **Outcome:** `npx chumbo setup --target next` generates an App Router
+  route handler, and `--target node` generates a standalone server entry
+  served through the new `chumbo/node` adapter, both sharing the ordinary
+  `capabilities.ts` seam, auth modes, and result contracts. The application's
+  Supabase project remains the identity and data plane wherever the handler
+  runs. Doctor probes any deployed URL without requiring a local Supabase
+  directory, and the generated smoke proves a live Node-target MCP round trip.
+- **Boundary:** the Supabase Edge Function remains the default target and its
+  happy path is unchanged. Chumbo does not become a web framework: no
+  middleware, no framework configuration ownership, no deployment pipelines.
+  Non-edge targets lean on `chumbo doctor` as their executable contract
+  instead of generated unit tests, and application-owned consent UIs replace
+  the generated fallback consent function.
+
 ## 0.11.0: bounded collection response contracts
 
-- **Status:** Implementation and release verification in progress
+- **Status:** Shipped on 2026-09-04
 - **Outcome:** Builders get validated pagination inputs, compact projected
   pages bounded by count and encoded bytes, explicit continuation and overflow
   recovery, and skill guidance for collection/detail/receipt contracts. The
@@ -17,7 +38,7 @@ verification agree.
 
 ## 0.10.1: first useful tool path
 
-- **Status:** Prepared for release
+- **Status:** Shipped on 2026-08-30
 - **Outcome:** Generated projects start with one compact, immediately runnable
   identity tool and an explicit `ctx.supabase` replacement seam. The wider
   tools, Resources, prompts, elicitation, and result-contract showcase remains
@@ -496,9 +517,11 @@ it.
 ## Directional sequence
 
 ```text
-shipped: durable state, identity transition, lifecycle events, run correlation
-prepared: compact first-tool path
-next OSS pull: complete the local-first Chumbo MCP development loop
+shipped: durable state, identity transition, lifecycle events, run correlation,
+         compact first-tool path, local-first development loop,
+         bounded collection responses
+in progress: host targets – Next.js and Node/Cloud Run as first-class homes
+next OSS pull: deterministic `npx chumbo design` inspection and patterns
 advanced candidates: external JWT identities, durable MCP Tasks, MCP Apps
 ```
 

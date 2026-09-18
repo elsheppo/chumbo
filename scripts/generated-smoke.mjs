@@ -11,7 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 
 const repository = dirname(dirname(fileURLToPath(import.meta.url)));
 const fixture = await mkdtemp(join(tmpdir(), "chumbo-smoke-"));
@@ -387,7 +388,291 @@ try {
     "check",
     join(fixture, "supabase", "functions", "mcp-consent", "index.ts"),
   ]);
+
+  await smokeHostTargets();
   console.log("Generated project type-check, test, and doctor passed.");
 } finally {
   await rm(fixture, { recursive: true, force: true });
+}
+
+async function linkRuntimeModules(root) {
+  await mkdir(join(root, "node_modules"), { recursive: true });
+  const localPackage = join(root, "node_modules", "chumbo");
+  await mkdir(localPackage, { recursive: true });
+  await cp(join(repository, "dist"), join(localPackage, "dist"), {
+    recursive: true,
+  });
+  await cp(
+    join(repository, "package.json"),
+    join(localPackage, "package.json"),
+  );
+  for (const dependency of [
+    "@modelcontextprotocol/server",
+    "@supabase/server",
+    "@supabase/supabase-js",
+    "zod",
+    "@types/node",
+  ]) {
+    const destination = join(root, "node_modules", dependency);
+    await mkdir(dirname(destination), { recursive: true });
+    await symlink(
+      join(repository, "node_modules", dependency),
+      destination,
+      "dir",
+    );
+  }
+}
+
+function typecheckFixture(root) {
+  run(
+    "node",
+    [
+      join(repository, "node_modules", "typescript", "bin", "tsc"),
+      "--noEmit",
+      "-p",
+      ".",
+    ],
+    { cwd: root },
+  );
+}
+
+async function smokeNextTarget() {
+  const root = await mkdtemp(join(tmpdir(), "chumbo-smoke-next-"));
+  try {
+    await writeFile(
+      join(root, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "next-smoke",
+          type: "module",
+          dependencies: { next: "15.5.0", chumbo: packageVersion },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await mkdir(join(root, "src", "app"), { recursive: true });
+
+    const hinted = spawnSync(
+      "node",
+      [join(repository, "dist", "cli.js"), "setup", "--yes", "--json"],
+      { cwd: root, encoding: "utf8", env: process.env },
+    );
+    if (hinted.status === 0 || !hinted.stdout.includes("--target next")) {
+      throw new Error(
+        `Setup without a Supabase directory did not hint the next target: ${hinted.stdout}${hinted.stderr}`,
+      );
+    }
+
+    const setupNext = run(
+      "node",
+      [
+        join(repository, "dist", "cli.js"),
+        "setup",
+        "--target",
+        "next",
+        "--auth",
+        "bearer",
+        "--yes",
+        "--json",
+      ],
+      { cwd: root },
+    );
+    const report = JSON.parse(setupNext.stdout);
+    if (
+      report.target !== "next" ||
+      report.status !== "needs_user_action" ||
+      !report.steps.some((step) => step.id === "configure_env")
+    ) {
+      throw new Error(`Unexpected next-target report: ${setupNext.stdout}`);
+    }
+    const routePath = join(
+      root,
+      "src",
+      "app",
+      "mcp",
+      "[[...path]]",
+      "route.ts",
+    );
+    const route = await readFile(routePath, "utf8");
+    if (!route.includes("export const dynamic") || route.includes("Deno.")) {
+      throw new Error("Generated next route is not a portable route handler");
+    }
+
+    const capabilitiesPath = join(root, "src", "app", "mcp", "capabilities.ts");
+    const customized = `// builder-owned\n${await readFile(capabilitiesPath, "utf8")}`;
+    await writeFile(capabilitiesPath, customized);
+    const resumed = run(
+      "node",
+      [
+        join(repository, "dist", "cli.js"),
+        "setup",
+        "--resume",
+        "--target",
+        "next",
+        "--yes",
+        "--json",
+      ],
+      { cwd: root },
+    );
+    if (JSON.parse(resumed.stdout).status !== "needs_user_action") {
+      throw new Error(`Resumed next setup lost its actions: ${resumed.stdout}`);
+    }
+    if ((await readFile(capabilitiesPath, "utf8")) !== customized) {
+      throw new Error(
+        "next-target resume overwrote builder-owned capabilities",
+      );
+    }
+
+    await linkRuntimeModules(root);
+    await writeFile(
+      join(root, "tsconfig.json"),
+      `${JSON.stringify(
+        {
+          compilerOptions: {
+            strict: true,
+            noEmit: true,
+            skipLibCheck: true,
+            module: "esnext",
+            moduleResolution: "bundler",
+            target: "es2022",
+            lib: ["es2023", "dom"],
+            types: ["node"],
+          },
+          include: ["src/app/mcp/**/*.ts"],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    typecheckFixture(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function smokeNodeTarget() {
+  const root = await mkdtemp(join(tmpdir(), "chumbo-smoke-node-"));
+  let server;
+  try {
+    await writeFile(
+      join(root, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "node-smoke",
+          type: "module",
+          dependencies: { chumbo: packageVersion },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    run(
+      "node",
+      [
+        join(repository, "dist", "cli.js"),
+        "setup",
+        "--target",
+        "node",
+        "--auth",
+        "api-key",
+        "--yes",
+        "--json",
+      ],
+      { cwd: root },
+    );
+
+    await linkRuntimeModules(root);
+    await writeFile(
+      join(root, "tsconfig.json"),
+      `${JSON.stringify(
+        {
+          compilerOptions: {
+            strict: true,
+            noEmit: true,
+            skipLibCheck: true,
+            module: "esnext",
+            moduleResolution: "bundler",
+            allowImportingTsExtensions: true,
+            target: "es2022",
+            lib: ["es2023", "dom"],
+            types: ["node"],
+          },
+          include: ["mcp/**/*.ts"],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    typecheckFixture(root);
+
+    const port = 8321;
+    server = spawn(
+      "node",
+      ["--experimental-strip-types", join("mcp", "index.ts")],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          SUPABASE_URL: "https://smoke.supabase.co",
+          SUPABASE_PUBLISHABLE_KEY: "smoke-publishable-key",
+          MCP_API_KEY: "smoke-api-key",
+          PORT: String(port),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let serverOutput = "";
+    server.stdout.on("data", (chunk) => (serverOutput += String(chunk)));
+    server.stderr.on("data", (chunk) => (serverOutput += String(chunk)));
+
+    const endpoint = `http://127.0.0.1:${port}/mcp`;
+    let reachable = false;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      try {
+        await fetch(endpoint, { method: "POST" });
+        reachable = true;
+        break;
+      } catch {
+        await delay(100);
+      }
+    }
+    if (!reachable) {
+      throw new Error(`Generated node server did not start:\n${serverOutput}`);
+    }
+
+    const doctor = run(
+      "node",
+      [
+        join(repository, "dist", "cli.js"),
+        "doctor",
+        "--json",
+        "--url",
+        endpoint,
+        "--token",
+        "smoke-api-key",
+        "--call-tool",
+        "whoami",
+      ],
+      { cwd: root },
+    );
+    const doctorReport = JSON.parse(doctor.stdout);
+    const called = doctorReport.checks?.some(
+      (check) => check.name === "tool-call" && check.ok,
+    );
+    if (doctorReport.status !== "complete" || !called) {
+      throw new Error(
+        `Node-target doctor did not prove the MCP round trip: ${doctor.stdout}`,
+      );
+    }
+  } finally {
+    server?.kill();
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function smokeHostTargets() {
+  await smokeNextTarget();
+  await smokeNodeTarget();
+  console.log("Host-target scaffolds type-checked and served a live MCP.");
 }

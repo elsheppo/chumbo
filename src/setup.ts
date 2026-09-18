@@ -1,5 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { SetupTarget } from "./project.js";
 
 export type SetupAuthMode = "oauth" | "api-key" | "bearer" | "public";
 export type ApiKeyStrategy = "static" | "verifier" | "unknown";
@@ -51,6 +52,7 @@ export interface SetupReport {
     | "complete";
   projectRoot: string;
   functionName: string;
+  target: SetupTarget;
   auth: SetupAuthMode;
   authStrategy?: ApiKeyStrategy;
   localEndpoint: string;
@@ -114,11 +116,46 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-export async function inspectGeneratedAuth(
+export interface GeneratedScaffold {
+  target: SetupTarget;
+  /** Absolute path of the generated entry file carrying the auth config. */
+  entryPath: string;
+}
+
+/**
+ * Locate the generated MCP scaffold for a function name across every setup
+ * target: the Edge Function directory, a Next.js App Router route, or a
+ * standalone Node server directory.
+ */
+export async function detectGeneratedScaffold(
   root: string,
   functionName: string,
+): Promise<GeneratedScaffold | undefined> {
+  const candidates: Array<[SetupTarget, string]> = [
+    [
+      "edge-function",
+      join(root, "supabase", "functions", functionName, "index.ts"),
+    ],
+    ["next", join(root, "src", "app", functionName, "[[...path]]", "route.ts")],
+    ["next", join(root, "app", functionName, "[[...path]]", "route.ts")],
+    ["node", join(root, functionName, "index.ts")],
+  ];
+  for (const [target, entryPath] of candidates) {
+    if (!(await exists(entryPath))) continue;
+    if (target !== "edge-function") {
+      // An arbitrary application directory may share the function name; only
+      // claim entries that actually construct a Chumbo runtime.
+      const source = await readFile(entryPath, "utf8");
+      if (!source.includes("createSupabaseMcp")) continue;
+    }
+    return { target, entryPath };
+  }
+  return undefined;
+}
+
+export async function inspectGeneratedAuthAt(
+  path: string,
 ): Promise<GeneratedAuthInspection | undefined> {
-  const path = join(root, "supabase", "functions", functionName, "index.ts");
   if (!(await exists(path))) return undefined;
   const source = await readFile(path, "utf8");
   const stateNamespace = /namespaces:\s*\{\s*["']([^"']+)["']\s*:/.exec(
@@ -147,6 +184,15 @@ export async function inspectGeneratedAuth(
     return { mode: "oauth", ...state };
   }
   return undefined;
+}
+
+export async function inspectGeneratedAuth(
+  root: string,
+  functionName: string,
+): Promise<GeneratedAuthInspection | undefined> {
+  return inspectGeneratedAuthAt(
+    join(root, "supabase", "functions", functionName, "index.ts"),
+  );
 }
 
 export async function detectGeneratedAuth(
@@ -465,6 +511,7 @@ export function buildSetupReport(
     status: overallStatus(options, steps),
     projectRoot: options.projectRoot,
     functionName: options.functionName,
+    target: "edge-function",
     auth: options.auth,
     localEndpoint,
     ...(options.auth === "api-key" ? { authStrategy: apiKeyStrategy } : {}),

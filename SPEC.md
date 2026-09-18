@@ -381,6 +381,31 @@ Responsibilities:
 Do not generate a large framework directory. Shared runtime logic belongs in the
 published package. Generated code should remain readable and removable.
 
+### 9.1 Host targets
+
+A Chumbo app is a web-standard fetch handler, so the Edge Function is the
+default home rather than a requirement. `setup --target next` generates a
+colocated App Router scaffold and `--target node` generates a standalone
+server served through `chumbo/node`:
+
+```text
+app/mcp/                        mcp/
+├── [[...path]]/route.ts        ├── index.ts
+├── capabilities.ts             ├── capabilities.ts
+└── README.md                   └── README.md
+```
+
+Host targets keep the same `capabilities.ts` seam, access modes, and result
+contracts. They read configuration from process environment variables, place
+generated database support in `supabase/migrations/` when the repository has
+a Supabase directory and beside the scaffold otherwise, and lean on
+`chumbo doctor` as their executable contract instead of generated Deno tests.
+Doctor detects host scaffolds, checks their files and pinned runtime, and
+probes any deployed URL without requiring `supabase/config.toml`. The
+generated fallback consent function remains Edge-only; host applications own
+consent in their signed-in UI. Chumbo does not become a web framework: no
+middleware, framework configuration ownership, or deployment pipelines.
+
 ## 10. Package shape
 
 Keep one repository and one npm package unless implementation evidence forces a
@@ -413,9 +438,15 @@ Expected exports:
 ```json
 {
   ".": "./dist/index.js",
-  "./testing": "./dist/testing.js"
+  "./testing": "./dist/testing.js",
+  "./node": "./dist/node.js"
 }
 ```
+
+`chumbo/node` is the standalone-server adapter: `toNodeHandler` bridges a
+fetch-handler app onto `node:http`, and `serve` runs it with Cloud Run's
+`PORT` convention, streamed SSE bodies, and reverse-proxy URL reconstruction
+from `x-forwarded-proto` and `x-forwarded-host`.
 
 The canonical executable is `chumbo` and exposes `setup`, `doctor`, `dev`, and
 `skill` subcommands. The package also retains `supa-mcp` as a transition alias.

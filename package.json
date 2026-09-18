@@ -41,6 +41,10 @@
     "./app": {
       "types": "./dist/app.d.ts",
       "import": "./dist/app.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
     }
   },
   "files": [

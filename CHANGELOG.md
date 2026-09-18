@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Make Next.js and standalone Node servers first-class host targets.
+  `npx chumbo setup --target next` generates a colocated App Router route
+  handler and `--target node` generates a server entry served through the new
+  `chumbo/node` adapter (`toNodeHandler` and `serve` over `node:http`, with
+  streamed SSE bodies and reverse-proxy URL reconstruction). Both share the
+  ordinary `capabilities.ts` seam, access modes, and result contracts; the
+  Supabase Edge Function remains the unchanged default target, and the
+  application's Supabase project remains the identity and data plane
+  everywhere.
+- Let `chumbo doctor` probe any deployed MCP URL from any directory: it no
+  longer requires `supabase/config.toml`, detects host-target scaffolds for
+  local checks, and setup/status resume host targets idempotently with the
+  same stable step IDs. The generated smoke now type-checks both host
+  scaffolds and proves a live generated Node server through a complete
+  doctor round trip.
+
 ## 0.11.3 – 2026-09-14
 
 - Make `chumbo cloud setup --deploy` follow the project's declared Supabase
