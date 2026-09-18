@@ -1,0 +1,10 @@
+{
+  "slug": "host-targets",
+  "kind": "reference",
+  "title": "Host the MCP where your app runs",
+  "summary": "Generate the same Chumbo MCP as a Next.js route handler or a standalone Node server while your Supabase project remains the identity and data plane.",
+  "officialDocs": [
+    "https://nextjs.org/docs/app/building-your-application/routing/route-handlers",
+    "https://cloud.google.com/run/docs"
+  ]
+}

@@ -1,11 +1,15 @@
 # Start or resume
 
-Setup adds an MCP Edge Function to a repository that already contains a
-Supabase project. It owns the generated protocol entrypoint and support files;
-the builder owns `capabilities.ts`.
+Setup adds a Chumbo MCP to an existing repository. The default target
+generates a Supabase Edge Function; `--target next` generates an App Router
+route handler inside a Next.js app, and `--target node` generates a
+standalone server for Cloud Run, Fly, Railway, or any Node 22+ host. Every
+target keeps the application's Supabase project as the identity and data
+plane, and setup owns the generated protocol entrypoint and support files
+while the builder owns `capabilities.ts`.
 
-Requirements: Node 22+, the Supabase CLI, and preferably Deno for generated
-type-checks and tests.
+Requirements: Node 22+; for the Edge Function target also the Supabase CLI
+and preferably Deno for generated type-checks and tests.
 
 ## Identify what is already present
 
@@ -13,6 +17,9 @@ type-checks and tests.
 | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `supabase/config.toml`, but no generated MCP function                                             | Preview and run setup                                                 |
 | `supabase/functions/<name>/` with `index.ts`, `capabilities.ts`, `deno.json`, and `index_test.ts` | Run `npx chumbo status --json` before editing                         |
+| A Next.js app (`next` in package.json) with no Supabase directory                                 | Use `npx chumbo setup --target next`                                  |
+| `app/<name>/[[...path]]/route.ts` or `<name>/index.ts` built on `createSupabaseMcp`               | An applied host-target scaffold; run `npx chumbo status --json`       |
+| A Node service that should own its MCP process                                                    | Use `npx chumbo setup --target node`                                  |
 | Application-authored capabilities                                                                 | Preserve them; resume setup around them                               |
 | Missing generated files or configuration drift                                                    | Run status, then use resumable setup rather than regenerating by hand |
 
@@ -32,7 +39,14 @@ For an agent or CI, preview the complete plan before applying it:
 ```sh
 npx chumbo setup --plan --json
 npx chumbo setup --auth oauth --yes --json
+npx chumbo setup --target next --yes --json
 ```
+
+Setup detects an applied scaffold's target on resume, so `--target` is only
+required the first time. Host targets read Supabase configuration from
+process environment variables, lean on `npx chumbo doctor` as their
+executable contract instead of generated Deno tests, and keep consent in the
+application's signed-in UI rather than a generated consent function.
 
 Select auth from the caller relationship, not from whichever mode is quickest
 to configure. Read [access and RLS](access-and-rls.md) when the choice is not

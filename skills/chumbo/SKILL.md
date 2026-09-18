@@ -1,16 +1,20 @@
 ---
 name: chumbo
-description: Turn existing Supabase applications into end-user-facing Streamable HTTP MCP servers. Use for installing, configuring, developing, debugging, testing, deploying, or upgrading the chumbo package, including when a user asks generically to add MCP capabilities to a Supabase app. Covers tools, Resources, prompts, MCP Apps, authentication, RLS, and result design.
+description: Turn existing Supabase applications into end-user-facing Streamable HTTP MCP servers. Use for installing, configuring, developing, debugging, testing, deploying, or upgrading the chumbo package, including when a user asks generically to add MCP capabilities to a Supabase app, a Next.js application, or a Node service on Cloud Run or similar hosts. Covers tools, Resources, prompts, MCP Apps, authentication, RLS, host targets, and result design.
 ---
 
 # Build MCP servers for Supabase apps
 
 Chumbo is a TypeScript runtime and CLI that adds MCP to an existing Supabase
 application. `npx chumbo setup` generates a Supabase Edge Function that handles
-Streamable HTTP, authentication, and per-request context. The builder edits one
-file, `capabilities.ts`, to expose application operations as ordinary MCP tools,
+Streamable HTTP, authentication, and per-request context; `--target next`
+generates the same MCP as a Next.js App Router route handler and
+`--target node` as a standalone Node server, with the Supabase project
+remaining the identity and data plane. The builder edits one file,
+`capabilities.ts`, to expose application operations as ordinary MCP tools,
 Resources, and prompts. Server metadata and request-aware instructions are
-configured through `createSupabaseMcp` in `index.ts` when needed.
+configured through `createSupabaseMcp` in the generated entrypoint when
+needed.
 
 ```text
 MCP client
@@ -26,14 +30,14 @@ service is required.
 
 ## Choose your course
 
-| You need to                                                        | Read                                                               |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| Add MCP to a Supabase repository or resume setup                   | [Start or resume](references/start.md)                             |
-| Design or revise a tool, Resource, or prompt                       | [Build capabilities](references/build-capabilities.md)             |
-| Choose OAuth, bearer, API-key, or public access                    | [Access and RLS](references/access-and-rls.md)                     |
-| Choose model-facing text, structured data, a hybrid, or a Resource | [Design results](references/results.md)                            |
-| Run locally, deploy, connect a client, or prove completion         | [Run, deploy, and verify](references/run-deploy-verify.md)         |
-| Diagnose connection, auth, discovery, RLS, or version problems     | [Troubleshoot and upgrade](references/troubleshoot-and-upgrade.md) |
+| You need to                                                         | Read                                                               |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Add MCP to a Supabase, Next.js, or Node repository, or resume setup | [Start or resume](references/start.md)                             |
+| Design or revise a tool, Resource, or prompt                        | [Build capabilities](references/build-capabilities.md)             |
+| Choose OAuth, bearer, API-key, or public access                     | [Access and RLS](references/access-and-rls.md)                     |
+| Choose model-facing text, structured data, a hybrid, or a Resource  | [Design results](references/results.md)                            |
+| Run locally, deploy, connect a client, or prove completion          | [Run, deploy, and verify](references/run-deploy-verify.md)         |
+| Diagnose connection, auth, discovery, RLS, or version problems      | [Troubleshoot and upgrade](references/troubleshoot-and-upgrade.md) |
 
 Read only the guide needed for the current course. Optional state, telemetry,
 run correlation, MCP Apps, multi-auth, many-server composition, Cloud, and

@@ -53,6 +53,26 @@ locally. For public mode, first apply the generated rate-limit migration with
 5. Invoke one explicitly safe application tool through the updated test or a
    configured MCP client. Check the application result, not just HTTP 200.
 
+## Host-target loop
+
+A `--target next` or `--target node` scaffold runs inside the application
+instead of `chumbo dev`, and doctor is its executable contract:
+
+```sh
+# next: start the app's ordinary dev server, then
+npx chumbo doctor --url http://localhost:3000/mcp --call-tool whoami
+
+# node: run the generated server directly, then probe it
+node --experimental-strip-types mcp/index.ts
+npx chumbo doctor --url http://127.0.0.1:8080/mcp --call-tool whoami
+```
+
+Provide `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (plus `MCP_API_KEY`,
+`SUPABASE_SECRET_KEY`, or `CHUMBO_STATE_HMAC_KEY` when the mode needs them)
+in the server environment. Doctor probes any URL without a Supabase
+directory, so the same command verifies the production deployment with
+`MCP_PUBLIC_URL` set.
+
 ## Deploy
 
 ```sh
@@ -61,6 +81,10 @@ npx chumbo doctor \
   --function mcp \
   --url https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
+
+Host targets deploy through the application's own pipeline (Vercel, Cloud
+Run, or any Node host) instead of `supabase functions deploy`; verify with
+the same doctor probe against the public URL.
 
 The endpoint is Streamable HTTP at the function URL. Do not append `/sse`.
 
