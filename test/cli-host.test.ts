@@ -132,6 +132,14 @@ describe("project-branded CLI host", () => {
     });
   });
 
+  it("shows command help before validating required options", async () => {
+    const run = harness();
+    expect(await run.cli.run(["projects", "delete", "--help"])).toBe(0);
+    expect(run.stdout[0]).toContain("Usage:\n  acme projects delete");
+    expect(run.stdout[0]).toContain("--project-id <value>  required");
+    expect(run.callTool).not.toHaveBeenCalled();
+  });
+
   it("fails closed for writes without confirmation in non-interactive use", async () => {
     const run = harness();
     expect(

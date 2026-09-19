@@ -173,6 +173,13 @@ function matchCapability(
   return { capability, rest: argv.slice(capability.command.length) };
 }
 
+export function cliCapabilityForCommand(
+  capabilities: readonly CliCapability[],
+  argv: readonly string[],
+): CliCapability {
+  return matchCapability(capabilities, argv).capability;
+}
+
 export function parseCliInvocation(
   capabilities: readonly CliCapability[],
   argv: readonly string[],

@@ -7,6 +7,7 @@ import { z } from "zod";
 import { defineCapability, registerCapability } from "../src/capabilities.js";
 import {
   createBrandedCli,
+  KeychainOAuthProvider,
   type SecureCredentialStore,
 } from "../src/cli-host.js";
 import { structuredResult } from "../src/results.js";
@@ -131,6 +132,29 @@ describe("authenticated project CLI journey", () => {
     const output: string[] = [];
     const errors: string[] = [];
     const store = new MemoryStore();
+    const staleAuth = new KeychainOAuthProvider({
+      endpoint,
+      redirectUrl: `http://127.0.0.1:${callbackPort}/oauth/callback`,
+      displayName: "Acme Ops",
+      version: "1.0.0",
+      store,
+      openAuthorization() {},
+    });
+    await staleAuth.saveDiscoveryState({
+      authorizationServerUrl: issuer,
+      resourceMetadataUrl: `${endpoint}/.well-known/oauth-protected-resource`,
+      resourceMetadata: {
+        resource: endpoint,
+        authorization_servers: [issuer],
+        scopes_supported: ["projects:read"],
+      },
+      authorizationServerMetadata: {
+        issuer,
+        authorization_endpoint: `${issuer}/authorize`,
+        token_endpoint: `${issuer}/token`,
+        response_types_supported: ["code"],
+      },
+    });
     const cli = createBrandedCli(
       {
         packageName: "@acme/ops-cli",
@@ -171,9 +195,20 @@ describe("authenticated project CLI journey", () => {
     );
 
     try {
-      await expect(cli.run(["login"])).resolves.toBe(0);
+      const loginExitCode = await cli.run(["login"]);
+      expect({ loginExitCode, errors }).toEqual({
+        loginExitCode: 0,
+        errors: [],
+      });
       expect(output).toContain("Signed in to Acme Ops. 1 commands available.");
       expect([...store.values.values()].join(" ")).toContain(accessToken);
+      expect(
+        fetchMock.mock.calls.some(
+          ([input]) =>
+            String(input) ===
+            `${issuer}/.well-known/oauth-authorization-server`,
+        ),
+      ).toBe(true);
 
       await expect(
         cli.run(["projects", "get", "--id", "project-1", "--json"]),
@@ -188,7 +223,6 @@ describe("authenticated project CLI journey", () => {
         },
       });
       expect(handler).toHaveBeenCalledOnce();
-      expect(errors).toEqual([]);
     } finally {
       await server.close();
     }

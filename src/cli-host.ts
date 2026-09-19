@@ -13,6 +13,7 @@ import {
   type SecureCredentialStore,
 } from "./cli-auth.js";
 import {
+  cliCapabilityForCommand,
   cliCapabilities,
   invocationNeedsConfirmation,
   parseCliInvocation,
@@ -261,6 +262,9 @@ function systemConnector(
         listener?.redirectUrl ?? redirectUrl,
         interactive,
       );
+      if (interactive) {
+        await auth.invalidateCredentials("discovery");
+      }
       const attempted = clientTransport(auth);
       try {
         await attempted.client.connect(attempted.transport);
@@ -475,14 +479,15 @@ export function createBrandedCli(
             return 0;
           }
           const wantsHelp = args.at(-1) === "--help";
-          const invocation = parseCliInvocation(
-            capabilities,
-            wantsHelp ? args.slice(0, -1) : args,
-          );
           if (wantsHelp) {
-            io.stdout(capabilityHelp(config, invocation.capability));
+            const capability = cliCapabilityForCommand(
+              capabilities,
+              args.slice(0, -1),
+            );
+            io.stdout(capabilityHelp(config, capability));
             return 0;
           }
+          const invocation = parseCliInvocation(capabilities, args);
           if (invocationNeedsConfirmation(invocation)) {
             if (!io.isTTY) {
               io.stderr(

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Refresh cached OAuth discovery when a user explicitly runs a project CLI
+  login, so newly enabled or changed authorization-server capabilities are
+  picked up across direct Supabase endpoints and custom app URLs. Nested
+  command help now renders before required input validation.
+
 ## 0.12.0 – 2026-09-19
 
 - Add a shared capability metadata seam that lowers to ordinary scoped MCP tool
