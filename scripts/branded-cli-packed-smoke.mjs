@@ -51,7 +51,7 @@ try {
     !help.includes("acme login") ||
     !help.includes("Support: https://acme.example/support")
   ) {
-    throw new Error(`Generated CLI did not retain customer identity:\n${help}`);
+    throw new Error(`Generated CLI did not retain project identity:\n${help}`);
   }
 
   const packed = JSON.parse(
@@ -70,7 +70,7 @@ try {
       throw new Error(`Generated package omitted ${required}`);
   }
   console.log(
-    "Client-branded CLI package renders, executes, and packs with customer identity.",
+    "Project-branded CLI package renders, executes, and packs with project identity.",
   );
 } finally {
   await rm(fixture, { recursive: true, force: true });

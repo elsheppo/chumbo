@@ -2,19 +2,22 @@
 
 ## Unreleased
 
+## 0.12.0 – 2026-09-19
+
 - Add a shared capability metadata seam that lowers to ordinary scoped MCP tool
   registration while advertising an optional domain-oriented CLI command,
   stable risk/idempotency facts, and presentation hints. Existing raw MCP tool
   registration remains compatible through an explicit CLI fallback.
-- Add a configurable Node CLI host for customer-branded packages. It discovers
+- Add a configurable Node CLI host for project-branded packages. It discovers
   only the authenticated caller's tools, invokes the same MCP endpoint, supports
   browser PKCE login/status/logout, stores OAuth state in the operating-system
   credential store partitioned by issuer, emits human or stable JSON receipts,
   and fails closed for unconfirmed writes in non-interactive sessions.
-- Add a pure customer-package renderer for branded Cloud delivery. Package name,
+- Add a pure package renderer for project-branded CLIs. Package name,
   binary name, display identity, endpoint, support URL, and optional Chumbo
-  attribution are configuration; registry publication remains an external
-  release step.
+  attribution are configuration. Bounded license, npm access, and canonical
+  repository metadata remain user-selected; registry publication remains
+  an external release step.
 - Make Next.js and standalone Node servers first-class host targets.
   `npx chumbo setup --target next` generates a colocated App Router route
   handler and `--target node` generates a server entry served through the new
@@ -51,7 +54,7 @@
   builder approve one selected Chumbo Cloud installation in the browser while
   a local agent safely plans, applies, checks, deploys, and verifies the
   corresponding Chumbo analytics hooks. The pairing grant is short-lived and
-  scoped; deployment and conflicting customer hooks remain explicit stops.
+  scoped; deployment and conflicting application hooks remain explicit stops.
   Cloud responses are schema- and path-validated before use, machine mode
   never prompts, plans show the exact additions, and progress-reporting outages
   do not hide completed local work or deployment.

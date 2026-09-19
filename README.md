@@ -148,7 +148,7 @@ You choose the application operations worth exposing and shape each result for
 its real consumer. Chumbo handles the protocol and request-authority boundary
 around that application code.
 
-### Project one capability into a customer CLI
+### Project one capability into a branded CLI
 
 A capability can carry an optional command projection while remaining an
 ordinary MCP tool. Define and register it inside the request-scoped
@@ -196,19 +196,20 @@ export function registerCapabilities(
 }
 ```
 
-Authenticated MCP clients still discover `get_task`. A client-branded CLI can
-render the same visible tool as `customer tasks get --id ...`, call the same MCP
+Authenticated MCP clients still discover `get_task`. A project-branded CLI can
+render the same visible tool as `acme tasks get --id ...`, call the same MCP
 endpoint, and return human output or a stable `--json` receipt. Tools registered
 directly with `server.registerTool()` remain available through the explicit
-`customer run <tool-name> --args '{}'` fallback.
+`acme run <tool-name> --args '{}'` fallback.
 
 The Node-only `chumbo/cli-host` entry provides browser PKCE login, OS-keychain
 credential storage partitioned by authorization-server issuer, authenticated
 command discovery, logout, and fail-closed write confirmation. The
-`chumbo/cli-package` entry renders a tiny customer-owned npm package whose
+`chumbo/cli-package` entry renders a tiny project-owned npm package whose
 package name, binary, display name, endpoint, support URL, and optional
-“powered by” attribution are configuration. Rendering does not publish a
-package or put Chumbo Cloud in the application's data path.
+“powered by” attribution are configuration. Render options can also set bounded
+license, npm access, and canonical repository metadata. Rendering does not
+publish a package or put Chumbo Cloud in the application's data path.
 
 <img src="https://raw.githubusercontent.com/elsheppo/chumbo/main/docs/assets/readme/chapter-02-ship.png" alt="" width="100%">
 

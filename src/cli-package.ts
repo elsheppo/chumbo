@@ -9,6 +9,15 @@ export interface BrandedCliPackageFiles {
 export interface RenderBrandedCliPackageOptions {
   /** Exact or semver dependency range used by the generated package. */
   readonly chumboVersion: string;
+  /** npm package license expression. Defaults to UNLICENSED. */
+  readonly license?: string;
+  /** npm publication visibility. Omit to leave publication policy unset. */
+  readonly access?: "public" | "restricted";
+  /** Canonical source repository for the generated package. */
+  readonly repository?: {
+    readonly url: string;
+    readonly directory?: string;
+  };
 }
 
 const packageNamePattern =
@@ -16,6 +25,25 @@ const packageNamePattern =
 const binaryNamePattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
 const versionPattern =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/u;
+const licensePattern = /^[A-Za-z0-9][A-Za-z0-9 .+()\-]{0,127}$/u;
+
+function safeRepositoryDirectory(value: string): boolean {
+  return (
+    value !== "." &&
+    !value.startsWith("/") &&
+    !value.includes("\\") &&
+    !/[\u0000-\u001f\u007f]/u.test(value) &&
+    value
+      .split("/")
+      .every(
+        (segment) =>
+          segment !== "" &&
+          segment !== "." &&
+          segment !== ".." &&
+          segment.toLowerCase() !== ".git",
+      )
+  );
+}
 
 function validatePackageConfig(
   config: BrandedCliConfig,
@@ -37,6 +65,31 @@ function validatePackageConfig(
   if (!options.chumboVersion.trim()) {
     throw new TypeError("chumboVersion is required");
   }
+  const license = options.license ?? "UNLICENSED";
+  if (!licensePattern.test(license)) {
+    throw new TypeError("license must be a bounded npm license expression");
+  }
+  if (options.access === "restricted" && !config.packageName.startsWith("@")) {
+    throw new TypeError("restricted npm packages must use a scope");
+  }
+  if (options.repository) {
+    const repository = new URL(options.repository.url);
+    if (
+      !["https:", "git+https:"].includes(repository.protocol) ||
+      repository.username ||
+      repository.password ||
+      repository.search ||
+      repository.hash
+    ) {
+      throw new TypeError("repository must be a credential-free HTTPS Git URL");
+    }
+    if (
+      options.repository.directory &&
+      !safeRepositoryDirectory(options.repository.directory)
+    ) {
+      throw new TypeError("repository directory must be a safe relative path");
+    }
+  }
   const endpoint = new URL(config.endpoint);
   if (endpoint.protocol !== "https:" && endpoint.hostname !== "127.0.0.1") {
     throw new TypeError("endpoint must use HTTPS outside loopback development");
@@ -45,8 +98,8 @@ function validatePackageConfig(
 }
 
 /**
- * Render the complete source of a tiny customer-owned npm CLI package.
- * Chumbo Cloud can sign and publish these files without rewriting the host.
+ * Render the complete source of a tiny project-owned npm CLI package.
+ * Rendering produces source files without publishing them.
  */
 export function renderBrandedCliPackage(
   config: BrandedCliConfig,
@@ -58,7 +111,19 @@ export function renderBrandedCliPackage(
     version: config.version,
     description: `${config.displayName} command-line interface.`,
     type: "module",
-    license: "UNLICENSED",
+    license: options.license ?? "UNLICENSED",
+    ...(options.access ? { publishConfig: { access: options.access } } : {}),
+    ...(options.repository
+      ? {
+          repository: {
+            type: "git",
+            url: options.repository.url,
+            ...(options.repository.directory
+              ? { directory: options.repository.directory }
+              : {}),
+          },
+        }
+      : {}),
     engines: { node: ">=22" },
     bin: { [config.binaryName]: "bin/cli.js" },
     files: ["bin", "README.md"],

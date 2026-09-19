@@ -103,8 +103,8 @@ function harness(options: { unauthorized?: boolean; tty?: boolean } = {}) {
   return { cli, stdout, stderr, callTool, close };
 }
 
-describe("client-branded CLI host", () => {
-  it("renders customer identity and authenticated command discovery", async () => {
+describe("project-branded CLI host", () => {
+  it("renders project identity and authenticated command discovery", async () => {
     const root = harness();
     expect(await root.cli.run([])).toBe(0);
     expect(root.stdout[0]).toContain("Acme Ops CLI");

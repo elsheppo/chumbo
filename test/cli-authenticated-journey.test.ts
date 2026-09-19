@@ -30,7 +30,7 @@ class MemoryStore implements SecureCredentialStore {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("authenticated customer CLI journey", () => {
+describe("authenticated project CLI journey", () => {
   it("composes browser PKCE, secure storage, authenticated discovery, and MCP execution", async () => {
     const endpoint = "https://api.acme.example/mcp";
     const issuer = "https://auth.acme.example";

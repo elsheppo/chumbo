@@ -12,7 +12,7 @@ export type ChumboCapabilityRisk = "read" | "write" | "destructive";
 export type ChumboCliPresentation = "auto" | "text" | "json";
 
 export interface ChumboCliProjection {
-  /** Domain-oriented command path, excluding the client-branded binary name. */
+  /** Domain-oriented command path, excluding the project-branded binary name. */
   readonly command: readonly [string, ...string[]];
   readonly description?: string;
   readonly presentation?: ChumboCliPresentation;
