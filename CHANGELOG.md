@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.1 – 2026-09-19
+
 - Refresh cached OAuth discovery when a user explicitly runs a project CLI
   login, so newly enabled or changed authorization-server capabilities are
   picked up across direct Supabase endpoints and custom app URLs. Nested
