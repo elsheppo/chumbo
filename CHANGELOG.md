@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.2 – 2026-09-25
+
 - Allow an application-owned OAuth issuer to verify opaque, resource-bound
   access tokens through an optional verifier with explicit issuer and resource
   coordinates. These tokens receive an anonymous Supabase client; the default
