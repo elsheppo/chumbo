@@ -1106,6 +1106,9 @@ export function createSupabaseMcpInternal<Database = unknown>(
   const oauthStrategy = strategies.find(
     (strategy) => strategy.mode === "oauth",
   );
+  if (oauthStrategy?.verify && !oauthStrategy.issuer) {
+    throw new Error("An OAuth verifier requires an explicit issuer");
+  }
   const resourceUrl = trimTrailingSlash(new URL(options.resourceUrl));
   const resourceMetadataUrl = appendPath(
     resourceUrl,
@@ -1392,6 +1395,55 @@ export function createSupabaseMcpInternal<Database = unknown>(
                     OAuthErrorCode.InvalidToken,
                     "Invalid access token",
                   );
+                }
+                if (userStrategy.mode === "oauth" && userStrategy.verify) {
+                  const verified = await userStrategy.verify({
+                    token,
+                    resourceUrl: resourceUrl.href,
+                    issuer: issuer!.href,
+                  });
+                  const subject = verified?.subject.trim();
+                  const nowSeconds = Math.floor(
+                    (dependencies.now?.() ?? Date.now()) / 1000,
+                  );
+                  if (
+                    !subject ||
+                    !Number.isSafeInteger(verified?.expiresAt) ||
+                    verified!.expiresAt <= nowSeconds ||
+                    (verified!.clientId !== undefined &&
+                      !verified!.clientId.trim())
+                  ) {
+                    throw new OAuthError(
+                      OAuthErrorCode.InvalidToken,
+                      "Invalid or expired access token",
+                    );
+                  }
+                  failurePhase = "runtime";
+                  const requestIdentity: RequestIdentity<Database> = {
+                    token,
+                    userClaims: null,
+                    jwtClaims: null,
+                    // An opaque MCP grant has no Supabase user session. In
+                    // particular its bearer must never become a Data API token.
+                    supabase: dependencies.createClient(
+                      null,
+                      options.supabase?.env,
+                    ),
+                    subject,
+                    clientId: verified!.clientId,
+                    scopes: normalizedScopes(verified!.scopes ?? []),
+                    authentication: {
+                      mode: "oauth",
+                      strategy: strategyName(userStrategy),
+                    },
+                  };
+                  return {
+                    token,
+                    clientId: requestIdentity.clientId ?? subject,
+                    scopes: requestIdentity.scopes,
+                    expiresAt: verified!.expiresAt,
+                    extra: { [IDENTITY_KEY]: requestIdentity },
+                  };
                 }
                 const identity = await dependencies.verifyToken(
                   token,

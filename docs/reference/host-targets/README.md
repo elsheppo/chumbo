@@ -129,7 +129,8 @@ contract tests, `chumbo dev`, and Supabase-managed compute. Both are ordinary
 Chumbo deployments; doctor verifies either through the URL clients actually
 use.
 
-OAuth mode keeps your application's Supabase Auth server as the issuer on
-every target, so consent stays in your app's signed-in UI. The generated
-fallback consent function remains an Edge Function concern; host targets do
-not generate one.
+OAuth mode uses your application's Supabase Auth server as the default issuer
+on every target, so consent stays in your app's signed-in UI. An explicit
+issuer and verifier can authenticate application-owned OAuth tokens. The
+generated fallback consent function remains an Edge Function concern; host
+targets do not generate one.

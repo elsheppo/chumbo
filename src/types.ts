@@ -26,6 +26,25 @@ export interface SupabaseMcpApiKeyIdentity {
   readonly scopes?: readonly string[];
 }
 
+/** A verified OAuth access token from an application-owned authorization server.
+ * The verifier must check issuer, audience/resource, expiry and revocation.
+ * Chumbo does not forward this token to Supabase. */
+export interface SupabaseMcpOAuthIdentity {
+  readonly subject: string;
+  readonly clientId?: string;
+  readonly scopes?: readonly string[];
+  /** Unix seconds, as required by the MCP bearer middleware. */
+  readonly expiresAt: number;
+}
+
+/** Canonical OAuth coordinates advertised by this MCP resource server.
+ * Verify the token against both values before returning an identity. */
+export interface SupabaseMcpOAuthVerifyContext {
+  readonly token: string;
+  readonly resourceUrl: string;
+  readonly issuer: string;
+}
+
 export type SupabaseMcpAuthMode = "oauth" | "bearer" | "api-key" | "public";
 
 export interface SupabaseMcpAuthentication {
@@ -265,15 +284,34 @@ export type SupabaseMcpApiKeyAuth<Database = unknown> = {
     }
 );
 
-export type SupabaseMcpProtectedAuth<Database = unknown> =
+export type SupabaseMcpOAuthAuth = {
+  mode: "oauth";
+  /** Stable name exposed as ctx.authentication.strategy. */
+  strategy?: string;
+  authorizationServerMetadataUrl?: string | URL;
+  scopes?: readonly string[];
+} & (
   | {
-      mode: "oauth";
-      /** Stable name exposed as ctx.authentication.strategy. */
-      strategy?: string;
+      /** Defaults to the resource's Supabase Auth issuer. */
       issuer?: string | URL;
-      authorizationServerMetadataUrl?: string | URL;
-      scopes?: readonly string[];
+      verify?: never;
     }
+  | {
+      /** The authorization server that issued the opaque access token. */
+      issuer: string | URL;
+      /** Verify issuer, exact resource, expiry, and revocation. Return null for
+       * an invalid token. Omitting this verifier uses Supabase JWT verification. */
+      verify: (
+        context: SupabaseMcpOAuthVerifyContext,
+      ) =>
+        | SupabaseMcpOAuthIdentity
+        | null
+        | Promise<SupabaseMcpOAuthIdentity | null>;
+    }
+);
+
+export type SupabaseMcpProtectedAuth<Database = unknown> =
+  | SupabaseMcpOAuthAuth
   | { mode: "bearer"; strategy?: string }
   | SupabaseMcpApiKeyAuth<Database>;
 
