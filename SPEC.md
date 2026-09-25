@@ -566,12 +566,18 @@ ID into authority without a database-backed membership check.
 ### 13.1 `oauth` (recommended production mode)
 
 - MCP endpoint acts as an OAuth protected resource.
-- Supabase Auth acts as the authorization server.
+- Supabase Auth acts as the default authorization server.
 - Missing or invalid access tokens return the correct Bearer challenge.
-- Protected-resource metadata advertises the Supabase authorization issuer and
+- Protected-resource metadata advertises the configured authorization issuer and
   supported scopes.
-- Valid tokens become request-scoped Supabase clients.
-- Access and refresh tokens remain managed by the MCP client and Supabase Auth.
+- Valid Supabase user tokens become request-scoped, RLS-aware Supabase clients.
+- Access and refresh tokens remain managed by the MCP client and configured
+  authorization server.
+- An application-owned issuer may supply a verifier for opaque access tokens.
+  Chumbo passes the canonical issuer and resource URL to that verifier; the
+  verifier checks issuer, exact resource, expiry, and revocation. Chumbo checks
+  the returned subject and expiry and gives handlers an anonymous Supabase
+  client, leaving application permissions to capability code.
 
 The adapter must use the official SDK's web-standard OAuth metadata helpers
 where possible. It must not copy protocol response shapes by hand when the SDK
@@ -619,8 +625,8 @@ tool, resource, prompt, or resource template through
 advertised or callable for that request.
 
 Token scopes are the initial value. An optional per-request resolver can
-replace them with application-owned grants loaded through the existing
-RLS-aware client. The package does not prescribe scope names, roles,
+replace them with application-owned grants loaded through the appropriate
+request-scoped authority. The package does not prescribe scope names, roles,
 organizations, or a grant-table schema. Supabase OAuth's standard identity
 scopes must not be presented as arbitrary application permissions.
 

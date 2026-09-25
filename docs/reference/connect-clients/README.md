@@ -18,7 +18,7 @@ API-key or bearer mode: add
 **claude.ai and Claude Desktop** – Settings → Connectors → Add custom
 connector, then paste the endpoint URL. Requires OAuth mode with dynamic
 client registration enabled, because the connector registers itself as an
-OAuth client against the project's Supabase Auth server. API-key and bearer
+OAuth client against the configured authorization server. API-key and bearer
 endpoints are not connectable here; use them from clients that send headers.
 
 **Cursor** – add the server to `.cursor/mcp.json` (project) or

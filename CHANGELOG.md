@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Allow an application-owned OAuth issuer to verify opaque, resource-bound
+  access tokens through an optional verifier with explicit issuer and resource
+  coordinates. These tokens receive an anonymous Supabase client; the default
+  Supabase JWT path remains unchanged.
+
 ## 0.12.1 – 2026-09-19
 
 - Refresh cached OAuth discovery when a user explicitly runs a project CLI

@@ -140,9 +140,11 @@ export function registerCapabilities(
 }
 ```
 
-The important part is `ctx.supabase`. In OAuth and bearer modes, it is a fresh
+The important part is `ctx.supabase`. With Supabase user tokens, it is a fresh
 client carrying the connected user's access token. The same Postgres grants
 and RLS policies used by the rest of the application apply to every tool call.
+With an application-owned OAuth verifier, `ctx.supabase` is anonymous and
+capability code must enforce the caller's application permissions.
 
 You choose the application operations worth exposing and shape each result for
 its real consumer. Chumbo handles the protocol and request-authority boundary
@@ -270,12 +272,12 @@ https://PROJECT_REF.supabase.co/functions/v1/mcp
 
 ### Choose who can connect
 
-| Access mode | Use it when                                                                          | Request authority                                                   |
-| ----------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| **OAuth**   | Your users should connect their own accounts. Recommended for a user-facing product. | Supabase user token and existing RLS                                |
-| **API key** | You want the shortest authenticated start or already maintain application keys.      | Application subject and scopes; `ctx.supabase` uses the `anon` role |
-| **Bearer**  | Your own client already holds a Supabase user access token.                          | Supabase user token and existing RLS                                |
-| **Public**  | The capability is intentionally anonymous.                                           | Supabase `anon` role plus a generated Postgres rate-limit guardrail |
+| Access mode | Use it when                                                                          | Request authority                                                                    |
+| ----------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| **OAuth**   | Your users should connect their own accounts. Recommended for a user-facing product. | Supabase user token and RLS by default; application authority with a custom verifier |
+| **API key** | You want the shortest authenticated start or already maintain application keys.      | Application subject and scopes; `ctx.supabase` uses the `anon` role                  |
+| **Bearer**  | Your own client already holds a Supabase user access token.                          | Supabase user token and existing RLS                                                 |
+| **Public**  | The capability is intentionally anonymous.                                           | Supabase `anon` role plus a generated Postgres rate-limit guardrail                  |
 
 Run `npx chumbo setup` interactively, or choose directly:
 
@@ -289,6 +291,15 @@ npx chumbo setup --auth public
 Start with OAuth for an end-user product and API key for a prototype or trusted
 machine caller. One endpoint can also compose Supabase-user and application-key
 strategies without merging their identities or database behavior.
+
+An application with its own OAuth authorization server can set `issuer` and
+supply an `oauth` verifier. Chumbo passes the token, canonical resource URL, and
+configured issuer to `verify({ token, resourceUrl, issuer })`. The verifier must
+check the issuer, exact resource, expiry, and revocation, then return a subject,
+optional client ID and scopes, and the expiry in Unix seconds. Return `null`
+for an invalid token. Chumbo exposes an anonymous Supabase client for these
+requests; it does not send the opaque MCP bearer to Supabase. Omitting `verify`
+retains the ordinary Supabase JWT path.
 
 [Choose an access mode](./docs/reference/auth-modes) explains the tradeoffs.
 [Different capability surfaces](./docs/patterns/privileged-capabilities) shows
@@ -348,10 +359,11 @@ instead.
   module state.
 - **Deliberate authentication.** Supabase users receive an RLS-aware client.
   Application keys retain their application-owned subject and scopes.
-- **Rotation-safe verification.** OAuth and bearer requests use Supabase's
-  public JWKS. Remote JWKS configuration is cached briefly per runtime to avoid
-  adding a key-network round trip to every MCP request while still observing
-  signing-key rotation quickly.
+- **Rotation-safe verification.** Supabase-token OAuth and bearer requests use
+  Supabase's public JWKS. Remote JWKS configuration is cached briefly per
+  runtime to avoid adding a key-network round trip to every MCP request while
+  still observing signing-key rotation quickly. An application-owned OAuth
+  verifier handles its issuer's token validity and revocation.
 - **Protocol-native capabilities.** Tools, Resources, prompts, instructions,
   and multi-round-trip flows use the official MCP SDK surface.
 - **Deployable defaults.** Setup is previewable, resumable, conflict-aware, and

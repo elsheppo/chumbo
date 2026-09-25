@@ -92,6 +92,7 @@ function request(
   method: string,
   token?: string,
   params: Record<string, unknown> = {},
+  resourceUrl = RESOURCE_URL,
 ): Request {
   const headers = new Headers({
     "content-type": "application/json",
@@ -101,7 +102,7 @@ function request(
   if (token) headers.set("authorization", `Bearer ${token}`);
   if (typeof params.name === "string") headers.set("mcp-name", params.name);
   if (typeof params.uri === "string") headers.set("mcp-name", params.uri);
-  return new Request(RESOURCE_URL, {
+  return new Request(resourceUrl, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -490,6 +491,168 @@ describe("request context", () => {
     const response = await app.fetch(request("tools/list", "app_bad"));
     expect(response.status).toBe(401);
     expect(userVerifierCalls).toBe(0);
+  });
+
+  it("keeps an opaque OAuth grant out of the Supabase user client", async () => {
+    const clientTokens: Array<string | null> = [];
+    const verifierInputs: unknown[] = [];
+    const deps = dependencies();
+    deps.verifyToken = async () => {
+      throw new Error("Supabase JWT verifier must not run");
+    };
+    deps.createClient = (token) => {
+      clientTokens.push(token);
+      return { token } as unknown as SupabaseClient;
+    };
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "opaque-oauth", version: "1.0.0" },
+        resourceUrl: `${RESOURCE_URL}/`,
+        auth: {
+          mode: "oauth",
+          issuer: `${ISSUER}/`,
+          verify(context) {
+            verifierInputs.push(context);
+            const { token, resourceUrl, issuer } = context;
+            if (resourceUrl !== RESOURCE_URL || issuer !== ISSUER) return null;
+            return token === "opaque-valid"
+              ? {
+                  subject: "member-1",
+                  clientId: "connection-1",
+                  scopes: ["files:read"],
+                  expiresAt: Math.floor(Date.now() / 1000) + 600,
+                }
+              : null;
+          },
+        },
+        register(server, context) {
+          server.registerTool(
+            "identity",
+            { inputSchema: z.object({}) },
+            async () =>
+              structuredResult({
+                subject: context.subject,
+                clientId: context.clientId,
+                user: context.user,
+                jwtClaims: context.jwtClaims,
+                scopes: context.scopes,
+                clientToken: (
+                  context.supabase as unknown as { token: string | null }
+                ).token,
+              }),
+          );
+        },
+      },
+      deps,
+    );
+    const allowed = await app.fetch(
+      request("tools/call", "opaque-valid", {
+        name: "identity",
+        arguments: {},
+      }),
+    );
+    expect(allowed.status).toBe(200);
+    expect((await allowed.json()).result.structuredContent).toEqual({
+      subject: "member-1",
+      clientId: "connection-1",
+      user: null,
+      jwtClaims: null,
+      scopes: ["files:read"],
+      clientToken: null,
+    });
+    expect(clientTokens).toEqual([null]);
+    expect(verifierInputs).toEqual([
+      { token: "opaque-valid", resourceUrl: RESOURCE_URL, issuer: ISSUER },
+    ]);
+    expect((await app.fetch(request("tools/list", "opaque-bad"))).status).toBe(
+      401,
+    );
+  });
+
+  it("refuses expired opaque OAuth identities before registering tools", async () => {
+    let registrations = 0;
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "opaque-expired", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: {
+          mode: "oauth",
+          issuer: ISSUER,
+          verify: () => ({
+            subject: "member-1",
+            expiresAt: Math.floor(Date.now() / 1000) - 1,
+          }),
+        },
+        register() {
+          registrations += 1;
+        },
+      },
+      dependencies(),
+    );
+    expect(
+      (await app.fetch(request("tools/list", "opaque-expired"))).status,
+    ).toBe(401);
+    expect(registrations).toBe(0);
+  });
+
+  it("gives each opaque verifier its own exact resource", async () => {
+    const verify = ({
+      token,
+      resourceUrl,
+    }: {
+      token: string;
+      resourceUrl: string;
+    }) =>
+      token === "opaque-valid" && resourceUrl === RESOURCE_URL
+        ? {
+            subject: "member-1",
+            expiresAt: Math.floor(Date.now() / 1000) + 600,
+          }
+        : null;
+    const createApp = (resourceUrl: string) =>
+      createSupabaseMcpInternal(
+        {
+          server: { name: "resource-bound", version: "1.0.0" },
+          resourceUrl,
+          auth: { mode: "oauth", issuer: ISSUER, verify },
+          register(server) {
+            server.registerTool(
+              "ping",
+              { inputSchema: z.object({}) },
+              async () => structuredResult({ ok: true }),
+            );
+          },
+        },
+        dependencies(),
+      );
+    expect(
+      (
+        await createApp(RESOURCE_URL).fetch(
+          request("tools/list", "opaque-valid"),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await createApp(`${RESOURCE_URL}/other`).fetch(
+          request("tools/list", "opaque-valid", {}, `${RESOURCE_URL}/other`),
+        )
+      ).status,
+    ).toBe(401);
+  });
+
+  it("requires an explicit issuer for an opaque OAuth verifier", () => {
+    expect(() =>
+      createSupabaseMcpInternal(
+        {
+          server: { name: "opaque-issuer", version: "1.0.0" },
+          resourceUrl: RESOURCE_URL,
+          auth: { mode: "oauth", verify: async () => null } as never,
+          register() {},
+        },
+        dependencies(),
+      ),
+    ).toThrow("An OAuth verifier requires an explicit issuer");
   });
 
   it("rejects ambiguous multi-auth configuration at startup", () => {
