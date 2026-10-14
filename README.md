@@ -43,6 +43,14 @@ capabilities.
 Requirements: Node 22+, the Supabase CLI, and preferably Deno for the generated
 local type-check and tests.
 
+Chumbo shares Zod with its host application through a `^4.2.0` peer dependency
+(Zod 4.2 or newer within major version 4). When installing Chumbo in a Node or
+Next.js project, install Zod alongside it: `npm install chumbo zod@^4.2.0`.
+Generated Edge Functions and source-reference tests pin Zod 4.6.7 for
+reproducibility. The compatibility gate installs the packed package with both
+4.2.0 and 4.6.7 using npm and pnpm, then checks schema composition, TypeScript
+inference, and MCP discovery and calls. Zod 3 and 5 are outside this contract.
+
 ### Finish Chumbo Cloud setup with your agent
 
 After Chumbo Cloud installs the observation plane and shows “one code change
