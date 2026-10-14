@@ -44,6 +44,23 @@ if (generatedImport !== `npm:${expectedName}@{{PACKAGE_VERSION}}`) {
   fail("templates/function/deno.json.tpl", generatedImport);
 }
 
+// Source validation and newly generated projects use the tested development
+// pin. Historical deployment maps below describe a separately released package.
+const zodVersion = manifest.devDependencies.zod;
+for (const relativePath of [
+  "templates/function/deno.json.tpl",
+  "supabase/deno.reference.json",
+]) {
+  const config = JSON.parse(
+    await readFile(path.join(root, relativePath), "utf8"),
+  );
+  if (config.imports?.zod !== `npm:zod@${zodVersion}`) {
+    failures.push(
+      `${relativePath}: expected Zod ${zodVersion}, found ${config.imports?.zod ?? "missing"}`,
+    );
+  }
+}
+
 const deployment = JSON.parse(
   await readFile(
     path.join(root, "docs", "deployment", "hosted-reference.json"),
