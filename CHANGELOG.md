@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Pin zod 4.6.7 in the package and in generated Edge Function import maps.
+  Chumbo previously pinned zod 4.2.0 exactly, so an application on a newer zod
+  installed a second copy, and schemas built with one copy did not type-check
+  against MCP registration typed with the other.
+
 ## 0.12.2 – 2026-09-25
 
 - Allow an application-owned OAuth issuer to verify opaque, resource-bound

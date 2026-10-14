@@ -13,7 +13,7 @@ importers:
         version: 2.0.0
       '@modelcontextprotocol/ext-apps':
         specifier: 1.7.5
-        version: 1.7.5(@modelcontextprotocol/sdk@1.30.0(zod@4.2.0))(zod@4.2.0)
+        version: 1.7.5(@modelcontextprotocol/sdk@1.30.0(zod@4.6.7))(zod@4.6.7)
       '@modelcontextprotocol/server':
         specifier: 2.0.0
         version: 2.0.0
@@ -27,8 +27,8 @@ importers:
         specifier: 2.105.4
         version: 2.105.4
       zod:
-        specifier: 4.2.0
-        version: 4.2.0
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       '@types/node':
         specifier: 24.10.1
@@ -1395,8 +1395,8 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@4.2.0:
-    resolution: {integrity: sha512-Bd5fw9wlIhtqCCxotZgdTOMwGm1a0u75wARVEY9HMs1X17trvA/lMi4+MGK5EUfYkXVTbX8UDiDKW4OgzHVUZw==}
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
 snapshots:
 
@@ -1475,19 +1475,19 @@ snapshots:
       eventsource-parser: 3.1.1
       jose: 6.2.8
       pkce-challenge: 5.0.1
-      zod: 4.2.0
+      zod: 4.6.7
 
   '@modelcontextprotocol/core@2.0.0':
     dependencies:
-      zod: 4.2.0
+      zod: 4.6.7
 
-  '@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.30.0(zod@4.2.0))(zod@4.2.0)':
+  '@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.30.0(zod@4.6.7))(zod@4.6.7)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.30.0(zod@4.2.0)
+      '@modelcontextprotocol/sdk': 1.30.0(zod@4.6.7)
       '@standard-schema/spec': 1.1.0
-      zod: 4.2.0
+      zod: 4.6.7
 
-  '@modelcontextprotocol/sdk@1.30.0(zod@4.2.0)':
+  '@modelcontextprotocol/sdk@1.30.0(zod@4.6.7)':
     dependencies:
       '@hono/node-server': 2.1.1(hono@4.13.3)
       ajv: 8.20.0
@@ -1504,15 +1504,15 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 4.2.0
-      zod-to-json-schema: 3.25.2(zod@4.2.0)
+      zod: 4.6.7
+      zod-to-json-schema: 3.25.2(zod@4.6.7)
     transitivePeerDependencies:
       - supports-color
 
   '@modelcontextprotocol/server@2.0.0':
     dependencies:
       '@modelcontextprotocol/core': 2.0.0
-      zod: 4.2.0
+      zod: 4.6.7
 
   '@napi-rs/keyring-darwin-arm64@2.0.0':
     optional: true
@@ -2540,8 +2540,8 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  zod-to-json-schema@3.25.2(zod@4.2.0):
+  zod-to-json-schema@3.25.2(zod@4.6.7):
     dependencies:
-      zod: 4.2.0
+      zod: 4.6.7
 
-  zod@4.2.0: {}
+  zod@4.6.7: {}

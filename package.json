@@ -91,7 +91,7 @@
     "@napi-rs/keyring": "2.0.0",
     "@supabase/server": "1.4.1",
     "@supabase/supabase-js": "2.105.4",
-    "zod": "4.2.0"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
