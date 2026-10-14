@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.3 – 2026-10-14
+
 - Pin zod 4.6.7 in the package and in generated Edge Function import maps.
   Chumbo previously pinned zod 4.2.0 exactly, so an application on a newer zod
   installed a second copy, and schemas built with one copy did not type-check
