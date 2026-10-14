@@ -17,6 +17,9 @@ function run(command, args, cwd) {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
+      // npm pack --dry-run runs prepack with this flag inherited. The smoke
+      // still needs a real tarball and real installs in its temporary fixtures.
+      env: { ...process.env, npm_config_dry_run: "false" },
     });
   } catch (error) {
     console.error(error.stdout?.toString(), error.stderr?.toString());
