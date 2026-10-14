@@ -5,7 +5,7 @@
     "@supabase/server/core": "npm:@supabase/server@1.4.1/core",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2.105.4",
     "chumbo": "npm:chumbo@{{PACKAGE_VERSION}}",
-    "zod": "npm:zod@4.2.0"
+    "zod": "npm:zod@4.6.7"
   },
   "compilerOptions": {
     "strict": true

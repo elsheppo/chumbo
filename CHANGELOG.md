@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Share the application's Zod through a `^4.2.0` peer dependency, with packed
+  consumer checks at the minimum and development versions. Pin generated Edge
+  Functions and source-reference tests to Zod 4.6.7.
+- Keep only English validation messages in the English-only review-queue app,
+  and enforce its existing 400 kB HTML budget during the ordinary build checks.
+
 ## 0.12.2 – 2026-09-25
 
 - Allow an application-owned OAuth issuer to verify opaque, resource-bound
