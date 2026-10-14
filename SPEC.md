@@ -1010,6 +1010,15 @@ Initial pinned dependencies observed on 2026-08-11:
 Implementation must re-check current versions and changelogs before installing.
 The repository commits all lockfiles.
 
+Zod is a required `^4.2.0` peer dependency so application-authored schemas and
+Chumbo's collection helpers share the host's Zod. Development uses exact
+4.6.7, also pinned in the generated Edge Function and source-reference import
+maps. Packed npm and pnpm consumers exercise both the minimum and development
+versions with strict type checking and MCP calls. The MCP SDK can resolve its
+own compatible dependency; the contract does not require every transitive
+package to resolve one physical copy. See [Zod compatibility](docs/zod-compatibility.md)
+for dependency and browser bundle validation details.
+
 Version policy:
 
 - package patch: bug fixes and compatible upstream bumps;
