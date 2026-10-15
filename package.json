@@ -59,6 +59,7 @@
     "dist",
     "skills",
     "templates",
+    "starters",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
@@ -79,6 +80,8 @@
     "test:generated": "node scripts/generated-smoke.mjs",
     "test:packed": "node scripts/packed-artifact-smoke.mjs",
     "test:rls": "node scripts/rls-integration-check.mjs",
+    "test:starters": "node scripts/starter-check.mjs",
+    "test:starters:integration": "node scripts/starter-integration.mjs",
     "test:state-integration": "node scripts/state-integration-check.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -96,6 +99,7 @@
   "devDependencies": {
     "@types/node": "24.10.1",
     "jose": "6.2.8",
+    "playwright-core": "1.56.1",
     "prettier": "3.8.1",
     "tsdown": "0.20.3",
     "typescript": "5.9.3",

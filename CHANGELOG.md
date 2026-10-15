@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add `chumbo create`, which copies a full-stack starter shipped inside the
+  package: Supabase schema, RLS, seed users, a generated MCP Edge Function with
+  hand-written capabilities, and a thin Vite + React app with sign-in and the
+  OAuth consent page. The first starter, `team-tasks`, is verified by a drift
+  check against `chumbo init`, an RLS isolation test through MCP, and a
+  browser-driven OAuth flow (registration, consent, PKCE) against local
+  Supabase.
+- Fall back to issuer-relative authorization-server metadata
+  (`<issuer>/.well-known/oauth-authorization-server`) when the RFC 8414 path
+  returns 404, so OAuth discovery works against the local Supabase CLI stack.
+  An explicitly configured metadata URL is never replaced.
+
 ## 0.12.2 – 2026-09-25
 
 - Allow an application-owned OAuth issuer to verify opaque, resource-bound

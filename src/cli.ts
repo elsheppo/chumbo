@@ -17,6 +17,7 @@ import {
   resolveCloudDeployCommand,
   reportCloudSetupEvent,
 } from "./cloud-setup.js";
+import { createStarter, listStarters, starterNextSteps } from "./create.js";
 import { runDoctor, type DoctorCheck } from "./doctor.js";
 import { buildHostTargetReport, type HostTarget } from "./host-target.js";
 import {
@@ -60,6 +61,7 @@ import {
 const HELP = `chumbo ${PACKAGE_VERSION}
 
 Usage:
+  chumbo create [starter] [dir]  New full-stack Supabase app with MCP built in
   chumbo setup [options]   Guided, resumable installation
   chumbo status [options]  Read-only setup status
   chumbo init [options]    Generate files only
@@ -67,6 +69,10 @@ Usage:
   chumbo dev [options]     Serve the function locally
   chumbo skill <action>    Install, inspect, or update the project agent skill
   chumbo cloud setup       Pair with Cloud and finish analytics setup
+
+Create options:
+  --list                  List the available starters
+  --force                 Add a starter to a non-empty directory (never overwrites)
 
 Skill actions:
   skill install           Install the versioned skill into this project
@@ -133,10 +139,12 @@ function parse(commandArgs: string[]) {
       "cloud-url": { type: "string" },
       deploy: { type: "boolean" },
       "dry-run": { type: "boolean" },
+      force: { type: "boolean" },
       "env-file": { type: "string" },
       function: { type: "string" },
       help: { type: "boolean" },
       json: { type: "boolean" },
+      list: { type: "boolean" },
       "no-config": { type: "boolean" },
       "no-browser": { type: "boolean" },
       plan: { type: "boolean" },
@@ -1944,6 +1952,50 @@ async function doctor(args: string[]): Promise<void> {
   }
 }
 
+async function create(args: string[]): Promise<void> {
+  const parsed = parse(args);
+  const machine = parsed.values.json ?? false;
+  const [starterId, directory, ...extra] = parsed.positionals;
+  if (extra.length > 0) {
+    throw new Error("Use `chumbo create <starter> [directory]`.");
+  }
+  const starters = await listStarters();
+  if (parsed.values.list || !starterId) {
+    if (machine) {
+      printJson({ command: "create", status: "listed", starters });
+      return;
+    }
+    console.log("Starters:\n");
+    for (const starter of starters) {
+      console.log(`  ${starter.id.padEnd(16)} ${starter.title}`);
+      console.log(`  ${"".padEnd(16)} ${starter.summary}\n`);
+    }
+    console.log("Create one with: npx chumbo create <starter> [directory]");
+    return;
+  }
+  const target = directory ?? starterId;
+  const result = await createStarter({
+    starter: starterId,
+    directory: target,
+    force: parsed.values.force ?? false,
+  });
+  const nextSteps = starterNextSteps(result, target);
+  if (machine) {
+    printJson({
+      command: "create",
+      status: "created",
+      starter: result.starter,
+      directory: result.directory,
+      files: result.files,
+      nextSteps,
+    });
+    return;
+  }
+  console.log(
+    `Created ${result.starter.title} in ${target} (${result.files.length} files).\n\nNext:\n${nextSteps.map((step) => `  ${step}`).join("\n")}`,
+  );
+}
+
 async function dev(args: string[]): Promise<void> {
   const parsed = parse(args);
   if (parsed.values.json) {
@@ -2014,6 +2066,7 @@ async function main(): Promise<void> {
     console.log(HELP);
     return;
   }
+  if (command === "create") return create(args);
   if (command === "setup") return setup(args);
   if (command === "status") return status(args);
   if (command === "init") return init(args);

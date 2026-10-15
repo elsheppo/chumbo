@@ -1179,10 +1179,19 @@ export function createSupabaseMcpInternal<Database = unknown>(
     if (!authorizationServerMetadataUrl) {
       return Promise.reject(new Error("OAuth metadata is not configured"));
     }
-    oauthMetadataPromise ??= dependencies
-      .fetch(authorizationServerMetadataUrl, {
-        headers: { accept: "application/json" },
-      })
+    const fetchMetadata = (url: URL) =>
+      dependencies.fetch(url, { headers: { accept: "application/json" } });
+    oauthMetadataPromise ??= fetchMetadata(authorizationServerMetadataUrl)
+      .then((response) =>
+        // The local Supabase CLI gateway serves Auth metadata only below the
+        // issuer path. Fall back to it unless the URL was configured explicitly.
+        response.status === 404 &&
+        !oauthStrategy?.authorizationServerMetadataUrl
+          ? fetchMetadata(
+              appendPath(issuer!, ".well-known/oauth-authorization-server"),
+            )
+          : response,
+      )
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(

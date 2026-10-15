@@ -1,0 +1,14 @@
+{
+  "id": "team-tasks",
+  "title": "Team Tasks",
+  "summary": "A Vite + React team task app on Supabase with a built-in OAuth MCP server. Two seeded users share one team, so agents connected as each see only what RLS allows.",
+  "auth": "oauth",
+  "function": "mcp",
+  "serverName": "Team Tasks",
+  "frontend": "vite-react",
+  "tools": ["list_teams", "list_tasks", "create_task", "update_task"],
+  "demoUsers": [
+    { "email": "alice@example.com", "password": "password123" },
+    { "email": "bob@example.com", "password": "password123" }
+  ]
+}

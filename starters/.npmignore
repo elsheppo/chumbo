@@ -1,0 +1,8 @@
+# Local state from running a starter in place. `files` in package.json
+# includes starters/, so these exclusions must live here, not in the root.
+node_modules/
+dist/
+.env*
+!.env.example
+.temp/
+.branches/

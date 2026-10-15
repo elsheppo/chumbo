@@ -15,6 +15,7 @@ and preferably Deno for generated type-checks and tests.
 
 | You find                                                                                          | Next action                                                           |
 | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| No application yet, or an empty directory                                                         | Offer `npx chumbo create --list`, then `npx chumbo create <starter>`  |
 | `supabase/config.toml`, but no generated MCP function                                             | Preview and run setup                                                 |
 | `supabase/functions/<name>/` with `index.ts`, `capabilities.ts`, `deno.json`, and `index_test.ts` | Run `npx chumbo status --json` before editing                         |
 | A Next.js app (`next` in package.json) with no Supabase directory                                 | Use `npx chumbo setup --target next`                                  |

@@ -1,0 +1,20 @@
+{
+  "name": "team-tasks",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "setup": "npm --prefix web install",
+    "env": "node scripts/env.mjs",
+    "dev": "node scripts/dev.mjs",
+    "types": "supabase gen types typescript --local > supabase/functions/_shared/database.types.ts && deno fmt supabase/functions/_shared/database.types.ts",
+    "check": "deno task --config supabase/functions/mcp/deno.json check && npm --prefix web run typecheck",
+    "test": "deno task --config supabase/functions/mcp/deno.json test && npm run test:isolation",
+    "test:isolation": "node scripts/test-isolation.mjs",
+    "build": "npm --prefix web run build",
+    "deploy:mcp": "supabase functions deploy mcp --no-verify-jwt"
+  },
+  "devDependencies": {
+    "chumbo": "0.12.2"
+  }
+}

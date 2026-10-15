@@ -43,6 +43,20 @@ capabilities.
 Requirements: Node 22+, the Supabase CLI, and preferably Deno for the generated
 local type-check and tests.
 
+### Or start from a full-stack starter
+
+No Supabase app yet? Create one with the MCP server already built in:
+
+```sh
+npx chumbo create team-tasks my-app
+cd my-app && npm run setup && supabase start && npm run dev
+```
+
+`team-tasks` is a Vite + React app with Supabase Auth, RLS-protected teams and
+tasks, an OAuth consent page for MCP clients, and two seeded users who share
+one team. Connect an agent as each user and watch RLS give each one only their
+own slice. See [starters](./starters) for the catalog.
+
 ### Finish Chumbo Cloud setup with your agent
 
 After Chumbo Cloud installs the observation plane and shows “one code change

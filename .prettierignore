@@ -2,3 +2,9 @@ dist
 node_modules
 pnpm-lock.yaml
 .supabase-home
+# Generated starter files: kept byte-identical to `chumbo init` and `npm run types`.
+starters/*/supabase/functions/*/index.ts
+starters/*/supabase/functions/*/index_test.ts
+starters/*/supabase/functions/*/deno.json
+starters/*/supabase/functions/_shared/database.types.ts
+starters/*/web/package-lock.json
