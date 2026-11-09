@@ -5,9 +5,23 @@ a compatibility promise. A roadmap item ships only after a real application
 proves the abstraction and the public package, living reference, and hosted
 verification agree.
 
+## 0.13.0: doctor for any Supabase MCP
+
+- **Status:** Release candidate, 2026-11-09
+- **Motivating cases:** Supabase now documents its own way to give an app an
+  MCP server. Builders on either path need to know whether real clients can
+  discover, sign in to, and safely use what they deployed.
+- **Outcome:** `chumbo doctor --url` checks any Supabase-backed MCP server:
+  discovery in the order MCP clients use, issuer and signing-key problems,
+  client registration, an optional two-user isolation heuristic, Data API
+  grant errors, and the agent-facing tool surface.
+- **Boundary:** doctor reads and calls only what the builder names or the
+  server marks read-only. It does not register OAuth clients, change a
+  project, or claim proof of isolation.
+
 ## 0.12.0: host targets
 
-- **Status:** Implementation in progress
+- **Status:** Shipped on 2026-09-19
 - **Motivating cases:** real adopters already run the Chumbo runtime inside
   Next.js applications and Cloud Run services because a Chumbo app is a
   web-standard fetch handler. Those deployments deserve the same generated
@@ -519,9 +533,10 @@ it.
 ```text
 shipped: durable state, identity transition, lifecycle events, run correlation,
          compact first-tool path, local-first development loop,
-         bounded collection responses
-in progress: host targets – Next.js and Node/Cloud Run as first-class homes
-next OSS pull: deterministic `npx chumbo design` inspection and patterns
+         bounded collection responses, host targets
+release candidate: doctor for any Supabase MCP
+next OSS pull: Chumbo additions as pipeline entries on Supabase's official
+               MCP path, then deterministic `npx chumbo design` inspection
 advanced candidates: external JWT identities, durable MCP Tasks, MCP Apps
 ```
 
