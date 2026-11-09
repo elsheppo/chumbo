@@ -93,7 +93,18 @@ function documentCard(document: ReferenceDocument): string {
   ].join("\n");
 }
 
-const documentInputSchema = z.object({ slug: z.string().min(1) });
+const documentInputSchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .describe("The document slug, as returned by search_docs."),
+});
+
+const readOnly = {
+  readOnlyHint: true,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
 
 const searchCursor = z
   .object({
@@ -216,9 +227,11 @@ function register(
           .describe("What you want to build or resolve."),
         kind: z
           .enum(["reference", "pattern", "example", "troubleshooting"])
-          .optional(),
+          .optional()
+          .describe("Limit results to one kind of document."),
       }),
       outputSchema: collectionOutputSchema(documentSummary),
+      annotations: readOnly,
     },
     async ({ query, kind, limit, cursor }) => {
       const position = cursor ? parseSearchCursor(cursor) : null;
@@ -300,6 +313,7 @@ function register(
       description:
         "Read one Chumbo-owned reference document by slug, such as auth-modes, connect-clients, or getting-started.",
       inputSchema: documentInputSchema,
+      annotations: readOnly,
     },
     async ({ slug }) => {
       const document = await getDocument(ctx, "reference", slug);
@@ -319,6 +333,7 @@ function register(
       description:
         "Read one tested Chumbo implementation pattern, including its runnable example and source links.",
       inputSchema: documentInputSchema,
+      annotations: readOnly,
     },
     async ({ slug }) => {
       const document = await getDocument(ctx, "pattern", slug);
@@ -338,6 +353,7 @@ function register(
       description:
         "Read one executable Chumbo example with its endpoint, source, tests, and expected behavior.",
       inputSchema: documentInputSchema,
+      annotations: readOnly,
     },
     async ({ slug }) => {
       const document = await getDocument(ctx, "example", slug);
@@ -357,8 +373,15 @@ function register(
       description:
         "Get the short, agent-ready setup sequence for one MCP or a named advanced pattern.",
       inputSchema: z.object({
-        pattern: z.string().min(1).optional(),
+        pattern: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Slug of an advanced pattern. Omit for the ordinary setup.",
+          ),
       }),
+      annotations: readOnly,
     },
     async ({ pattern }) => {
       const base = await getDocument(ctx, "reference", "getting-started");

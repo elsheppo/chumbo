@@ -43,6 +43,16 @@ const bytes = (value: unknown) =>
   new TextEncoder().encode(JSON.stringify(value)).byteLength;
 
 describe("bounded collection contracts", () => {
+  it("describes limit and cursor so agents can fill them", () => {
+    const json = z.toJSONSchema(collectionInputSchema({ maxLimit: 10 }), {
+      io: "input",
+    }) as { properties: Record<string, { description?: string }> };
+    expect(json.properties.limit?.description).toBe(
+      "How many items to return, from 1 to 10.",
+    );
+    expect(json.properties.cursor?.description).toMatch(/next_cursor/);
+  });
+
   it("supplies validated defaults, bounded custom limits and semantic cursor validation", () => {
     expect(collectionInputSchema().parse({})).toEqual({
       limit: collectionLimits.defaultLimit,
