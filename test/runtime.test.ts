@@ -173,6 +173,69 @@ describe("OAuth resource server", () => {
     expect(response.headers.get("x-supa-mcp-auth-strategy")).toBeNull();
   });
 
+  it("falls back to issuer-relative metadata when the RFC 8414 path is missing", async () => {
+    // The local Supabase CLI gateway serves Auth metadata only below /auth/v1.
+    const requested: string[] = [];
+    const base = dependencies();
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "test", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: { mode: "oauth" },
+        register() {},
+      },
+      {
+        ...base,
+        async fetch(input, init) {
+          const url = String(input);
+          requested.push(url);
+          if (url.includes("/.well-known/oauth-authorization-server/auth/v1")) {
+            return new Response("not found", { status: 404 });
+          }
+          return base.fetch(input, init);
+        },
+      },
+    );
+    const response = await app.fetch(
+      new Request(runtimeUrls.resourceMetadata(RESOURCE_URL)),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      authorization_servers: [ISSUER],
+    });
+    expect(requested).toEqual([
+      "https://project.supabase.co/.well-known/oauth-authorization-server/auth/v1",
+      `${ISSUER}/.well-known/oauth-authorization-server`,
+    ]);
+  });
+
+  it("does not fall back from an explicitly configured metadata URL", async () => {
+    const requested: string[] = [];
+    const app = createSupabaseMcpInternal(
+      {
+        server: { name: "test", version: "1.0.0" },
+        resourceUrl: RESOURCE_URL,
+        auth: {
+          mode: "oauth",
+          authorizationServerMetadataUrl: "https://auth.example.com/metadata",
+        },
+        register() {},
+      },
+      {
+        ...dependencies(),
+        async fetch(input) {
+          requested.push(String(input));
+          return new Response("not found", { status: 404 });
+        },
+      },
+    );
+    const response = await app.fetch(
+      new Request(runtimeUrls.resourceMetadata(RESOURCE_URL)),
+    );
+    expect(response.status).toBe(502);
+    expect(requested).toEqual(["https://auth.example.com/metadata"]);
+  });
+
   it("serves protected-resource and authorization-server metadata", async () => {
     const app = createSupabaseMcpInternal(
       {
