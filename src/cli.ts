@@ -17,7 +17,7 @@ import {
   resolveCloudDeployCommand,
   reportCloudSetupEvent,
 } from "./cloud-setup.js";
-import { runDoctor, type DoctorCheck } from "./doctor.js";
+import { functionNameFromUrl, runDoctor, type DoctorCheck } from "./doctor.js";
 import { buildHostTargetReport, type HostTarget } from "./host-target.js";
 import {
   applyPlan,
@@ -1914,9 +1914,12 @@ async function doctor(args: string[]): Promise<void> {
   if (parsed.values["second-token"] && !parsed.values.token) {
     throw new Error("--second-token requires --token");
   }
+  // Without --function, the name comes from a /functions/v1/<name> URL.
+  const inferred = functionNameFromUrl(parsed.values.url);
   const checks = await runDoctor({
     cwd: process.cwd(),
-    functionName: parsed.values.function ?? "mcp",
+    functionName: parsed.values.function ?? inferred ?? "mcp",
+    functionKnown: Boolean(parsed.values.function ?? inferred),
     url: parsed.values.url,
     token: parsed.values.token,
     secondToken: parsed.values["second-token"],

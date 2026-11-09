@@ -9,7 +9,8 @@
   apply to a Chumbo runtime.
 - Add doctor checks `authorization-server-metadata`, `issuer-match`,
   `client-registration`, and `signing-keys`, so a custom-domain issuer
-  mismatch, a missing registration endpoint, or a legacy HS256 project shows up
+  mismatch, a missing registration endpoint, a published signing secret, or a
+  legacy HS256 project shows up
   before a client gives up at discovery.
 - Add `--second-token` to doctor. With two user tokens it adds `user-isolation`,
   which calls read-only tools that need no input as both users and flags a tool

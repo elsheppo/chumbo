@@ -92,13 +92,17 @@ export function toolSurfaceCheck(
       undescribedProperties += missing;
     }
   }
-  const oversized = [
-    ...new Set(
-      results
-        .filter((record) => resultBytes(record) > RESULT_BUDGET_BYTES)
-        .map((record) => record.tool),
-    ),
-  ];
+  // One result per tool, however many callers produced one.
+  const perTool = new Map<string, ToolResultRecord>();
+  for (const record of results) {
+    const known = perTool.get(record.tool);
+    if (!known || resultBytes(record) > resultBytes(known)) {
+      perTool.set(record.tool, record);
+    }
+  }
+  const oversized = [...perTool.values()]
+    .filter((record) => resultBytes(record) > RESULT_BUDGET_BYTES)
+    .map((record) => record.tool);
 
   const findings: string[] = [];
   if (weakDescription.length > 0) {
@@ -121,7 +125,7 @@ export function toolSurfaceCheck(
       `${plural(oversized.length, "result")} larger than 16 KiB (${nameList(oversized)}); return a page of rows or serve the full content as an MCP Resource`,
     );
   }
-  const scope = `${plural(tools.length, "tool")}${results.length > 0 ? ` and ${plural(results.length, "result")}` : ""} checked`;
+  const scope = `${plural(tools.length, "tool")}${perTool.size > 0 ? ` and ${plural(perTool.size, "result")}` : ""} checked`;
   return {
     name: "tool-surface",
     ok: findings.length === 0,
@@ -137,33 +141,39 @@ export function toolSurfaceCheck(
 // Data API grants
 // ---------------------------------------------------------------------------
 
-function resultText(record: ToolResultRecord): string {
+/** Text of a failed call only. Successful data is never scanned. */
+function errorText(record: ToolResultRecord): string {
   const parts: string[] = [];
   if (record.errorMessage) parts.push(record.errorMessage);
-  const content = record.result?.content;
-  if (Array.isArray(content)) {
-    for (const entry of content) {
-      if (isRecord(entry) && typeof entry.text === "string") {
-        parts.push(entry.text);
+  if (record.result?.isError === true) {
+    const content = record.result.content;
+    if (Array.isArray(content)) {
+      for (const entry of content) {
+        if (isRecord(entry) && typeof entry.text === "string") {
+          parts.push(entry.text);
+        }
       }
     }
+    if (record.result.structuredContent !== undefined) {
+      parts.push(JSON.stringify(record.result.structuredContent));
+    }
   }
-  const structured = record.result?.structuredContent;
-  if (structured !== undefined) parts.push(JSON.stringify(structured));
   return parts.join("\n");
 }
 
 const IDENTIFIER = /^[A-Za-z_][\w$]*$/;
 
-function plainIdentifier(value: string): string | undefined {
-  const cleaned = value.replace(/^["'`]+|["'`.,;:)]+$/g, "");
-  const bare = cleaned.includes(".")
-    ? (cleaned.split(".").pop() ?? "").replace(/^"|"$/g, "")
-    : cleaned;
-  return IDENTIFIER.test(bare) ? bare : undefined;
+/** Splits `schema.table` or `table` into a safe, quoted-free identifier. */
+function qualified(value: string): string | undefined {
+  const cleaned = value.replace(/["'`]/g, "").replace(/[.,;:)]+$/, "");
+  const parts = cleaned.split(".");
+  if (parts.length > 2 || !parts.every((part) => IDENTIFIER.test(part))) {
+    return undefined;
+  }
+  return parts.length === 2 ? cleaned : `public.${cleaned}`;
 }
 
-/** Spots Postgres and PostgREST permission failures in tool results. */
+/** Spots Postgres and PostgREST permission failures in failed tool calls. */
 export function dataApiGrantsCheck(
   results: readonly ToolResultRecord[],
 ): DoctorCheck | undefined {
@@ -173,13 +183,14 @@ export function dataApiGrantsCheck(
   const tools = new Set<string>();
   let unnamed = false;
   for (const record of results) {
-    const text = resultText(record);
+    const text = errorText(record);
+    if (!text) continue;
     let hit = false;
     for (const match of text.matchAll(
-      /permission denied for (table|relation|view)\s+("?[\w.$]+"?)/gi,
+      /permission denied for (?:table|relation|view)\s+("?[\w$]+"?(?:\."?[\w$]+"?)?)/gi,
     )) {
       hit = true;
-      const table = plainIdentifier(match[2] ?? "");
+      const table = qualified(match[1] ?? "");
       if (table) tables.add(table);
       else unnamed = true;
     }
@@ -187,8 +198,8 @@ export function dataApiGrantsCheck(
       /permission denied for schema\s+("?[\w$]+"?)/gi,
     )) {
       hit = true;
-      const schema = plainIdentifier(match[1] ?? "");
-      if (schema) schemas.add(schema);
+      const bare = (match[1] ?? "").replace(/"/g, "");
+      if (IDENTIFIER.test(bare)) schemas.add(bare);
     }
     if (!hit && (/\b42501\b/.test(text) || /permission denied/i.test(text))) {
       hit = true;
@@ -213,14 +224,14 @@ export function dataApiGrantsCheck(
         : "a table or schema the tool reads";
   const fix =
     named.length > 0
-      ? ` For example: grant select, insert, update, delete on public.${named[0]} to authenticated; (keep row-level security on, and grant only what the tool needs).`
+      ? ` To let signed-in users read it, run: grant select on table ${named[0]} to authenticated; Writes need insert, update, or delete as appropriate. Keep row-level security on.`
       : schemas.size > 0
         ? ` For example: grant usage on schema ${[...schemas][0]} to authenticated;`
         : " Grant the authenticated role the access the tool needs on that table.";
   return {
     name: "data-api-grants",
     ok: false,
-    detail: `${plural(tools.size, "tool")} (${nameList([...tools])}) failed with a Postgres permission error on ${subject}${unnamed && named.length > 0 ? " and others" : ""}. Since 2026-10-30, new tables in the public schema are not exposed to the Data API by default; each needs an explicit grant to the authenticated role.${fix}`,
+    detail: `${plural(tools.size, "tool")} (${nameList([...tools])}) failed with a Postgres permission error on ${subject}${unnamed && named.length > 0 ? " and others" : ""}. From 2026-10-30, new tables in the public schema are not exposed to the Data API until granted to a role, including tables recreated by a local supabase db reset and by preview branches. Put the grant in a migration.${fix}`,
     blocking: false,
   };
 }
@@ -229,22 +240,31 @@ export function dataApiGrantsCheck(
 // User isolation helpers
 // ---------------------------------------------------------------------------
 
-/** Reads the `sub` claim from a JWT without verifying it. */
-export function jwtSubject(token: string): string | undefined {
+function jwtPayload(token: string): Record<string, unknown> | undefined {
   const parts = token.split(".");
   if (parts.length !== 3) return undefined;
   try {
     const payload = JSON.parse(
       Buffer.from(parts[1]!, "base64url").toString("utf8"),
     ) as unknown;
-    return isRecord(payload) &&
-      typeof payload.sub === "string" &&
-      payload.sub !== ""
-      ? payload.sub
-      : undefined;
+    return isRecord(payload) ? payload : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** Reads the `sub` claim from a JWT without verifying it. */
+export function jwtSubject(token: string): string | undefined {
+  const sub = jwtPayload(token)?.sub;
+  return typeof sub === "string" && sub !== "" ? sub : undefined;
+}
+
+/** The sub and email claims of a JWT, for redacting identity from results. */
+export function jwtIdentity(token: string): string[] {
+  const payload = jwtPayload(token);
+  return [payload?.sub, payload?.email].filter(
+    (value): value is string => typeof value === "string" && value !== "",
+  );
 }
 
 /** Read-only tools that can be called with no arguments. */
@@ -278,7 +298,26 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-/** A usable result: not an error and carrying some content. */
+function emptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.every(emptyValue);
+  if (isRecord(value)) return Object.values(value).every(emptyValue);
+  return false;
+}
+
+function textValue(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * A usable result: not an error and carrying data. Empty results ([], {},
+ * "", empty content, an empty items list) have nothing to compare.
+ */
 export function comparableResult(
   record: ToolResultRecord | undefined,
 ): string | undefined {
@@ -287,18 +326,28 @@ export function comparableResult(
     return undefined;
   }
   const content = Array.isArray(result.content) ? result.content : [];
-  const hasText = content.some(
-    (entry) =>
-      !isRecord(entry) ||
-      typeof entry.text !== "string" ||
-      entry.text.trim() !== "",
+  const values = content.map((entry) =>
+    isRecord(entry) && typeof entry.text === "string"
+      ? textValue(entry.text)
+      : entry,
   );
-  const structured = result.structuredContent;
-  const hasStructured =
-    structured !== undefined &&
-    structured !== null &&
-    canonical(structured) !== "{}" &&
-    canonical(structured) !== "[]";
-  if (!hasText && !hasStructured) return undefined;
-  return canonical({ content, structuredContent: structured ?? null });
+  if (emptyValue(values) && emptyValue(result.structuredContent)) {
+    return undefined;
+  }
+  return canonical({
+    content,
+    structuredContent: result.structuredContent ?? null,
+  });
+}
+
+/** Replaces each identity value with one placeholder before comparing. */
+export function redactIdentity(
+  canonicalResult: string,
+  identities: readonly string[],
+): string {
+  let redacted = canonicalResult;
+  for (const identity of identities) {
+    redacted = redacted.split(identity).join("<user>");
+  }
+  return redacted;
 }
