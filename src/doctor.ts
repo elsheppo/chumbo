@@ -7,6 +7,20 @@ import {
   type SetupTarget,
 } from "./project.js";
 import {
+  comparableResult,
+  dataApiGrantsCheck,
+  isolationCandidates,
+  jwtSubject,
+  toolSurfaceCheck,
+  type ProbeTool,
+  type ToolResultRecord,
+} from "./doctor-checks.js";
+import {
+  authorizationServerChecks,
+  discoverProtectedResource,
+  protectedResourceChecks,
+} from "./doctor-discovery.js";
+import {
   detectGeneratedScaffold,
   inspectGeneratedAuthAt,
   type ApiKeyStrategy,
@@ -19,6 +33,14 @@ export interface DoctorOptions {
   functionName: string;
   url?: string;
   token?: string;
+  /**
+   * Run the checks that work against any Supabase MCP server: authorization
+   * server discovery, tool surface lint, and the advisory result checks. The
+   * `chumbo doctor` command sets it; setup and status leave it off.
+   */
+  deep?: boolean;
+  /** A second user's token, for the user-isolation check. Needs `token`. */
+  secondToken?: string;
   auth?: SetupAuthMode;
   apiKeyStrategy?: ApiKeyStrategy;
   target?: SetupTarget;
@@ -189,12 +211,23 @@ async function unreachableCheck(
   }
 }
 
+interface ProbeOutcome {
+  tools?: ProbeTool[];
+  results: ToolResultRecord[];
+}
+
+function errorMessage(body: ProtocolBody | null): string | undefined {
+  const message = (body?.error as { message?: unknown } | undefined)?.message;
+  return typeof message === "string" ? message : undefined;
+}
+
 async function mcpProbe(
   options: DoctorOptions,
   target: SetupTarget,
   checks: DoctorCheck[],
   token?: string,
-): Promise<void> {
+): Promise<ProbeOutcome> {
+  const outcome: ProbeOutcome = { results: [] };
   let initializeResponse: Response;
   try {
     initializeResponse = await fetch(options.url!, {
@@ -210,7 +243,7 @@ async function mcpProbe(
     checks.push(
       await unreachableCheck(options.url!, options.functionName, target),
     );
-    return;
+    return outcome;
   }
   const initializeBody = await responseBody(initializeResponse);
   if (initializeResponse.status === 401 || initializeResponse.status === 403) {
@@ -219,7 +252,7 @@ async function mcpProbe(
       ok: false,
       detail: `HTTP ${initializeResponse.status}; the supplied credential was rejected. Check the credential and auth mode, then retry without placing the credential in the URL.`,
     });
-    return;
+    return outcome;
   }
   const initialized =
     initializeResponse.ok &&
@@ -232,7 +265,7 @@ async function mcpProbe(
       ? `HTTP ${initializeResponse.status}`
       : `${protocolDetail(initializeResponse, initializeBody)}; MCP initialization failed. Check the function logs and retry.`,
   });
-  if (!initialized) return;
+  if (!initialized) return outcome;
 
   let discoveryResponse: Response;
   try {
@@ -248,7 +281,7 @@ async function mcpProbe(
       detail:
         "MCP initialization succeeded, but tools/list did not respond. Check the function logs and retry.",
     });
-    return;
+    return outcome;
   }
   const discoveryBody = await responseBody(discoveryResponse);
   const tools = Array.isArray(discoveryBody?.result?.tools)
@@ -263,7 +296,8 @@ async function mcpProbe(
       ? `HTTP ${discoveryResponse.status}; ${tools?.length ?? 0} tool${tools?.length === 1 ? "" : "s"}`
       : `${protocolDetail(discoveryResponse, discoveryBody)}; tools/list failed. Check capability registration and function logs.`,
   });
-  if (!discovered || !options.callTool) return;
+  if (discovered) outcome.tools = (tools ?? []) as ProbeTool[];
+  if (!discovered || !options.callTool) return outcome;
 
   if (!tools?.some((tool) => tool.name === options.callTool)) {
     checks.push({
@@ -271,7 +305,7 @@ async function mcpProbe(
       ok: false,
       detail: `Tool '${options.callTool}' was not discovered. Run doctor without --call-tool to verify discovery, then choose an advertised tool.`,
     });
-    return;
+    return outcome;
   }
   let callResponse: Response;
   try {
@@ -289,9 +323,15 @@ async function mcpProbe(
       ok: false,
       detail: `Tool '${options.callTool}' did not return a response. Check the function logs and retry.`,
     });
-    return;
+    return outcome;
   }
   const callBody = await responseBody(callResponse);
+  outcome.results.push({
+    tool: options.callTool,
+    caller: "doctor",
+    result: callBody?.result,
+    errorMessage: errorMessage(callBody),
+  });
   const capabilityErrored = callBody?.result?.isError === true;
   const called =
     callResponse.ok &&
@@ -307,6 +347,140 @@ async function mcpProbe(
         ? `Tool '${options.callTool}' returned an MCP error result with HTTP ${callResponse.status}. Check its inputs and capability logs, then retry.`
         : `${protocolDetail(callResponse, callBody)}; tool '${options.callTool}' failed. Check its inputs and function logs.`,
   });
+  return outcome;
+}
+
+async function callToolAs(
+  url: string,
+  token: string,
+  name: string,
+  caller: string,
+): Promise<ToolResultRecord & { rejected?: boolean }> {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: requestHeaders("tools/call", token, name),
+      body: modernRequest("tools/call", { name, arguments: {} }),
+    });
+    const body = await responseBody(response);
+    return {
+      tool: name,
+      caller,
+      result: response.ok ? body?.result : undefined,
+      errorMessage: errorMessage(body),
+      rejected: response.status === 401 || response.status === 403,
+    };
+  } catch {
+    return { tool: name, caller };
+  }
+}
+
+function plainCount(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * Calls read-only, no-argument tools as two different users and compares the
+ * results. The comparison is a heuristic and never claims to prove isolation.
+ */
+async function userIsolationCheck(
+  url: string,
+  token: string,
+  secondToken: string,
+  tools: readonly ProbeTool[],
+  results: ToolResultRecord[],
+): Promise<DoctorCheck> {
+  const first = jwtSubject(token);
+  const second = jwtSubject(secondToken);
+  if (first && second && first === second) {
+    return {
+      name: "user-isolation",
+      ok: false,
+      detail:
+        "--token and --second-token belong to the same user, so there is nothing to compare. Sign in as a different user for --second-token, then retry.",
+    };
+  }
+  const note =
+    first && second
+      ? ""
+      : " Doctor could not tell whether the two tokens belong to different users, because a token is not a JWT; make sure they do.";
+  const { selected, skipped } = isolationCandidates(tools);
+  if (selected.length === 0) {
+    return {
+      name: "user-isolation",
+      ok: false,
+      detail: `Isolation could not be checked: no tool is marked read-only with no required inputs. Mark read-only tools with readOnlyHint: true so doctor can compare what each user sees.${note}`,
+      blocking: false,
+    };
+  }
+  const identical: string[] = [];
+  let different = 0;
+  let notComparable = 0;
+  for (const name of selected) {
+    const a = await callToolAs(url, token, name, "first user");
+    const b = await callToolAs(url, secondToken, name, "second user");
+    results.push(a, b);
+    if (b.rejected) {
+      return {
+        name: "user-isolation",
+        ok: false,
+        detail:
+          "The server rejected --second-token. Check that it is a current access token for a second user of this project, then retry.",
+      };
+    }
+    const left = comparableResult(a);
+    const right = comparableResult(b);
+    if (left === undefined || right === undefined) notComparable += 1;
+    else if (left === right) identical.push(name);
+    else different += 1;
+  }
+  const scope = `${plainCount(selected.length, "read-only tool")} called as both users${skipped > 0 ? `; ${plainCount(skipped, "more tool")} skipped (limit 10)` : ""}`;
+  if (identical.length > 0) {
+    return {
+      name: "user-isolation",
+      ok: false,
+      detail: `${identical.map((name) => `Tool '${name}'`).join(", ")} returned the same result for both users; confirm this data is meant to be shared. (${scope}.)${note}`,
+      blocking: false,
+    };
+  }
+  if (different === 0) {
+    return {
+      name: "user-isolation",
+      ok: false,
+      detail: `Isolation could not be checked: no tool returned a result for both users to compare (${scope}). Give the tools data for both users, or check their inputs.${note}`,
+      blocking: false,
+    };
+  }
+  return {
+    name: "user-isolation",
+    ok: true,
+    detail: `${plainCount(different, "tool")} returned different results for the two users (${scope}${notComparable > 0 ? `; ${plainCount(notComparable, "tool")} had no result to compare` : ""}). This is a heuristic check, not proof of isolation.${note}`,
+    blocking: false,
+  };
+}
+
+/** Advisory checks that read what the probe discovered and returned. */
+async function analyzeProbe(
+  options: DoctorOptions,
+  checks: DoctorCheck[],
+  outcome: ProbeOutcome,
+  token?: string,
+): Promise<void> {
+  if (!options.deep || !outcome.tools) return;
+  if (options.secondToken && token) {
+    checks.push(
+      await userIsolationCheck(
+        options.url!,
+        token,
+        options.secondToken,
+        outcome.tools,
+        outcome.results,
+      ),
+    );
+  }
+  const grants = dataApiGrantsCheck(outcome.results);
+  if (grants) checks.push(grants);
+  checks.push(toolSurfaceCheck(outcome.tools, outcome.results));
 }
 
 function challengeMetadataUrl(value: string | null): string | undefined {
@@ -356,6 +530,9 @@ export async function runDoctor(
       scaffold = detected;
     }
   }
+  if (options.secondToken && !options.token) {
+    throw new Error("--second-token requires --token");
+  }
   if (!supabaseRoot && !scaffold && !options.url) {
     throw new Error(
       "No Chumbo scaffold was found. Run this command inside a project with a generated MCP, or pass --url to probe a deployed endpoint.",
@@ -374,7 +551,17 @@ export async function runDoctor(
     options.apiKeyStrategy ?? inspection?.apiKeyStrategy ?? "unknown";
   const checks: DoctorCheck[] = [];
 
-  if (target === "edge-function" && supabaseRoot) {
+  // A Supabase project without this Chumbo function is probing some other MCP
+  // server; Chumbo's local file checks do not apply to it.
+  const functionDirExists = supabaseRoot
+    ? await fileExists(
+        join(supabaseRoot, "supabase", "functions", options.functionName),
+      )
+    : false;
+  const chumboLocalChecks =
+    !options.deep || !options.url || Boolean(scaffold) || functionDirExists;
+
+  if (target === "edge-function" && supabaseRoot && chumboLocalChecks) {
     const config = await readFile(
       join(supabaseRoot, "supabase", "config.toml"),
       "utf8",
@@ -543,12 +730,13 @@ export async function runDoctor(
     });
     return checks;
   }
+  const chumboRuntime = Boolean(runtimeVersion);
   checks.push({
     name: "runtime-reached",
     ok: Boolean(runtimeVersion),
     detail: runtimeVersion
       ? `chumbo ${runtimeVersion}`
-      : "response did not identify the Chumbo runtime",
+      : "not a Chumbo runtime; Chumbo-only checks were skipped",
     blocking: false,
   });
   if (runtimeVersion) {
@@ -598,14 +786,21 @@ export async function runDoctor(
   }
 
   if (auth === "public") {
-    checks.push({
-      name: "public-rate-limit",
-      ok: response.ok && response.headers.has("x-ratelimit-limit"),
-      detail: response.headers.has("x-ratelimit-limit")
-        ? `${response.headers.get("x-ratelimit-limit")} requests per window`
-        : "missing rate-limit response headers; apply the generated public rate-limit migration to the local database, then retry",
-    });
-    await mcpProbe(options, target, checks);
+    // The rate limit is Chumbo's generated guardrail; other servers have none.
+    if (!options.deep || chumboRuntime || scaffold) {
+      checks.push({
+        name: "public-rate-limit",
+        ok: response.ok && response.headers.has("x-ratelimit-limit"),
+        detail: response.headers.has("x-ratelimit-limit")
+          ? `${response.headers.get("x-ratelimit-limit")} requests per window`
+          : "missing rate-limit response headers; apply the generated public rate-limit migration to the local database, then retry",
+      });
+    }
+    await analyzeProbe(
+      options,
+      checks,
+      await mcpProbe(options, target, checks),
+    );
     return checks;
   }
 
@@ -618,11 +813,16 @@ export async function runDoctor(
         : `HTTP ${response.status}; responding layer is unconfirmed`,
     });
     if (!options.token) return checks;
-    await mcpProbe(options, target, checks, options.token);
+    await analyzeProbe(
+      options,
+      checks,
+      await mcpProbe(options, target, checks, options.token),
+      options.token,
+    );
     return checks;
   }
 
-  if (auth === "multi") {
+  if (auth === "multi" && chumboRuntime) {
     checks.push({
       name: "multi-auth-gate",
       ok: response.status === 401,
@@ -635,47 +835,48 @@ export async function runDoctor(
   const metadataUrl = challengeMetadataUrl(
     response.headers.get("www-authenticate"),
   );
-  checks.push({
-    name: "oauth-challenge",
-    ok: response.status === 401 && Boolean(metadataUrl),
-    detail: `HTTP ${response.status}${metadataUrl ? ` -> ${metadataUrl}` : ""}`,
-  });
-  if (metadataUrl) {
-    const metadataResponse = await fetch(metadataUrl, {
-      headers: { accept: "application/json" },
-    });
-    const metadata = (await metadataResponse.json().catch(() => null)) as {
-      resource?: string;
-      authorization_servers?: string[];
-    } | null;
+  const otherServer = Boolean(options.deep) && !chumboRuntime;
+  const unprotected = otherServer && response.status < 400 && !metadataUrl;
+  if (unprotected) {
     checks.push({
-      name: "protected-resource-metadata",
-      ok:
-        metadataResponse.ok &&
-        typeof metadata?.resource === "string" &&
-        Array.isArray(metadata.authorization_servers),
-      detail: `HTTP ${metadataResponse.status}`,
+      name: "oauth-challenge",
+      ok: false,
+      detail: `HTTP ${response.status}; the endpoint did not ask for sign-in, so OAuth discovery was skipped. If this MCP should be protected, require authentication on it and retry.`,
+      blocking: false,
     });
-    const expectedResource = new URL(options.url);
-    expectedResource.hash = "";
-    expectedResource.search = "";
-    expectedResource.pathname = expectedResource.pathname.replace(/\/+$/, "");
+  } else {
+    // A server that is not Chumbo may omit resource_metadata; clients then
+    // use the well-known location, so a plain 401 still passes.
+    const challenged =
+      response.status === 401 && (Boolean(metadataUrl) || otherServer);
     checks.push({
-      name: "advertised-resource-url",
-      ok:
-        metadataResponse.ok &&
-        typeof metadata?.resource === "string" &&
-        metadata.resource.replace(/\/+$/, "") ===
-          expectedResource.href.replace(/\/+$/, ""),
-      detail:
-        typeof metadata?.resource === "string"
-          ? metadata.resource
-          : "protected-resource metadata did not advertise a resource URL",
+      name: "oauth-challenge",
+      ok: challenged,
+      detail: `HTTP ${response.status}${
+        metadataUrl
+          ? ` -> ${metadataUrl}`
+          : challenged
+            ? "; the challenge names no resource_metadata, so doctor looked at the well-known locations"
+            : ""
+      }`,
     });
+    if (metadataUrl || (options.deep && response.status === 401)) {
+      const endpoint = new URL(options.url);
+      const discovery = await discoverProtectedResource(endpoint, metadataUrl);
+      checks.push(...protectedResourceChecks(endpoint, discovery));
+      if (options.deep && discovery.metadata) {
+        checks.push(...(await authorizationServerChecks(discovery.metadata)));
+      }
+    }
   }
 
   if (options.token) {
-    await mcpProbe(options, target, checks, options.token);
+    await analyzeProbe(
+      options,
+      checks,
+      await mcpProbe(options, target, checks, options.token),
+      options.token,
+    );
   }
   return checks;
 }

@@ -65,6 +65,29 @@ and `tools/list`. Add `--call-tool <SAFE_TOOL>` only when doctor should invoke a
 specific tool. For OAuth mode, first enable Authentication → OAuth Server in
 the Supabase Dashboard.
 
+**Verify any Supabase MCP.** `chumbo doctor` also works against servers that
+are not built with Chumbo, including one built from Supabase's guide with
+`withSupabase` and `withOAuthProtectedResource`:
+
+```sh
+npx chumbo doctor \
+  --url https://PROJECT_REF.supabase.co/functions/v1/mcp \
+  --token <USER_A_JWT> \
+  --second-token <USER_B_JWT>
+```
+
+It follows the 401 challenge to the protected-resource metadata, then checks
+the authorization server's metadata, that its issuer matches what your server
+advertises (a Supabase custom domain is the usual cause of a mismatch), whether
+clients can register themselves, and that the project signs tokens with
+asymmetric keys. With two tokens it calls read-only tools that need no input as
+both users and flags any tool that returns the same result to each; mark
+read-only tools with `readOnlyHint` so doctor can compare them. It also reports
+Postgres permission errors in tool results (since 2026-10-30, new tables in
+`public` need an explicit `grant` to the `authenticated` role) and lints the
+tool surface. Discovery only reads; doctor never registers a client or writes
+to your project.
+
 **5. Connect a client.** Point an MCP client at the deployed URL and call a
 tool as a real user – for example:
 

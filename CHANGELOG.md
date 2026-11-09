@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Run `chumbo doctor` against any Supabase-backed MCP server, including one
+  built from Supabase's guide with `withSupabase` and
+  `withOAuthProtectedResource`. Doctor follows the protected-resource metadata
+  from the 401 challenge or the well-known location, and skips checks that only
+  apply to a Chumbo runtime.
+- Add doctor checks `authorization-server-metadata`, `issuer-match`,
+  `client-registration`, and `signing-keys`, so a custom-domain issuer
+  mismatch, a missing registration endpoint, or a legacy HS256 project shows up
+  before a client gives up at discovery.
+- Add `--second-token` to doctor. With two user tokens it adds `user-isolation`,
+  which calls read-only tools that need no input as both users and flags a tool
+  that returns the same result to each.
+- Add advisory doctor checks `data-api-grants`, for Postgres permission errors
+  caused by Data API grants, and `tool-surface`, for missing descriptions,
+  missing `readOnlyHint`, undescribed inputs, and results over 16 KiB.
 - Share the application's Zod through a `^4.2.0` peer dependency, with packed
   consumer checks at the minimum and development versions. Pin generated Edge
   Functions and source-reference tests to Zod 4.6.7.
