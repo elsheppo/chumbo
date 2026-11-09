@@ -46,11 +46,20 @@ export function collectionInputSchema(
     max,
   );
   return z.object({
-    limit: z.number().int().min(1).max(max).default(defaultLimit),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(max)
+      .default(defaultLimit)
+      .describe(`How many items to return, from 1 to ${max}.`),
     cursor: cursor
       .pipe(options.cursorSchema ?? z.string())
       .pipe(cursor)
-      .optional(),
+      .optional()
+      .describe(
+        "Omit for the first page. To continue, pass next_cursor from the previous result.",
+      ),
   });
 }
 
