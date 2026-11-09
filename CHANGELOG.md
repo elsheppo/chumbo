@@ -2,31 +2,43 @@
 
 ## Unreleased
 
-- Run `chumbo doctor` against any Supabase-backed MCP server, including one
-  built from Supabase's guide with `withSupabase` and
-  `withOAuthProtectedResource`. Doctor follows the protected-resource metadata
-  from the 401 challenge or the well-known location, and skips checks that only
-  apply to a Chumbo runtime.
-- Add doctor checks `authorization-server-metadata`, `issuer-match`,
-  `client-registration`, and `signing-keys`, so a custom-domain issuer
-  mismatch, a missing registration endpoint, a published signing secret, or a
-  legacy HS256 project shows up
-  before a client gives up at discovery.
-- Add `--second-token` to doctor. With two user tokens it adds `user-isolation`,
-  which calls read-only tools that need no input as both users and flags a tool
-  that returns the same result to each.
-- Add advisory doctor checks `data-api-grants`, for Postgres permission errors
-  caused by Data API grants, and `tool-surface`, for missing descriptions,
-  missing `readOnlyHint`, undescribed inputs, and results over 16 KiB.
+## 0.13.0 – 2026-11-09
+
+- Run `chumbo doctor --url` against any Supabase-backed MCP server, including
+  one built from Supabase's guide with `withSupabase` and
+  `withOAuthProtectedResource`. Checks that only apply to a Chumbo runtime are
+  skipped for other servers, and an endpoint that is not an MCP server fails.
+- Look for protected-resource and authorization-server metadata in the order
+  MCP clients do, and add the `authorization-server-metadata`, `issuer-match`,
+  `client-registration`, and `signing-keys` checks. A custom-domain issuer
+  mismatch, metadata clients cannot find, a missing registration endpoint, a
+  published signing secret, or a legacy HS256 project now shows up before a
+  client gives up at discovery.
+- Add `--second-token`. With two user tokens, `user-isolation` calls tools the
+  server marks `readOnlyHint: true` that need no input, as both users, and
+  flags a tool that returns the same non-empty result to each after removing
+  each user's own id and email. It is a heuristic, not proof of isolation.
+- Add advisory `data-api-grants` and `tool-surface` checks. The first explains
+  permission-denied errors caused by tables without Data API grants. The second
+  reports missing descriptions, missing `readOnlyHint`, undescribed inputs, and
+  results over 16 KiB.
+- Doctor requests time out after 10 seconds, discovered URLs must use https
+  outside loopback, and requests that carry your token are sent only to the
+  URL you name and never follow redirects.
+- Describe `limit` and `cursor` in `collectionInputSchema`, so agents see how
+  to fill every paginated tool's inputs.
+- Find local Supabase Auth metadata below the issuer path when the
+  origin-level location returns 404, so OAuth discovery works against
+  `chumbo dev`.
 - Share the application's Zod through a `^4.2.0` peer dependency, with packed
   consumer checks at the minimum and development versions. Pin generated Edge
   Functions and source-reference tests to Zod 4.6.7.
-- Keep only English validation messages in the English-only review-queue app,
-  and enforce its existing 400 kB HTML budget during the ordinary build checks.
 - Run on `@supabase/server` 1.9.2, the release line behind Supabase's
   `withSupabase` and `withOAuthProtectedResource` helpers, instead of 1.4.1.
-  Newly generated Edge Functions pin the same version. Chumbo's public API,
-  access modes, and OAuth discovery routes are unchanged.
+  Newly generated Edge Functions pin the same version.
+- Mark the reference documentation MCP's tools read-only and describe their
+  inputs. Keep only English validation messages in the English-only
+  review-queue app, and enforce its 400 kB HTML budget during ordinary checks.
 
 ## 0.12.2 – 2026-09-25
 
