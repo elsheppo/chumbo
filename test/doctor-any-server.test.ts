@@ -16,6 +16,8 @@ const PRM_WELL_KNOWN =
 const AS_ORIGIN_LEVEL =
   "https://p.supabase.co/.well-known/oauth-authorization-server/auth/v1";
 const AS_ISSUER_RELATIVE = `${ISSUER}/.well-known/oauth-authorization-server`;
+const AS_OPENID_INSERT =
+  "https://p.supabase.co/.well-known/openid-configuration/auth/v1";
 const AS_OPENID = `${ISSUER}/.well-known/openid-configuration`;
 const JWKS = `${ISSUER}/.well-known/jwks.json`;
 
@@ -24,13 +26,20 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function unsignedJwt(sub: string): string {
+function unsignedJwt(sub: string, extra: Record<string, unknown> = {}): string {
   const part = (value: unknown) =>
     Buffer.from(JSON.stringify(value)).toString("base64url");
-  return `${part({ alg: "ES256", typ: "JWT" })}.${part({ sub })}.signature`;
+  return `${part({ alg: "ES256", typ: "JWT" })}.${part({ sub, ...extra })}.signature`;
 }
 
-const asymmetricKey = { kty: "EC", crv: "P-256", alg: "ES256", kid: "k1" };
+const asymmetricKey = {
+  kty: "EC",
+  crv: "P-256",
+  alg: "ES256",
+  kid: "k1",
+  x: "M5Sjqn5zwC9Kl1zVfUUGvv9boQjCGd45G8sdopBExB4",
+  y: "P6IXMvA2WYXSHSOMTBH2jsw_9rrzGy89FjPf6oOsIxQ",
+};
 
 function authorizationServerMetadata(
   overrides: Record<string, unknown> = {},
@@ -133,7 +142,7 @@ function officialDocuments(
       authorization_servers: [ISSUER],
       bearer_methods_supported: ["header"],
     },
-    [AS_ISSUER_RELATIVE]: authorizationServerMetadata(),
+    [AS_OPENID]: authorizationServerMetadata(),
     [JWKS]: { keys: [asymmetricKey] },
     ...overrides,
   };
@@ -262,14 +271,29 @@ describe("protected-resource discovery", () => {
     expect(metadata.detail).toContain(PRM_WELL_KNOWN);
   });
 
-  it("accepts the suffix location when the challenge names none", async () => {
+  it("does not pass on the suffix location unless the challenge names it", async () => {
+    stubServer({ challenge: null, documents: officialDocuments() });
+    const metadata = named(await doctor(), "protected-resource-metadata");
+    expect(metadata.ok).toBe(false);
+    expect(metadata.blocking).toBeUndefined();
+    expect(metadata.detail).toContain(`resource_metadata="${PRM_SUFFIX}"`);
+    expect(metadata.detail).toContain("withOAuthProtectedResource");
+  });
+
+  it("falls back to the root well-known location last", async () => {
     stubServer({
       challenge: null,
-      documents: officialDocuments(),
+      documents: officialDocuments({
+        [PRM_SUFFIX]: undefined,
+        "https://p.supabase.co/.well-known/oauth-protected-resource": {
+          resource: MCP,
+          authorization_servers: [ISSUER],
+        },
+      }),
     });
     const metadata = named(await doctor(), "protected-resource-metadata");
     expect(metadata.ok).toBe(true);
-    expect(metadata.detail).toContain(PRM_SUFFIX);
+    expect(metadata.detail).toContain("the well-known location");
   });
 
   it("fails with the locations it tried when no metadata exists", async () => {
@@ -285,48 +309,103 @@ describe("protected-resource discovery", () => {
 });
 
 describe("authorization-server-metadata", () => {
-  it("tries the issuer-relative path when the origin-level path is a 404", async () => {
-    const { calls } = stubServer({ documents: officialDocuments() });
-    const check = named(await doctor(), "authorization-server-metadata");
-    expect(check.ok).toBe(true);
-    expect(check.detail).toContain(AS_ISSUER_RELATIVE);
-    expect(calls.map((call) => call.url)).toEqual(
-      expect.arrayContaining([AS_ORIGIN_LEVEL, AS_ISSUER_RELATIVE]),
-    );
-  });
-
-  it("prefers the origin-level RFC 8414 path when it is served", async () => {
+  it("tries the OAuth path-inserted location first", async () => {
     const { calls } = stubServer({
       documents: officialDocuments({
+        [AS_OPENID]: undefined,
         [AS_ORIGIN_LEVEL]: authorizationServerMetadata(),
       }),
     });
     const check = named(await doctor(), "authorization-server-metadata");
+    expect(check.ok).toBe(true);
     expect(check.detail).toContain(AS_ORIGIN_LEVEL);
-    expect(calls.some((call) => call.url === AS_ISSUER_RELATIVE)).toBe(false);
+    expect(calls.some((call) => call.url === AS_OPENID)).toBe(false);
   });
 
-  it("falls back to openid-configuration last", async () => {
+  it("falls through the client order to OIDC path insertion, then path appending", async () => {
     stubServer({
       documents: officialDocuments({
-        [AS_ISSUER_RELATIVE]: undefined,
-        [AS_OPENID]: authorizationServerMetadata(),
+        [AS_OPENID]: undefined,
+        [AS_OPENID_INSERT]: authorizationServerMetadata(),
       }),
+    });
+    expect(
+      named(await doctor(), "authorization-server-metadata").detail,
+    ).toContain(AS_OPENID_INSERT);
+    stubServer({ documents: officialDocuments() });
+    const appended = named(await doctor(), "authorization-server-metadata");
+    expect(appended.ok).toBe(true);
+    expect(appended.detail).toContain(AS_OPENID);
+  });
+
+  it("uses the origin-level locations for an issuer without a path", async () => {
+    const bare = "https://auth.example.com";
+    const { calls } = stubServer({
+      documents: {
+        ...officialDocuments(),
+        [PRM_SUFFIX]: {
+          resource: MCP,
+          authorization_servers: [bare],
+        },
+        [`${bare}/.well-known/openid-configuration`]:
+          authorizationServerMetadata({ issuer: bare, jwks_uri: JWKS }),
+      },
     });
     const check = named(await doctor(), "authorization-server-metadata");
     expect(check.ok).toBe(true);
-    expect(check.detail).toContain(AS_OPENID);
+    expect(calls.map((call) => call.url)).toContain(
+      `${bare}/.well-known/oauth-authorization-server`,
+    );
+  });
+
+  it("blocks when metadata exists only at the non-client issuer-relative path", async () => {
+    stubServer({
+      documents: officialDocuments({
+        [AS_OPENID]: undefined,
+        [AS_ISSUER_RELATIVE]: authorizationServerMetadata(),
+      }),
+    });
+    const check = named(await doctor(), "authorization-server-metadata");
+    expect(check.ok).toBe(false);
+    expect(check.blocking).toBeUndefined();
+    expect(check.detail).toContain("MCP clients do not read");
+  });
+
+  it("only warns for that path on a loopback issuer, as the local CLI gateway serves it", async () => {
+    const local = "http://127.0.0.1:54321/auth/v1";
+    const mcp = "http://127.0.0.1:54321/functions/v1/mcp";
+    stubServer({
+      documents: {
+        [`${mcp}/oauth-protected-resource`]: {
+          resource: mcp,
+          authorization_servers: [local],
+        },
+        [`${local}/.well-known/oauth-authorization-server`]:
+          authorizationServerMetadata({
+            issuer: local,
+            jwks_uri: `${local}/.well-known/jwks.json`,
+          }),
+        [`${local}/.well-known/jwks.json`]: { keys: [asymmetricKey] },
+      },
+      challenge: `Bearer resource_metadata="${mcp}/oauth-protected-resource"`,
+    });
+    const check = named(
+      await doctor({ url: mcp }),
+      "authorization-server-metadata",
+    );
+    expect(check).toMatchObject({ ok: false, blocking: false });
   });
 
   it("is a blocking failure that names every location when none serves metadata", async () => {
     stubServer({
-      documents: officialDocuments({ [AS_ISSUER_RELATIVE]: undefined }),
+      documents: officialDocuments({ [AS_OPENID]: undefined }),
     });
     const checks = await doctor();
     const check = named(checks, "authorization-server-metadata");
     expect(check).toMatchObject({ ok: false });
     expect(check.blocking).toBeUndefined();
     expect(check.detail).toContain(AS_ORIGIN_LEVEL);
+    expect(check.detail).toContain(AS_OPENID_INSERT);
     expect(check.detail).toContain(AS_OPENID);
     expect(check.detail).toContain("OAuth Server");
     expect(checks.some((entry) => entry.name === "issuer-match")).toBe(false);
@@ -334,21 +413,27 @@ describe("authorization-server-metadata", () => {
 });
 
 describe("issuer-match", () => {
-  it("passes when the issuer matches, ignoring one trailing slash", async () => {
+  it("passes on an exact match", async () => {
+    stubServer({ documents: officialDocuments() });
+    expect(named(await doctor(), "issuer-match").ok).toBe(true);
+  });
+
+  it("treats a trailing-slash difference as a blocking mismatch, as clients do", async () => {
     stubServer({
       documents: officialDocuments({
-        [AS_ISSUER_RELATIVE]: authorizationServerMetadata({
-          issuer: `${ISSUER}/`,
-        }),
+        [AS_OPENID]: authorizationServerMetadata({ issuer: `${ISSUER}/` }),
       }),
     });
-    expect(named(await doctor(), "issuer-match").ok).toBe(true);
+    const check = named(await doctor(), "issuer-match");
+    expect(check.ok).toBe(false);
+    expect(check.blocking).toBeUndefined();
+    expect(check.detail).toContain("compare these exactly");
   });
 
   it("blocks on a custom-domain mismatch and names both values", async () => {
     stubServer({
       documents: officialDocuments({
-        [AS_ISSUER_RELATIVE]: authorizationServerMetadata({
+        [AS_OPENID]: authorizationServerMetadata({
           issuer: "https://auth.example.com/auth/v1",
         }),
       }),
@@ -373,7 +458,7 @@ describe("client-registration", () => {
   it("warns without blocking when there is none", async () => {
     stubServer({
       documents: officialDocuments({
-        [AS_ISSUER_RELATIVE]: authorizationServerMetadata({
+        [AS_OPENID]: authorizationServerMetadata({
           registration_endpoint: undefined,
           client_id_metadata_document_supported: true,
         }),
@@ -398,37 +483,85 @@ describe("signing-keys", () => {
     expect(check.detail).toContain("ES256");
   });
 
-  it("accepts an RSA key that names no algorithm", async () => {
+  it("accepts RSA and OKP keys that carry their key material", async () => {
     stubServer({
-      documents: officialDocuments({ [JWKS]: { keys: [{ kty: "RSA" }] } }),
+      documents: officialDocuments({
+        [JWKS]: {
+          keys: [
+            { kty: "RSA", n: "abc", e: "AQAB" },
+            { kty: "OKP", crv: "Ed25519", x: "abc" },
+          ],
+        },
+      }),
     });
     expect(named(await doctor(), "signing-keys").ok).toBe(true);
   });
 
-  it("blocks on an empty key set as a legacy HS256 project", async () => {
-    stubServer({ documents: officialDocuments({ [JWKS]: { keys: [] } }) });
-    const check = named(await doctor(), "signing-keys");
-    expect(check.ok).toBe(false);
-    expect(check.blocking).toBeUndefined();
-    expect(check.detail).toContain("HS256");
-    expect(check.detail).toContain("asymmetric signing keys");
-  });
-
-  it("blocks on symmetric-only keys", async () => {
+  it("does not count a key without its key material", async () => {
     stubServer({
       documents: officialDocuments({
-        [JWKS]: { keys: [{ kty: "oct", alg: "HS256", kid: "legacy" }] },
+        [JWKS]: { keys: [{ kty: "EC", alg: "ES256", kid: "stub" }] },
       }),
     });
     const check = named(await doctor(), "signing-keys");
     expect(check.ok).toBe(false);
-    expect(check.detail).toContain("only symmetric keys");
+    expect(check.blocking).toBeUndefined();
+  });
+
+  it("blocks on an empty key set and corrects the HS256 claim", async () => {
+    stubServer({ documents: officialDocuments({ [JWKS]: { keys: [] } }) });
+    const check = named(await doctor(), "signing-keys");
+    expect(check.ok).toBe(false);
+    expect(check.blocking).toBeUndefined();
+    expect(check.detail).toContain("legacy HS256 projects cannot use it");
+    expect(check.detail).toContain("Project Settings → JWT Keys");
+    expect(check.detail).not.toContain("reject");
+  });
+
+  it("warns without blocking on an empty key set from a loopback issuer", async () => {
+    const local = "http://127.0.0.1:54321/auth/v1";
+    const mcp = "http://127.0.0.1:54321/functions/v1/mcp";
+    stubServer({
+      documents: {
+        [`${mcp}/oauth-protected-resource`]: {
+          resource: mcp,
+          authorization_servers: [local],
+        },
+        [`${local}/.well-known/openid-configuration`]:
+          authorizationServerMetadata({
+            issuer: local,
+            jwks_uri: `${local}/.well-known/jwks.json`,
+          }),
+        [`${local}/.well-known/jwks.json`]: { keys: [] },
+      },
+      challenge: `Bearer resource_metadata="${mcp}/oauth-protected-resource"`,
+    });
+    const check = named(await doctor({ url: mcp }), "signing-keys");
+    expect(check).toMatchObject({ ok: false, blocking: false });
+  });
+
+  it("blocks on a published signing secret even beside good keys", async () => {
+    for (const secret of [
+      { kty: "oct", alg: "HS256", k: "c2VjcmV0" },
+      { ...asymmetricKey, kid: "leaky", k: "c2VjcmV0" },
+    ]) {
+      stubServer({
+        documents: officialDocuments({
+          [JWKS]: { keys: [asymmetricKey, secret] },
+        }),
+      });
+      const check = named(await doctor(), "signing-keys");
+      expect(check.ok).toBe(false);
+      expect(check.blocking).toBeUndefined();
+      expect(check.detail).toContain("lets anyone forge tokens");
+      expect(check.detail).toContain("Rotate the signing key now");
+    }
   });
 
   it("blocks when the metadata has no jwks_uri", async () => {
     stubServer({
       documents: officialDocuments({
-        [AS_ISSUER_RELATIVE]: authorizationServerMetadata({
+        [AS_OPENID]: authorizationServerMetadata({
           jwks_uri: undefined,
         }),
       }),
@@ -469,8 +602,8 @@ describe("user-isolation", () => {
       tools: [readOnly("whoami")],
     });
     const checks = await doctor({
-      token: unsignedJwt("user-1"),
-      secondToken: unsignedJwt("user-1"),
+      token: unsignedJwt("user-1", { iat: 1 }),
+      secondToken: unsignedJwt("user-1", { iat: 2 }),
     });
     const check = named(checks, "user-isolation");
     expect(check.ok).toBe(false);
@@ -679,7 +812,7 @@ describe("data-api-grants", () => {
     const checks = await doctor({ token: "key", callTool: "list_orders" });
     const check = named(checks, "data-api-grants");
     expect(check).toMatchObject({ ok: false, blocking: false });
-    expect(check.detail).toContain("'orders'");
+    expect(check.detail).toContain("'public.orders'");
     expect(check.detail).toContain("2026-10-30");
     expect(check.detail).toContain("authenticated");
     expect(check.detail).toContain("grant select");
@@ -738,7 +871,9 @@ describe("data-api-grants", () => {
       token: unsignedJwt("user-1"),
       secondToken: unsignedJwt("user-2"),
     });
-    expect(named(checks, "data-api-grants").detail).toContain("'projects'");
+    expect(named(checks, "data-api-grants").detail).toContain(
+      "'public.projects'",
+    );
   });
 
   it("passes quietly when results carry no permission error", async () => {
@@ -861,7 +996,7 @@ describe("output and exit contract", () => {
   it("fails the run only for blocking checks", async () => {
     stubServer({
       documents: officialDocuments({
-        [AS_ISSUER_RELATIVE]: authorizationServerMetadata({
+        [AS_OPENID]: authorizationServerMetadata({
           registration_endpoint: undefined,
         }),
       }),
@@ -904,6 +1039,10 @@ describe("a server composed like Supabase's official guide", () => {
         .setExpirationTime("1h")
         .sign(privateKey);
 
+    const notes: Record<string, string[]> = {
+      "11111111-1111-4111-8111-111111111111": ["buy milk"],
+      "22222222-2222-4222-8222-222222222222": ["call mom", "file taxes"],
+    };
     const handleMcp = async (
       req: Request,
       ctx: { userClaims: { id: string } | null },
@@ -919,6 +1058,22 @@ describe("a server composed like Supabase's official guide", () => {
           },
           async () => ({
             content: [{ type: "text", text: `user ${ctx.userClaims?.id}` }],
+          }),
+        );
+        server.registerTool(
+          "list_notes",
+          {
+            description: "Lists the signed-in user's notes.",
+            inputSchema: z.object({}),
+            annotations: { readOnlyHint: true },
+          },
+          async () => ({
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(notes[ctx.userClaims?.id ?? ""] ?? []),
+              },
+            ],
           }),
         );
         return server;
@@ -946,9 +1101,7 @@ describe("a server composed like Supabase's official guide", () => {
       vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         const request = new Request(input, init);
         const url = new URL(request.url);
-        if (
-          url.pathname === "/auth/v1/.well-known/oauth-authorization-server"
-        ) {
+        if (url.pathname === "/auth/v1/.well-known/openid-configuration") {
           return Response.json(authorizationServerMetadata());
         }
         if (url.pathname === "/auth/v1/.well-known/jwks.json") {
@@ -1000,6 +1153,523 @@ describe("a server composed like Supabase's official guide", () => {
       token: await sign(sub),
       secondToken: await sign(sub),
     });
-    expect(named(checks, "user-isolation").detail).toContain("same user");
+    expect(named(checks, "user-isolation").detail).toMatch(/same (user|token)/);
+  });
+});
+
+describe("endpoints that are not protected", () => {
+  it("fails a plain HTML page that answers 200", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("<html>hello</html>", {
+            headers: { "content-type": "text/html" },
+          }),
+      ),
+    );
+    const checks = await doctor();
+    const initialize = named(checks, "mcp-initialize");
+    expect(initialize.ok).toBe(false);
+    expect(initialize.blocking).toBeUndefined();
+  });
+
+  it("passes a public MCP server and lints its tools", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as { method: string };
+        if (body.method === "initialize") {
+          return rpc({ protocolVersion: "2025-03-26", capabilities: {} });
+        }
+        return rpc({ tools: [{ name: "bare" }] });
+      }),
+    );
+    const checks = await doctor();
+    expect(named(checks, "mcp-initialize").ok).toBe(true);
+    expect(named(checks, "public-tools-list").ok).toBe(true);
+    expect(named(checks, "tool-surface").detail).toContain("'bare'");
+    expect(checks.some((check) => !check.ok && check.blocking !== false)).toBe(
+      false,
+    );
+  });
+
+  it("names the status and a next step for a non-401 client error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("no", { status: 405 })),
+    );
+    const challenge = named(await doctor(), "oauth-challenge");
+    expect(challenge.ok).toBe(false);
+    expect(challenge.detail).toContain("HTTP 405");
+    expect(challenge.detail).toContain("Check that --url is the MCP endpoint");
+  });
+});
+
+describe("local checks for a project that is not a Chumbo scaffold", () => {
+  it("does not fail any local check for an official-guide function", async () => {
+    const cwd = await emptyDirectory();
+    const functionDir = join(cwd, "supabase", "functions", "mcp");
+    await mkdir(functionDir, { recursive: true });
+    await writeFile(
+      join(cwd, "supabase", "config.toml"),
+      'project_id = "official"\n',
+    );
+    await writeFile(
+      join(functionDir, "index.ts"),
+      'import { withSupabase } from "npm:@supabase/server@1.9.2";\nDeno.serve(withSupabase({ auth: "user" }, () => new Response("ok")));\n',
+    );
+    stubServer({ documents: officialDocuments() });
+    const checks = await doctor({ cwd });
+    for (const check of checks) {
+      expect(check.name).not.toMatch(/^(gateway|dependencies|file:)/);
+    }
+  });
+});
+
+describe("runtime-reached wording", () => {
+  it("keeps the original detail outside deep mode", async () => {
+    stubServer({ documents: officialDocuments() });
+    const checks = await doctor({ deep: false });
+    expect(named(checks, "runtime-reached").detail).toBe(
+      "response did not identify the Chumbo runtime",
+    );
+  });
+});
+
+describe("user-isolation always reports when --second-token is set", () => {
+  const readOnly: Tool = {
+    name: "mine",
+    description: "Lists what the user owns.",
+    inputSchema: { type: "object", properties: {} },
+    annotations: { readOnlyHint: true },
+  };
+  const tokens = {
+    token: unsignedJwt("user-1", { email: "one@example.com" }),
+    secondToken: unsignedJwt("user-2", { email: "two@example.com" }),
+  };
+
+  async function isolation(
+    call: (name: string, token: string) => Record<string, unknown>,
+  ): Promise<DoctorCheck> {
+    stubServer({ documents: officialDocuments(), tools: [readOnly], call });
+    return named(await doctor(tokens), "user-isolation");
+  }
+
+  it("treats results that differ only by identity as nothing to compare", async () => {
+    const check = await isolation((_name, token) => {
+      const claims = JSON.parse(
+        Buffer.from(token.split(".")[1]!, "base64url").toString(),
+      ) as { sub: string; email: string };
+      return {
+        content: [
+          {
+            type: "text",
+            text: `signed in as ${claims.email} (${claims.sub})`,
+          },
+        ],
+      };
+    });
+    expect(check).toMatchObject({ ok: false, blocking: false });
+    expect(check.detail).toContain("could not be checked");
+  });
+
+  it.each([
+    ["an empty array", [{ type: "text", text: "[]" }], undefined],
+    ["an empty object", [{ type: "text", text: "{}" }], undefined],
+    ["an empty string", [{ type: "text", text: "" }], undefined],
+    ["empty content", [], undefined],
+    [
+      "an empty items list",
+      [{ type: "text", text: '{"items":[]}' }],
+      undefined,
+    ],
+    ["empty structured content", [], { items: [] }],
+  ])(
+    "does not warn about identical %s",
+    async (_label, content, structured) => {
+      const check = await isolation(() => ({
+        content,
+        ...(structured ? { structuredContent: structured } : {}),
+      }));
+      expect(check.ok).toBe(false);
+      expect(check.detail).toContain("could not be checked");
+      expect(check.detail).not.toContain("same result");
+    },
+  );
+
+  it("still warns when real data is identical", async () => {
+    const check = await isolation(() => ({
+      content: [{ type: "text", text: '{"items":["shared"]}' }],
+    }));
+    expect(check.detail).toContain("returned the same result");
+  });
+
+  it("passes on differing rows even when identity is also present", async () => {
+    const check = await isolation((_name, token) => ({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            rows: token === tokens.token ? ["a"] : ["b", "c"],
+            owner: JSON.parse(
+              Buffer.from(token.split(".")[1]!, "base64url").toString(),
+            ).sub,
+          }),
+        },
+      ],
+    }));
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain("heuristic");
+  });
+
+  it("explains itself for identical tokens, even when they are not JWTs", async () => {
+    stubServer({ documents: officialDocuments(), tools: [readOnly] });
+    const check = named(
+      await doctor({ token: "key-1", secondToken: "key-1" }),
+      "user-isolation",
+    );
+    expect(check.ok).toBe(false);
+    expect(check.blocking).toBeUndefined();
+    expect(check.detail).toContain("same token");
+  });
+
+  it("explains itself for a public server", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => rpc({ tools: [], protocolVersion: "x" })),
+    );
+    const check = named(await doctor(tokens), "user-isolation");
+    expect(check).toMatchObject({ ok: false, blocking: false });
+    expect(check.detail).toContain("does not ask for sign-in");
+  });
+
+  it("explains itself when no tools are discovered", async () => {
+    stubServer({
+      documents: officialDocuments(),
+      tools: [{ name: "bare", description: "No annotations at all." }],
+    });
+    const check = named(await doctor(tokens), "user-isolation");
+    expect(check).toMatchObject({ ok: false, blocking: false });
+  });
+
+  it("explains itself when doctor stops early", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new Error("down"))),
+    );
+    const check = named(await doctor(tokens), "user-isolation");
+    expect(check).toMatchObject({ ok: false, blocking: false });
+    expect(check.detail).toContain("stopped");
+  });
+
+  it("counts a tool's result once, however many users called it", async () => {
+    stubServer({
+      documents: officialDocuments(),
+      tools: [{ ...readOnly, name: "bare", description: undefined }],
+      call: (_name, token) => ({ content: [{ type: "text", text: token }] }),
+    });
+    const checks = await doctor(tokens);
+    expect(named(checks, "tool-surface").detail).toContain("1 result checked");
+  });
+});
+
+describe("data-api-grants reads errors only", () => {
+  it("ignores permission text inside successful data", async () => {
+    stubServer({
+      documents: officialDocuments(),
+      tools: [{ name: "notes", description: "Lists the user's notes." }],
+      call: () => ({
+        content: [
+          { type: "text", text: "note: permission denied for table orders" },
+        ],
+      }),
+    });
+    const check = named(
+      await doctor({ token: "key", callTool: "notes" }),
+      "data-api-grants",
+    );
+    expect(check.ok).toBe(true);
+  });
+
+  it("keeps the schema and explains local resets", async () => {
+    stubServer({
+      documents: officialDocuments(),
+      tools: [{ name: "list", description: "Lists the user's rows." }],
+      call: () => ({
+        isError: true,
+        content: [
+          { type: "text", text: 'permission denied for table "app"."orders"' },
+        ],
+      }),
+    });
+    const check = named(
+      await doctor({ token: "key", callTool: "list" }),
+      "data-api-grants",
+    );
+    expect(check.detail).toContain(
+      "grant select on table app.orders to authenticated;",
+    );
+    expect(check.detail).toContain("insert, update, or delete");
+    expect(check.detail).toContain("supabase db reset");
+    expect(check.detail).toContain("preview branches");
+  });
+});
+
+describe("limits and hardening", () => {
+  it("reports a timeout with the URL", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input, init?: RequestInit) => {
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        throw new DOMException("timed out", "TimeoutError");
+      }),
+    );
+    const check = named(await doctor(), "endpoint-reachable");
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain("timed out after 10 seconds at " + MCP);
+  });
+
+  it("does not read a discovery body over 256 KiB", async () => {
+    stubServer({
+      documents: officialDocuments({
+        [JWKS]: { keys: [asymmetricKey], padding: "x".repeat(300 * 1024) },
+      }),
+    });
+    const check = named(await doctor(), "signing-keys");
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain("more than 256 KiB");
+  });
+
+  it.each([
+    ["data:", 'data:application/json,{"resource":"x"}'],
+    ["file:", "file:///etc/passwd"],
+    ["plain http", "http://evil.example/prm"],
+  ])("rejects a %s resource_metadata without fetching it", async (_l, url) => {
+    const { fetchMock } = stubServer({
+      challenge: `Bearer resource_metadata="${url}"`,
+      documents: {},
+    });
+    const checks = await doctor();
+    const check = named(checks, "protected-resource-metadata");
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain("not an https URL");
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === url)).toBe(
+      false,
+    );
+  });
+
+  it("rejects non-https authorization servers, jwks_uri, and registration endpoints", async () => {
+    stubServer({
+      documents: officialDocuments({
+        [PRM_SUFFIX]: {
+          resource: MCP,
+          authorization_servers: ["file:///etc/passwd"],
+        },
+      }),
+    });
+    expect(
+      named(await doctor(), "authorization-server-metadata").detail,
+    ).toContain("not an https URL");
+
+    const { fetchMock } = stubServer({
+      documents: officialDocuments({
+        [AS_OPENID]: authorizationServerMetadata({
+          jwks_uri: "data:application/json,{}",
+          registration_endpoint: "http://evil.example/register",
+        }),
+      }),
+    });
+    const checks = await doctor();
+    expect(named(checks, "signing-keys").ok).toBe(false);
+    expect(named(checks, "signing-keys").blocking).toBeUndefined();
+    const registration = named(checks, "client-registration");
+    expect(registration.ok).toBe(false);
+    expect(registration.blocking).toBeUndefined();
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        /evil\.example/.test(String(input)),
+      ),
+    ).toBe(false);
+  });
+
+  it("strips control characters from server-supplied text", async () => {
+    stubServer({
+      documents: officialDocuments(),
+      tools: [
+        {
+          name: "evil\u001b[31mtool\u0007\u009b",
+          description: "Short",
+          annotations: { readOnlyHint: true },
+        },
+      ],
+    });
+    const checks = await doctor({ token: "key" });
+    const output = JSON.stringify(checks);
+    // eslint-disable-next-line no-control-regex
+    expect(output).not.toMatch(/\\u001b|\\u0007|\\u009b/);
+    expect(named(checks, "tool-surface").detail).toContain("eviltool");
+  });
+});
+
+describe("credential handling", () => {
+  const token = unsignedJwt("user-1");
+  const second = unsignedJwt("user-2");
+
+  function hostileServer() {
+    const authorized: Array<{ url: string; redirect?: string }> = [];
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const headers = new Headers(init?.headers);
+        if (headers.has("authorization")) {
+          authorized.push({ url, redirect: init?.redirect });
+        }
+        if (init?.method === "GET") {
+          if (url === "https://evil.example/prm") {
+            return Response.json({
+              resource: MCP,
+              authorization_servers: ["https://evil.example/as"],
+            });
+          }
+          if (url.startsWith("https://evil.example/as/.well-known")) {
+            return Response.json(
+              authorizationServerMetadata({
+                issuer: "https://evil.example/as",
+                jwks_uri: "https://evil.example/jwks",
+                registration_endpoint: "https://evil.example/register",
+              }),
+            );
+          }
+          if (url === "https://evil.example/jwks") {
+            return Response.json({ keys: [asymmetricKey] });
+          }
+          return new Response("nope", { status: 404 });
+        }
+        const body = JSON.parse(String(init?.body)) as { method: string };
+        if (!headers.has("authorization")) {
+          return Response.json(
+            {},
+            {
+              status: 401,
+              headers: {
+                "www-authenticate":
+                  'Bearer resource_metadata="https://evil.example/prm"',
+              },
+            },
+          );
+        }
+        if (body.method === "initialize") {
+          return rpc({ protocolVersion: "x", capabilities: {} });
+        }
+        if (body.method === "tools/list") {
+          return rpc({
+            tools: [
+              {
+                name: "mine",
+                description: "Lists what the user owns.",
+                annotations: { readOnlyHint: true },
+                inputSchema: { type: "object", properties: {} },
+              },
+            ],
+          });
+        }
+        return rpc({ content: [{ type: "text", text: token }] });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return { fetchMock, authorized };
+  }
+
+  it("sends tokens only to --url, with redirects disabled, even for hostile metadata", async () => {
+    const { fetchMock, authorized } = hostileServer();
+    await doctor({ token, secondToken: second });
+    expect(authorized.length).toBeGreaterThanOrEqual(4);
+    for (const request of authorized) {
+      expect(request.url).toBe(MCP);
+      expect(request.redirect).toBe("error");
+    }
+    const evil = fetchMock.mock.calls.filter(([input]) =>
+      String(input).startsWith("https://evil.example"),
+    );
+    expect(evil.length).toBeGreaterThan(0);
+    for (const [, init] of evil) {
+      expect(new Headers(init?.headers).has("authorization")).toBe(false);
+      expect(init?.method).toBe("GET");
+    }
+  });
+
+  it("fails cleanly on a redirect from an authenticated request and does not follow it", async () => {
+    const followed: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const headers = new Headers(init?.headers);
+        if (!headers.has("authorization")) {
+          return Response.json(
+            {},
+            {
+              status: 401,
+              headers: {
+                "www-authenticate": `Bearer resource_metadata="${PRM_SUFFIX}"`,
+              },
+            },
+          );
+        }
+        if (url !== MCP) followed.push(url);
+        if (init?.redirect === "error") throw new TypeError("redirect");
+        followed.push("https://evil.example/stolen");
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://evil.example/stolen" },
+        });
+      }),
+    );
+    const checks = await doctor({ token });
+    expect(followed).toEqual([]);
+    expect(
+      checks.some((check) => check.name === "endpoint-reachable" && !check.ok),
+    ).toBe(true);
+  });
+
+  it("sends Accept for Streamable HTTP on every MCP POST", async () => {
+    const { fetchMock } = stubServer({
+      documents: officialDocuments(),
+      tools: [{ name: "x", description: "Does a thing, usefully." }],
+    });
+    await doctor({ token: "key" });
+    const posts = fetchMock.mock.calls.filter(
+      ([, init]) => init?.method === "POST",
+    );
+    expect(posts.length).toBeGreaterThan(2);
+    for (const [, init] of posts) {
+      expect(new Headers(init?.headers).get("accept")).toBe(
+        "application/json, text/event-stream",
+      );
+    }
+  });
+});
+
+describe("function name in recovery advice", () => {
+  it("does not name a default function when none is known", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("missing", { status: 404 })),
+    );
+    const check = named(
+      await doctor({ functionKnown: false }),
+      "function-reachable",
+    );
+    expect(check.detail).toContain("deploy the function at this URL");
+    expect(check.detail).not.toContain("'mcp'");
+  });
+
+  it("reads the name from a /functions/v1/<name> URL", async () => {
+    const { functionNameFromUrl } = await import("../src/doctor.js");
+    expect(
+      functionNameFromUrl("https://p.supabase.co/functions/v1/notes/x"),
+    ).toBe("notes");
+    expect(functionNameFromUrl("https://app.example.com/mcp")).toBeUndefined();
   });
 });

@@ -292,31 +292,43 @@ npx chumbo doctor \
   --second-token <USER_B_JWT>
 ```
 
-Doctor reads discovery without signing in, so it never registers a client or
-writes to your project. Besides initialization and tool discovery, it catches:
+Discovery sends only GET requests and never registers a client. With
+`--second-token`, doctor calls only tools your server marks `readOnlyHint: true`
+and trusts that mark; `--call-tool` calls exactly the tool you name. Doctor
+sends your tokens only to the `--url` endpoint and never follows a redirect
+with them. Besides initialization and tool discovery, it catches:
 
-- **`protected-resource-metadata`:** finds the metadata from the 401 challenge
-  or the standard well-known location, and says which one served it.
+- **`protected-resource-metadata`:** finds the metadata the way MCP clients do:
+  the `resource_metadata` URL in the 401 challenge, then the well-known
+  locations. It says which one served it, and fails if metadata exists only at a
+  location the challenge does not name.
 - **`authorization-server-metadata` and `issuer-match`:** the sign-in server
-  publishes metadata, and its issuer equals the URL your server advertises. A
-  Supabase custom domain is the usual cause of a mismatch that makes clients
-  stop at discovery.
+  publishes metadata where MCP clients look, and its issuer equals, character
+  for character, the URL your server advertises. A Supabase custom domain is the
+  usual cause of a mismatch that makes clients stop at discovery.
 - **`client-registration`:** whether clients such as Claude and ChatGPT can
   register themselves (advisory).
-- **`signing-keys`:** the project signs tokens with asymmetric keys. A legacy
-  HS256 project is rejected by Supabase's official helpers.
+- **`signing-keys`:** the project publishes asymmetric signing keys. Supabase's
+  MCP guide requires ES256 or RS256 keys, so a legacy HS256 project cannot use
+  it: rotate under Project Settings → JWT Keys. A secret key in the public key
+  set fails immediately, because it lets anyone forge tokens.
 - **`user-isolation`:** calls read-only tools that take no required input as
-  both users, and flags any tool that returns the same result to each. Mark
-  read-only tools with `readOnlyHint`. This is a heuristic, not proof.
-- **`data-api-grants`:** a tool result that reports a Postgres permission error.
-  Since 2026-10-30, new tables in `public` need an explicit `grant` to the
-  `authenticated` role (advisory).
+  both users, removes each user's id and email from the results, and flags any
+  tool that returns the same data to each. Mark read-only tools with
+  `readOnlyHint`. This is a heuristic, not proof. Doctor always reports whether
+  it ran and why not.
+- **`data-api-grants`:** a failed tool call that reports a Postgres permission
+  error. From 2026-10-30, new tables in `public` are not exposed to the Data API
+  until you grant them, including tables recreated by a local `supabase db reset`
+  and by preview branches, so put the grant in a migration. See [Breaking Change: Tables not exposed to Data and GraphQL API automatically](https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically)
+  (advisory).
 - **`tool-surface`:** missing or short descriptions, missing `readOnlyHint`,
   undescribed inputs, and results over 16 KiB (advisory).
 
-Checks that only apply to a Chumbo runtime are left out for other servers.
-Only blocking failures set a failing exit code, and `--json` keeps the same
-check names.
+Checks that only apply to a Chumbo runtime are left out for other servers. An
+endpoint that never asks for sign-in is probed as an open MCP server, so a page
+that is not an MCP server fails. Only blocking failures set a failing exit
+code, and `--json` keeps the same check names.
 
 ### Choose who can connect
 

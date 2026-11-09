@@ -77,16 +77,24 @@ npx chumbo doctor \
 ```
 
 It follows the 401 challenge to the protected-resource metadata, then checks
-the authorization server's metadata, that its issuer matches what your server
-advertises (a Supabase custom domain is the usual cause of a mismatch), whether
-clients can register themselves, and that the project signs tokens with
-asymmetric keys. With two tokens it calls read-only tools that need no input as
-both users and flags any tool that returns the same result to each; mark
-read-only tools with `readOnlyHint` so doctor can compare them. It also reports
-Postgres permission errors in tool results (since 2026-10-30, new tables in
-`public` need an explicit `grant` to the `authenticated` role) and lints the
-tool surface. Discovery only reads; doctor never registers a client or writes
-to your project.
+the authorization server's metadata where MCP clients look, that its issuer
+matches what your server advertises exactly (a Supabase custom domain is the
+usual cause of a mismatch), whether clients can register themselves, and that
+the project publishes asymmetric signing keys. Supabase's MCP guide requires
+ES256 or RS256 keys, so a legacy HS256 project cannot use it; rotate under
+Project Settings → JWT Keys.
+
+With two tokens it calls read-only tools that need no input as both users and
+flags any tool that returns the same data to each; mark read-only tools with
+`readOnlyHint` so doctor can compare them. This is a heuristic, not proof. It
+also reports Postgres permission errors from failed tool calls: from
+2026-10-30, new tables in `public` need an explicit `grant` to the
+`authenticated` role, including tables recreated by a local `supabase db reset`
+and by preview branches (see [Breaking Change: Tables not exposed to Data and GraphQL API automatically](https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically)). Finally, it lints the tool surface.
+
+Discovery sends only GET requests and never registers a client. With
+`--second-token`, doctor calls only tools the server marks `readOnlyHint: true`
+and trusts that mark. `--call-tool` calls exactly the tool you name.
 
 **5. Connect a client.** Point an MCP client at the deployed URL and call a
 tool as a real user – for example:
