@@ -97,6 +97,7 @@ Setup options:
 Shared options:
   --url <url>             Deployed MCP URL for status or doctor
   --token <token>         User token or application API key for an MCP probe
+  --second-token <token>  Second user's token for doctor; compares what each user sees
   --call-tool <name>      Explicit tool for doctor to invoke after discovery
   --call-args <json>      JSON object passed to --call-tool (default: {})
   --env-file <path>       Local secrets file passed through by chumbo dev
@@ -138,6 +139,7 @@ function parse(commandArgs: string[]) {
       help: { type: "boolean" },
       json: { type: "boolean" },
       "no-config": { type: "boolean" },
+      "second-token": { type: "string" },
       "no-browser": { type: "boolean" },
       plan: { type: "boolean" },
       "project-ref": { type: "string" },
@@ -1909,11 +1911,16 @@ async function doctor(args: string[]): Promise<void> {
   if (parsed.values["call-args"] && !parsed.values["call-tool"]) {
     throw new Error("--call-args requires --call-tool");
   }
+  if (parsed.values["second-token"] && !parsed.values.token) {
+    throw new Error("--second-token requires --token");
+  }
   const checks = await runDoctor({
     cwd: process.cwd(),
     functionName: parsed.values.function ?? "mcp",
     url: parsed.values.url,
     token: parsed.values.token,
+    secondToken: parsed.values["second-token"],
+    deep: true,
     target: parsedTarget(parsed.values.target, "--target"),
     auth: parsed.values.auth
       ? choice(

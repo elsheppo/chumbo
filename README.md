@@ -278,6 +278,46 @@ Your MCP URL is:
 https://PROJECT_REF.supabase.co/functions/v1/mcp
 ```
 
+### Verify any Supabase MCP
+
+`chumbo doctor` works against any Supabase-backed MCP server, including one
+built from Supabase's own guide with `withSupabase` and
+`withOAuthProtectedResource`. Pass the endpoint and, to see the server as two
+different users, a token for each:
+
+```sh
+npx chumbo doctor \
+  --url https://PROJECT_REF.supabase.co/functions/v1/mcp \
+  --token <USER_A_JWT> \
+  --second-token <USER_B_JWT>
+```
+
+Doctor reads discovery without signing in, so it never registers a client or
+writes to your project. Besides initialization and tool discovery, it catches:
+
+- **`protected-resource-metadata`:** finds the metadata from the 401 challenge
+  or the standard well-known location, and says which one served it.
+- **`authorization-server-metadata` and `issuer-match`:** the sign-in server
+  publishes metadata, and its issuer equals the URL your server advertises. A
+  Supabase custom domain is the usual cause of a mismatch that makes clients
+  stop at discovery.
+- **`client-registration`:** whether clients such as Claude and ChatGPT can
+  register themselves (advisory).
+- **`signing-keys`:** the project signs tokens with asymmetric keys. A legacy
+  HS256 project is rejected by Supabase's official helpers.
+- **`user-isolation`:** calls read-only tools that take no required input as
+  both users, and flags any tool that returns the same result to each. Mark
+  read-only tools with `readOnlyHint`. This is a heuristic, not proof.
+- **`data-api-grants`:** a tool result that reports a Postgres permission error.
+  Since 2026-10-30, new tables in `public` need an explicit `grant` to the
+  `authenticated` role (advisory).
+- **`tool-surface`:** missing or short descriptions, missing `readOnlyHint`,
+  undescribed inputs, and results over 16 KiB (advisory).
+
+Checks that only apply to a Chumbo runtime are left out for other servers.
+Only blocking failures set a failing exit code, and `--json` keeps the same
+check names.
+
 ### Choose who can connect
 
 | Access mode | Use it when                                                                          | Request authority                                                                    |
