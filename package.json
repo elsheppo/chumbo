@@ -90,7 +90,7 @@
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/server": "2.0.0",
     "@napi-rs/keyring": "2.0.0",
-    "@supabase/server": "1.4.1",
+    "@supabase/server": "1.9.2",
     "@supabase/supabase-js": "2.105.4"
   },
   "peerDependencies": {

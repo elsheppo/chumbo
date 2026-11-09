@@ -21,8 +21,8 @@ importers:
         specifier: 2.0.0
         version: 2.0.0
       '@supabase/server':
-        specifier: 1.4.1
-        version: 1.4.1(@supabase/supabase-js@2.105.4)(hono@4.13.3)
+        specifier: 1.9.2
+        version: 1.9.2(@supabase/supabase-js@2.105.4)(hono@4.13.3)(typescript@5.9.3)
       '@supabase/supabase-js':
         specifier: 2.105.4
         version: 2.105.4
@@ -526,6 +526,15 @@ packages:
     resolution: {integrity: sha512-JVNKbBft3Qkja+WlGaE026AJ2AH9K0UTsxsfvEIHgd4zFrBor4BYRCrYFrv9IDsvVqkF72wKDsODJl5GY/C4tA==}
     engines: {node: '>=20.0.0'}
 
+  '@supabase/middleware@1.0.0':
+    resolution: {integrity: sha512-ecA+z/o5E9sB+quuupGt8d7QjrnD4BBwZr+Qthm0uj6CtL/+yvAUTDlknhGuTbUidvx5CxBHJ1R3H96UjDpgyg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      typescript: '>=5.4'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   '@supabase/phoenix@0.4.5':
     resolution: {integrity: sha512-aAn9H9ovVyeApKy11OWOrrOGq8DV68yWeH4ud2lN9fzn4aO8Zb5GLL9m1pUg9nLqIcT+ZDfAcsZe0E/nqdv2lw==}
 
@@ -537,15 +546,16 @@ packages:
     resolution: {integrity: sha512-6ov6c59+8D9h7q4M4Gy/uDJlC0Akxl9/714Y+6vJ+Sijuc16TS/p5DwhfRCLNcIhNiej1gEt+CQUwsjiPt4PxQ==}
     engines: {node: '>=20.0.0'}
 
-  '@supabase/server@1.4.1':
-    resolution: {integrity: sha512-Fyzpi+Srfn+flN3PwueObhSmwhXFaTkrnk3iD+ttNBEz6gD0VmaOqTe7tCxTSodm1zncWSxsyPQxATL7V+SfIw==}
-    engines: {node: '>=20'}
+  '@supabase/server@1.9.2':
+    resolution: {integrity: sha512-zkvU157ivZ268Ffs+2aEaYvavfchZ8IiB/Rt5tW4JTfew2JeX0TN46Do3XD5U8ganGhfAJr3BUsMHswY56+iLA==}
+    engines: {node: '>=22'}
     peerDependencies:
       '@nestjs/common': ^10.0.0 || ^11.0.0
       '@supabase/supabase-js': ^2.0.0
       elysia: ^1.4.0
       h3: ^2.0.0
       hono: ^4.0.0
+      pg: ^8.0.0
     peerDependenciesMeta:
       '@nestjs/common':
         optional: true
@@ -554,6 +564,8 @@ packages:
       h3:
         optional: true
       hono:
+        optional: true
+      pg:
         optional: true
 
   '@supabase/storage-js@2.105.4':
@@ -1736,6 +1748,12 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
+  '@supabase/middleware@1.0.0(typescript@5.9.3)':
+    dependencies:
+      std-env: 4.2.0
+    optionalDependencies:
+      typescript: 5.9.3
+
   '@supabase/phoenix@0.4.5': {}
 
   '@supabase/postgrest-js@2.105.4':
@@ -1747,12 +1765,15 @@ snapshots:
       '@supabase/phoenix': 0.4.5
       tslib: 2.8.1
 
-  '@supabase/server@1.4.1(@supabase/supabase-js@2.105.4)(hono@4.13.3)':
+  '@supabase/server@1.9.2(@supabase/supabase-js@2.105.4)(hono@4.13.3)(typescript@5.9.3)':
     dependencies:
+      '@supabase/middleware': 1.0.0(typescript@5.9.3)
       '@supabase/supabase-js': 2.105.4
       jose: 6.2.8
     optionalDependencies:
       hono: 4.13.3
+    transitivePeerDependencies:
+      - typescript
 
   '@supabase/storage-js@2.105.4':
     dependencies:

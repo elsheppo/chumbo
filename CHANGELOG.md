@@ -7,6 +7,10 @@
   Functions and source-reference tests to Zod 4.6.7.
 - Keep only English validation messages in the English-only review-queue app,
   and enforce its existing 400 kB HTML budget during the ordinary build checks.
+- Run on `@supabase/server` 1.9.2, the release line behind Supabase's
+  `withSupabase` and `withOAuthProtectedResource` helpers, instead of 1.4.1.
+  Newly generated Edge Functions pin the same version. Chumbo's public API,
+  access modes, and OAuth discovery routes are unchanged.
 
 ## 0.12.2 – 2026-09-25
 
