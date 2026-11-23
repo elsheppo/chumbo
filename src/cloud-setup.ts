@@ -3,6 +3,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import {
+  findIdentifierCalls,
+  inspectMcpEntrySource,
+  maskCommentsAndStrings,
+  planOfficialAdoption,
+} from "./official-adoption.js";
 
 const MAX_RESPONSE_BYTES = 64 * 1_024;
 const MAX_SNIPPET_BYTES = 8 * 1_024;
@@ -554,25 +560,12 @@ export async function resolveCloudDeployCommand(input: {
   });
 }
 
-function findCreateSupabaseMcpCall(source: string): number {
-  const identifier = /\bcreateSupabaseMcp\b/gu;
-  for (const match of source.matchAll(identifier)) {
-    let cursor = match.index + match[0].length;
-    while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
-    if (source[cursor] === "<") {
-      let depth = 0;
-      for (; cursor < source.length; cursor += 1) {
-        if (source[cursor] === "<") depth += 1;
-        if (source[cursor] === ">" && --depth === 0) {
-          cursor += 1;
-          break;
-        }
-      }
-      if (depth !== 0) continue;
-      while (/\s/u.test(source[cursor] ?? "")) cursor += 1;
-    }
-    if (source[cursor] === "(") return match.index;
-  }
+function findChumboConfigCall(source: string): number {
+  const masked = maskCommentsAndStrings(source);
+  const createCall = findIdentifierCalls(masked, "createSupabaseMcp")[0];
+  if (createCall) return createCall.nameStart;
+  const pipelineCall = findIdentifierCalls(masked, "withChumbo")[0];
+  if (pipelineCall) return pipelineCall.nameStart;
   return -1;
 }
 
@@ -682,21 +675,68 @@ export function planCloudPatch(input: {
   const functionAdditions: string[] = [];
   const importLine =
     'import { chumboCloudOnEvent, chumboCloudOnSurface } from "./chumbo-cloud.ts";';
+
+  let call = findChumboConfigCall(functionSource);
+  if (call < 0) {
+    const inspected = inspectMcpEntrySource(input.currentSource);
+    if (inspected?.kind === "supabase-official") {
+      const adoption = planOfficialAdoption({
+        entryPath: functionPath,
+        currentSource: input.currentSource,
+        serverName: input.functionSlug,
+        extraWithChumboProperties: [
+          "onEvent: chumboCloudOnEvent,",
+          "onSurface: chumboCloudOnSurface,",
+        ],
+        extraImports: [importLine],
+      });
+      if (adoption.status === "conflict") {
+        throw new Error(
+          adoption.blocker ??
+            `Could not adopt ${input.functionSlug}/index.ts automatically.`,
+        );
+      }
+      const changes: CloudPatchChange[] = [
+        {
+          path: functionPath,
+          action: "update",
+          addedText: [
+            ...adoption.addedImports,
+            "  onEvent: chumboCloudOnEvent,",
+            "  onSurface: chumboCloudOnSurface,",
+          ].join("\n"),
+        },
+      ];
+      if (input.currentAdapter === null) {
+        changes.push({
+          path: adapterPath,
+          action: "create",
+          addedText: adapter,
+        });
+      }
+      return {
+        adapterPath,
+        functionPath,
+        adapter,
+        functionSource: adoption.source,
+        changed: true,
+        changes,
+      };
+    }
+    throw new Error(
+      `Could not find createSupabaseMcp(...) or withChumbo(...) in ${input.functionSlug}/index.ts.`,
+    );
+  }
+
   if (!functionSource.includes(importLine)) {
     functionSource = `${importLine}\n${functionSource}`;
     functionAdditions.push(`${importLine}\n`);
+    call = findChumboConfigCall(functionSource);
   }
-  let call = findCreateSupabaseMcpCall(functionSource);
-  if (call < 0)
-    throw new Error(
-      `Could not find createSupabaseMcp(...) in ${input.functionSlug}/index.ts.`,
-    );
   let opening = functionSource.indexOf("{", call);
   let closing = opening < 0 ? -1 : matchingBrace(functionSource, opening);
   if (closing < 0)
-    throw new Error(
-      "Could not safely read the createSupabaseMcp configuration.",
-    );
+    throw new Error("Could not safely read the Chumbo runtime configuration.");
   let config = functionSource.slice(opening, closing + 1);
   const hasEventMethod = /\bonEvent\s*\(/u.test(config);
   const hasEventProperty = /\bonEvent\s*:/u.test(config);
@@ -723,7 +763,7 @@ export function planCloudPatch(input: {
     if (!/\bcomposeEventSinks\b/u.test(functionSource)) {
       functionSource = `${composeImport}\n${functionSource}`;
       functionAdditions.push(`${composeImport}\n`);
-      call = findCreateSupabaseMcpCall(functionSource);
+      call = findChumboConfigCall(functionSource);
       opening = functionSource.indexOf("{", call);
       closing = matchingBrace(functionSource, opening);
       config = functionSource.slice(opening, closing + 1);
@@ -739,7 +779,7 @@ export function planCloudPatch(input: {
       updatedConfig +
       functionSource.slice(closing + 1);
     functionAdditions.push(`  onEvent: ${composedExpr},\n`);
-    call = findCreateSupabaseMcpCall(functionSource);
+    call = findChumboConfigCall(functionSource);
     opening = functionSource.indexOf("{", call);
     closing = matchingBrace(functionSource, opening);
   }

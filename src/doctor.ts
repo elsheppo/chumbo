@@ -8,15 +8,18 @@ import {
 } from "./project.js";
 import {
   comparableResult,
+  contextBudgetCheck,
   jwtIdentity,
   redactIdentity,
   dataApiGrantsCheck,
   isolationCandidates,
   jwtSubject,
   toolSurfaceCheck,
+  type DoctorSqlRemediation,
   type ProbeTool,
   type ToolResultRecord,
 } from "./doctor-checks.js";
+import type { CatalogTokenReport } from "./surface-tokens.js";
 import { DoctorRequestError, stripControl, timedFetch } from "./doctor-http.js";
 import {
   authorizationServerChecks,
@@ -59,6 +62,28 @@ export interface DoctorCheck {
   detail: string;
   /** Advisory checks inform without blocking setup or doctor completion. */
   blocking?: boolean;
+  remediation?: DoctorSqlRemediation;
+  metrics?: CatalogTokenReport;
+}
+
+export interface DoctorReport {
+  readonly schemaVersion: 1;
+  readonly command: "doctor";
+  readonly status: "complete" | "blocked";
+  readonly contextBudget?: CatalogTokenReport;
+  readonly checks: DoctorCheck[];
+}
+
+export function buildDoctorReport(checks: DoctorCheck[]): DoctorReport {
+  const blocked = checks.some((check) => !check.ok && check.blocking !== false);
+  const budgetCheck = checks.find((check) => check.name === "context-budget");
+  return {
+    schemaVersion: 1,
+    command: "doctor",
+    status: blocked ? "blocked" : "complete",
+    ...(budgetCheck?.metrics ? { contextBudget: budgetCheck.metrics } : {}),
+    checks,
+  };
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -224,6 +249,7 @@ async function unreachableCheck(
 interface ProbeOutcome {
   tools?: ProbeTool[];
   results: ToolResultRecord[];
+  initializeHeaders?: Headers;
 }
 
 function errorMessage(body: ProtocolBody | null): string | undefined {
@@ -256,6 +282,7 @@ async function mcpProbe(
     return outcome;
   }
   const initializeBody = await responseBody(initializeResponse);
+  outcome.initializeHeaders = initializeResponse.headers;
   if (initializeResponse.status === 401 || initializeResponse.status === 403) {
     checks.push({
       name: "credential-accepted",
@@ -476,11 +503,153 @@ async function userIsolationCheck(
   };
 }
 
+const TRANSPORT_PROBE_TIMEOUT_MS = 2_500;
+
+/**
+ * Probes `GET <url>` with `Accept: text/event-stream` under a 2.5s cap to
+ * confirm stateless endpoints refuse standalone SSE listen streams cleanly.
+ */
+export async function transportArmorCheck(
+  url: string,
+  token?: string,
+): Promise<DoctorCheck> {
+  const headers = new Headers({ accept: "text/event-stream" });
+  if (token) headers.set("authorization", `Bearer ${token}`);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers,
+      redirect: "error",
+      signal: AbortSignal.timeout(TRANSPORT_PROBE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const aborted =
+      error instanceof Error &&
+      (error.name === "TimeoutError" || error.name === "AbortError");
+    return {
+      name: "transport-armor",
+      ok: false,
+      detail: aborted
+        ? "GET SSE listen probe timed out after 2.5s; stateless Edge Functions and container hosts can hang until platform request timeouts. Refuse GET with HTTP 405 (Allow: POST, OPTIONS) via withChumbo or withMcpTransportArmor."
+        : "GET SSE listen probe failed to complete.",
+      blocking: false,
+    };
+  }
+
+  if (!token && (response.status === 401 || response.status === 403)) {
+    void response.body?.cancel().catch(() => {});
+    return {
+      name: "transport-armor",
+      ok: true,
+      detail: `Skipped unauthenticated GET SSE listen probe (HTTP ${response.status} auth gate precedes transport; pass --token to verify post-auth 405 refusal)`,
+      blocking: false,
+    };
+  }
+
+  if (response.status === 405) {
+    void response.body?.cancel().catch(() => {});
+    const allow = response.headers.get("allow");
+    if (allow) {
+      return {
+        name: "transport-armor",
+        ok: true,
+        detail: "GET SSE listen probe refused immediately with HTTP 405",
+        blocking: false,
+      };
+    }
+    return {
+      name: "transport-armor",
+      ok: false,
+      detail:
+        "GET SSE listen probe returned HTTP 405 without an Allow header; return Allow: POST, OPTIONS via withChumbo or withMcpTransportArmor.",
+      blocking: false,
+    };
+  }
+
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (response.status === 200 && contentType.includes("text/event-stream")) {
+    void response.body?.cancel().catch(() => {});
+    return {
+      name: "transport-armor",
+      ok: false,
+      detail:
+        "GET SSE listen probe opened a 200 text/event-stream; stateless Edge Functions and container hosts can hang until platform request timeouts. Refuse GET with HTTP 405 (Allow: POST, OPTIONS) via withChumbo or withMcpTransportArmor.",
+      blocking: false,
+    };
+  }
+
+  void response.body?.cancel().catch(() => {});
+  return {
+    name: "transport-armor",
+    ok: true,
+    detail: `GET SSE listen probe closed immediately with HTTP ${response.status} (no hanging stream)`,
+    blocking: false,
+  };
+}
+
+/**
+ * When a server advertises `Access-Control-Allow-Origin`, verifies that
+ * browser MCP hosts can read `WWW-Authenticate` and `Mcp-Session-Id`.
+ */
+export function browserCorsCheck(input: {
+  readonly probeHeaders: Headers;
+  readonly initializeHeaders?: Headers;
+  readonly auth: SetupAuthMode | "multi";
+}): DoctorCheck | undefined {
+  const hasCors =
+    input.probeHeaders.has("access-control-allow-origin") ||
+    Boolean(input.initializeHeaders?.has("access-control-allow-origin"));
+  if (!hasCors) return undefined;
+
+  const exposed = new Set<string>();
+  for (const headerValue of [
+    input.probeHeaders.get("access-control-expose-headers"),
+    input.initializeHeaders?.get("access-control-expose-headers"),
+  ]) {
+    for (const token of (headerValue ?? "").split(",")) {
+      const normalized = token.trim().toLowerCase();
+      if (normalized) exposed.add(normalized);
+    }
+  }
+
+  const missing: string[] = [];
+  if (
+    (input.auth === "oauth" || input.auth === "bearer") &&
+    !exposed.has("www-authenticate")
+  ) {
+    missing.push("WWW-Authenticate");
+  }
+  if (
+    input.initializeHeaders?.has("mcp-session-id") &&
+    !exposed.has("mcp-session-id")
+  ) {
+    missing.push("Mcp-Session-Id");
+  }
+
+  if (missing.length === 0) {
+    return {
+      name: "browser-cors",
+      ok: true,
+      detail: "Browser CORS exposes required MCP auth and session headers",
+      blocking: false,
+    };
+  }
+  return {
+    name: "browser-cors",
+    ok: false,
+    detail: `CORS is enabled, but Access-Control-Expose-Headers omits ${missing.join(", ")}. Use withMcpCors() or cors options to expose them to browser MCP hosts.`,
+    blocking: false,
+  };
+}
+
 /** Advisory checks that read what the probe discovered and returned. */
 async function analyzeProbe(
   options: DoctorOptions,
   checks: DoctorCheck[],
   outcome: ProbeOutcome,
+  auth: SetupAuthMode | "multi",
+  probeHeaders: Headers,
   token?: string,
   noIsolationReason?: string,
 ): Promise<void> {
@@ -519,10 +688,23 @@ async function analyzeProbe(
       );
     }
   }
+  const corsCheck = browserCorsCheck({
+    probeHeaders,
+    initializeHeaders: outcome.initializeHeaders,
+    auth,
+  });
+  if (corsCheck) checks.push(corsCheck);
+  if (options.url) {
+    checks.push(await transportArmorCheck(options.url, token));
+  }
   if (!outcome.tools) return;
-  const grants = dataApiGrantsCheck(outcome.results);
+  const grants = dataApiGrantsCheck(outcome.results, {
+    auth,
+    tools: outcome.tools,
+  });
   if (grants) checks.push(grants);
   checks.push(toolSurfaceCheck(outcome.tools, outcome.results));
+  checks.push(contextBudgetCheck(outcome.tools));
 }
 
 function challengeMetadataUrl(value: string | null): string | undefined {
@@ -553,7 +735,7 @@ export function functionNameFromUrl(
 /** Whether a function entry builds a Chumbo runtime, not just any MCP server. */
 async function isChumboSource(entryPath: string): Promise<boolean> {
   try {
-    return /createSupabaseMcp|["'](?:npm:)?(?:chumbo|supa-mcp)[@/"']/.test(
+    return /createSupabaseMcp|withChumbo|["'](?:npm:)?(?:chumbo|supa-mcp)[@/"']/.test(
       await readFile(entryPath, "utf8"),
     );
   } catch {
@@ -860,6 +1042,8 @@ async function inspect(options: DoctorOptions): Promise<DoctorCheck[]> {
       options,
       checks,
       await mcpProbe(options, target, checks),
+      auth,
+      response.headers,
       undefined,
       "this server is public, so --token was not used",
     );
@@ -879,6 +1063,8 @@ async function inspect(options: DoctorOptions): Promise<DoctorCheck[]> {
       options,
       checks,
       await mcpProbe(options, target, checks, options.token),
+      auth,
+      response.headers,
       options.token,
     );
     return checks;
@@ -912,6 +1098,8 @@ async function inspect(options: DoctorOptions): Promise<DoctorCheck[]> {
       options,
       checks,
       await mcpProbe(options, target, checks),
+      "public",
+      response.headers,
       undefined,
       "this endpoint does not ask for sign-in, so --token was not used",
     );
@@ -948,8 +1136,17 @@ async function inspect(options: DoctorOptions): Promise<DoctorCheck[]> {
       options,
       checks,
       await mcpProbe(options, target, checks, options.token),
+      auth,
+      response.headers,
       options.token,
     );
+  } else if (options.deep) {
+    const corsCheck = browserCorsCheck({
+      probeHeaders: response.headers,
+      auth,
+    });
+    if (corsCheck) checks.push(corsCheck);
+    checks.push(await transportArmorCheck(options.url));
   }
   return checks;
 }
@@ -972,6 +1169,35 @@ export async function runDoctor(
   }
   // Server-supplied text never reaches the terminal with control characters.
   return options.deep
-    ? checks.map((check) => ({ ...check, detail: stripControl(check.detail) }))
+    ? checks.map((check) => ({
+        ...check,
+        detail: stripControl(check.detail),
+        ...(check.metrics
+          ? {
+              metrics: {
+                ...check.metrics,
+                bloatedInputTools:
+                  check.metrics.bloatedInputTools.map(stripControl),
+                bloatedOutputTools:
+                  check.metrics.bloatedOutputTools.map(stripControl),
+                tools: check.metrics.tools.map((tool) => ({
+                  ...tool,
+                  name: stripControl(tool.name),
+                })),
+              },
+            }
+          : {}),
+        ...(check.remediation
+          ? {
+              remediation: {
+                ...check.remediation,
+                affectedTools:
+                  check.remediation.affectedTools.map(stripControl),
+                sql: stripControl(check.remediation.sql),
+                notes: check.remediation.notes.map(stripControl),
+              },
+            }
+          : {}),
+      }))
     : checks;
 }
