@@ -106,6 +106,17 @@ export interface SupabaseMcpRunCorrelationOptions<Database = unknown> {
   /** Explicit tool argument carrying a handle. Defaults to `run_id`. */
   readonly argumentName?: string;
   /**
+   * How invalid or expired run handles behave during invocation:
+   * - `"reject"` (default): throw `SupabaseMcpRunCorrelationError` before capability code runs.
+   * - `"ignore"`: degrade to `run = null` and record `runRejected` on `capability.finished`.
+   */
+  readonly onInvalidHandle?: "reject" | "ignore";
+  /**
+   * Issue and verify a stateless HMAC-signed `Mcp-Session-Id` header on MCP
+   * sessions so clients correlate multi-step runs with zero tool-argument cost.
+   */
+  readonly sessionHeader?: boolean | { readonly headerName?: string };
+  /**
    * Resolve the application-owned boundary used to mint and verify a handle.
    * The same logical run must resolve the same scope on every request.
    */
@@ -182,16 +193,21 @@ export interface SupabaseMcpCapabilityFinishedEventV1 extends SupabaseMcpLifecyc
   readonly type: "capability.finished";
   readonly durationMs: number;
   readonly outcome: SupabaseMcpLifecycleOutcome;
+  readonly errorCode?: string;
 }
 
 export interface SupabaseMcpCapabilityStartedEventV2 extends SupabaseMcpLifecycleEventV2 {
   readonly type: "capability.started";
+  readonly sessionId?: string;
 }
 
 export interface SupabaseMcpCapabilityFinishedEventV2 extends SupabaseMcpLifecycleEventV2 {
   readonly type: "capability.finished";
   readonly durationMs: number;
   readonly outcome: SupabaseMcpLifecycleOutcome;
+  readonly errorCode?: string;
+  readonly runRejected?: string;
+  readonly sessionId?: string;
 }
 
 export type SupabaseMcpCapabilityStartedEvent =

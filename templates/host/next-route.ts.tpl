@@ -1,5 +1,5 @@
 import { createSupabaseMcp } from "chumbo";
-import { registerCapabilities } from "../capabilities";
+{{INSIGHTS_IMPORTS}}import { registerCapabilities } from "../capabilities";
 
 const projectUrl =
   process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -12,7 +12,7 @@ const publishableKey =
 if (!publishableKey) {
   throw new Error("SUPABASE_PUBLISHABLE_KEY is not configured");
 }
-{{AUTH_SETUP}}{{STATE_SETUP}}
+{{AUTH_SETUP}}{{STATE_SETUP}}{{INSIGHTS_SETUP}}
 // The URL MCP clients connect to. Set MCP_PUBLIC_URL in production.
 const publicUrl = new URL(
   process.env.MCP_PUBLIC_URL ?? "http://localhost:3000/{{FUNCTION_NAME}}",
@@ -27,7 +27,7 @@ const app = createSupabaseMcp({
     "caller. Use the available capabilities according to their descriptions.",
   resourceUrl: publicUrl,
   auth: {{AUTH_CONFIG}},
-{{STATE_CONFIG}}  supabase: {
+{{STATE_CONFIG}}{{INSIGHTS_CONFIG}}  supabase: {
     env: {
       url: projectUrl,
       publishableKeys: { default: publishableKey },

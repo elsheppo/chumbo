@@ -588,10 +588,22 @@ const app = createSupabaseMcp({
 ```
 
 A builder-authored begin tool can call `runs.mint(ctx)` and return its opaque
-`handle`. Generic MCP clients pass that handle through `run_id` only on the
-tools that deliberately expose the field. A client you control may instead
-send the same handle in `_meta["dev.chumbo/run"]`. Matching carriers are
-accepted. Disagreement or an invalid handle stops before application code.
+`handle` (minting during a tool's first call is also reflected on that call's
+`capability.finished` event). Generic MCP clients pass that handle through
+`run_id` only on the tools that deliberately expose the field, or you can enable
+`sessionHeader: true` to issue and verify an HMAC-signed `Mcp-Session-Id`
+header automatically on MCP sessions. Set `onInvalidHandle: "ignore"` when
+expired or malformed handles should degrade to `run: null` (with `runRejected`
+recorded on `capability.finished`) instead of stopping before application code.
+
+### Self-hosted Insights (`chumbo/insights`)
+
+Run `npx chumbo setup --insights` to scaffold the `chumbo-telemetry@2` Postgres
+migration, wire `createTelemetrySink` from `"chumbo/insights"`, and generate a
+standalone Supabase Auth dashboard (`insights/index.html`) inside your own
+project. Prompts, arguments, and results are never stored; when you also pair
+with Chumbo Cloud, `chumbo cloud setup` composes both sinks via
+`composeEventSinks(...)`.
 
 When configured, lifecycle events use schema v2 and contain the same bounded
 opaque run fact or `run: null`. Without `runCorrelation`, Chumbo continues to
