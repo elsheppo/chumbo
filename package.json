@@ -57,6 +57,14 @@
     "./insights": {
       "types": "./dist/insights.d.ts",
       "import": "./dist/insights.js"
+    },
+    "./middleware": {
+      "types": "./dist/middleware.d.ts",
+      "import": "./dist/middleware.js"
+    },
+    "./connect": {
+      "types": "./dist/connect.d.ts",
+      "import": "./dist/connect.js"
     }
   },
   "files": [

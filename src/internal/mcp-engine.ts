@@ -7,6 +7,7 @@ import {
   type ServerContext,
 } from "@modelcontextprotocol/server";
 import { DEFAULT_CLIENT_CONTEXT } from "../client-context.js";
+import { withProfile, type DefinedChumboProfile } from "../profiles.js";
 import {
   composeResultContent,
   type ResultContentComposition,
@@ -25,6 +26,8 @@ import type {
   SupabaseMcpErrorEvent,
   SupabaseMcpLifecycleEvent,
   SupabaseMcpLifecycleOutcome,
+  SupabaseMcpProfileLike,
+  SupabaseMcpProfilesOptions,
   SupabaseMcpResultMiddleware,
   SupabaseMcpRunCorrelation,
   SupabaseMcpRunFact,
@@ -827,6 +830,92 @@ export async function createSurfaceProof(
     return null;
   }
   return Object.freeze(proof);
+}
+
+export interface ResolvedActiveProfile<Database = unknown> {
+  readonly id: string;
+  readonly profile: SupabaseMcpProfileLike<string, Database>;
+  readonly vocabulary?: {
+    readonly knownTools: ReadonlySet<string>;
+    readonly plainWordTools: ReadonlySet<string>;
+    rewrite(
+      text: string,
+      mounted: ReadonlySet<string>,
+      aliases?: ReadonlyMap<string, string>,
+    ): string;
+  };
+}
+
+export async function resolveActiveProfile<Database = unknown>(
+  profiles: SupabaseMcpProfilesOptions<string, Database> | undefined,
+  context: SupabaseMcpContext<Database>,
+): Promise<ResolvedActiveProfile<Database> | undefined> {
+  if (!profiles) return undefined;
+  const selected = await profiles.select(context);
+  const id = profiles.catalog.parseId(selected);
+  const profile = profiles.catalog.get(id);
+  return {
+    id,
+    profile,
+    ...(profiles.catalog.vocabulary
+      ? { vocabulary: profiles.catalog.vocabulary }
+      : {}),
+  };
+}
+
+export async function resolveProfileInstructions<
+  Database = unknown,
+  Context extends SupabaseMcpContext<Database> = SupabaseMcpContext<Database>,
+>(
+  baseInstructions:
+    | string
+    | ((context: Context) => string | undefined | Promise<string | undefined>)
+    | undefined,
+  activeProfile: ResolvedActiveProfile<Database> | undefined,
+  context: Context,
+): Promise<string | undefined> {
+  const source =
+    activeProfile?.profile.instructions !== undefined
+      ? activeProfile.profile.instructions
+      : baseInstructions;
+  const raw =
+    typeof source === "function"
+      ? await (
+          source as (
+            ctx: Context,
+          ) => string | undefined | Promise<string | undefined>
+        )(context)
+      : source;
+  if (!raw || !activeProfile?.vocabulary) return raw;
+
+  const mounted = new Set<string>();
+  const aliases = new Map<string, string>();
+  for (const canonical of activeProfile.profile.tools) {
+    const presented =
+      activeProfile.profile.presentedNameFor(canonical) ?? canonical;
+    mounted.add(presented);
+    if (presented !== canonical) {
+      aliases.set(canonical, presented);
+    }
+  }
+  for (const sysTool of activeProfile.profile.systemTools) {
+    mounted.add(sysTool);
+  }
+  return activeProfile.vocabulary.rewrite(raw, mounted, aliases);
+}
+
+export function applyActiveProfile<Database = unknown>(
+  server: SupabaseMcpServer,
+  activeProfile: ResolvedActiveProfile<Database> | undefined,
+): SupabaseMcpServer {
+  if (!activeProfile) return server;
+  return withProfile(
+    server,
+    activeProfile.profile as DefinedChumboProfile<string, Database>,
+    activeProfile.vocabulary
+      ? { vocabulary: activeProfile.vocabulary }
+      : undefined,
+  );
 }
 
 export function responseWithMergedHeaders(

@@ -16,6 +16,7 @@ import {
 import type { JWTClaims, SupabaseEnv, UserClaims } from "@supabase/server";
 import { resolveMcpClientContext } from "./client-context.js";
 import {
+  applyActiveProfile,
   checkAccessGates,
   contextWithScopes,
   createLifecycleEmitter,
@@ -24,9 +25,12 @@ import {
   createSurfaceProof,
   normalizeError,
   normalizedScopes,
+  resolveActiveProfile,
+  resolveProfileInstructions,
   responseWithMergedHeaders,
   scopedServer,
   type PartialContextInput,
+  type ResolvedActiveProfile,
   type RunSlot,
 } from "./internal/mcp-engine.js";
 import { getRunCorrelationInternals } from "./internal/run-correlation.js";
@@ -525,6 +529,10 @@ export function createSupabaseMcpInternal<Database = unknown>(
     Request,
     SupabaseMcpContext<Database>
   >();
+  const activeProfileByContext = new WeakMap<
+    SupabaseMcpContext<Database>,
+    ResolvedActiveProfile<Database>
+  >();
 
   const mcpHandler = createMcpHandler(
     async (mcpContext) => {
@@ -548,18 +556,27 @@ export function createSupabaseMcpInternal<Database = unknown>(
         context = stored;
       }
 
-      const instructions =
-        typeof options.instructions === "function"
-          ? await options.instructions(context)
-          : options.instructions;
+      const activeProfile = activeProfileByContext.get(context);
+      const instructions = await resolveProfileInstructions(
+        options.instructions,
+        activeProfile,
+        context,
+      );
       const server = new McpServer(
         options.server,
         instructions ? { instructions } : undefined,
       );
-      await options.register(
-        scopedServer(server, context, lifecycle, resultMiddleware, {
+      const scoped = scopedServer(
+        server,
+        context,
+        lifecycle,
+        resultMiddleware,
+        {
           disableSubscriptions,
-        }),
+        },
+      );
+      await options.register(
+        applyActiveProfile(scoped, activeProfile),
         context,
       );
       return server;
@@ -605,6 +622,24 @@ export function createSupabaseMcpInternal<Database = unknown>(
     );
     if (!accessCheck.allowed && accessCheck.response) {
       return accessCheck.response;
+    }
+
+    let activeProfile: ResolvedActiveProfile<Database> | undefined;
+    if (options.profiles) {
+      try {
+        activeProfile = await resolveActiveProfile(options.profiles, context);
+        if (activeProfile) activeProfileByContext.set(context, activeProfile);
+      } catch (error) {
+        options.onError?.({
+          error: normalizeError(error),
+          phase: "runtime",
+          traceId: context.traceId,
+        });
+        return jsonResponse(
+          { error: "server_error", traceId: context.traceId },
+          500,
+        );
+      }
     }
 
     let response = authInfo
@@ -661,6 +696,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
         envelope.surfaceList,
         options.server,
         context.authentication,
+        activeProfile?.id,
       );
       if (!proof) return response;
       try {

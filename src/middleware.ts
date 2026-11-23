@@ -21,6 +21,7 @@ import { createAdminClient, extractCredentials } from "@supabase/server/core";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveMcpClientContext } from "./client-context.js";
 import {
+  applyActiveProfile,
   checkAccessGates,
   contextWithScopes,
   createLifecycleEmitter,
@@ -30,7 +31,10 @@ import {
   extendMcpContext,
   instrumentMcpServer,
   normalizeError,
+  resolveActiveProfile,
+  resolveProfileInstructions,
   responseWithMergedHeaders,
+  type ResolvedActiveProfile,
   type RunSlot,
 } from "./internal/mcp-engine.js";
 import { getRunCorrelationInternals } from "./internal/run-correlation.js";
@@ -581,24 +585,50 @@ const rawWithChumbo = defineMiddleware<
         return decorate(accessCheck.response);
       }
 
+      let activeProfile: ResolvedActiveProfile<any> | undefined;
+      if (options.profiles) {
+        try {
+          activeProfile = await resolveActiveProfile(
+            options.profiles,
+            coreContext,
+          );
+        } catch (error) {
+          options.onError?.({
+            error: normalizeError(error),
+            phase: "runtime",
+            traceId,
+          });
+          return decorate(
+            Response.json(
+              { error: "server_error", traceId },
+              { status: 500, headers: { "cache-control": "no-store" } },
+            ),
+          );
+        }
+      }
+
       let pipelineContext!: SupabaseMcpPipelineContext<any>;
       pipelineContext = extendMcpContext(
         coreContext,
         {
           instrument(server: McpServer): SupabaseMcpServer {
-            return instrumentMcpServer(
+            const instrumented = instrumentMcpServer(
               server,
               pipelineContext,
               lifecycle,
               resultMiddleware,
               { disableSubscriptions },
             );
+            return applyActiveProfile(instrumented, activeProfile);
           },
         },
         runSlot,
       );
       runSlotByContext.set(pipelineContext, runSlot);
       runSlotByContext.set(coreContext, runSlot);
+      if (activeProfile) {
+        activeProfileByPipelineContext.set(pipelineContext, activeProfile);
+      }
 
       let response: Response = yield { chumbo: pipelineContext };
       const extraExpose: string[] = [];
@@ -644,6 +674,7 @@ const rawWithChumbo = defineMiddleware<
             envelope.surfaceList,
             options.server,
             authentication,
+            activeProfile?.id,
           );
           if (proof) {
             try {
@@ -715,6 +746,10 @@ export interface ChumboMcpHandlerOptions<Database = unknown> {
 }
 
 const PIPELINE_CONTEXT_EXTRA_KEY = "chumboPipelineContext";
+const activeProfileByPipelineContext = new WeakMap<
+  SupabaseMcpPipelineContext<any>,
+  ResolvedActiveProfile<any>
+>();
 
 /**
  * Reusable terminal handler for `pipeline([...withChumbo(...)], chumboMcpHandler(...))`.
@@ -743,10 +778,11 @@ export function chumboMcpHandler<Database = unknown>(
           "chumboMcpHandler requires withChumbo(...) upstream in the pipeline.",
         );
       }
-      const instructions =
-        typeof options.instructions === "function"
-          ? await options.instructions(chumbo)
-          : options.instructions;
+      const activeProfile = activeProfileByPipelineContext.get(chumbo);
+      const instructions = await resolveProfileInstructions<
+        Database,
+        SupabaseMcpPipelineContext<Database>
+      >(options.instructions, activeProfile, chumbo);
       const rawServer = new McpServer(
         options.server,
         instructions ? { instructions } : undefined,
