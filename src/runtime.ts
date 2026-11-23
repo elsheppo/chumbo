@@ -4,14 +4,9 @@ import {
   OAuthErrorCode,
   buildOAuthProtectedResourceMetadata,
   createMcpHandler,
-  isCallToolResult,
-  isInputRequiredResult,
   requireBearerAuth,
   type AuthInfo,
-  type CallToolResult,
-  type McpServer as McpServerType,
   type OAuthMetadata,
-  type ServerContext,
 } from "@modelcontextprotocol/server";
 import {
   createAdminClient,
@@ -19,43 +14,48 @@ import {
   verifyCredentials,
 } from "@supabase/server/core";
 import type { JWTClaims, SupabaseEnv, UserClaims } from "@supabase/server";
-import type {
-  CreateSupabaseMcpOptions,
-  RuntimeDependencies,
-  SupabaseMcpApp,
-  SupabaseMcpApiKeyAuth,
-  SupabaseMcpAuthentication,
-  SupabaseMcpCapabilityKind,
-  SupabaseMcpContext,
-  SupabaseMcpErrorEvent,
-  SupabaseMcpLifecycleEvent,
-  SupabaseMcpLifecycleOutcome,
-  SupabaseMcpProtectedAuth,
-  SupabaseMcpPostgresRateLimit,
-  SupabaseMcpResultMiddleware,
-  SupabaseMcpRunFact,
-  SupabaseMcpServer,
-  SupabaseMcpSurfaceProof,
-  SupabaseMcpSurfaceTool,
-  SupabaseMcpSurfaceToolAnnotations,
-  VerifiedSupabaseIdentity,
-} from "./types.js";
+import { resolveMcpClientContext } from "./client-context.js";
 import {
-  composeResultContent,
-  type JsonValue,
-  type ResultContentComposition,
-} from "./results.js";
+  checkAccessGates,
+  contextWithScopes,
+  createLifecycleEmitter,
+  createResultMiddlewareRunner,
+  createRunSlot,
+  createSurfaceProof,
+  normalizeError,
+  normalizedScopes,
+  responseWithMergedHeaders,
+  scopedServer,
+  type PartialContextInput,
+  type RunSlot,
+} from "./internal/mcp-engine.js";
+import { getRunCorrelationInternals } from "./internal/run-correlation.js";
+import { sha256Hex } from "./internal/surface-canonical.js";
+import { issueMcpSessionId, mcpSessionId } from "./session-state.js";
 import {
   createSupabaseMcpStateFactory,
   SupabaseMcpStateUnavailableError,
 } from "./state.js";
-import { getRunCorrelationInternals } from "./internal/run-correlation.js";
 import {
-  boundedUtf8,
-  computeCanonicalSurfaceDigest,
-  SURFACE_CANONICAL_LIMITS,
-  sha256Hex,
-} from "./internal/surface-canonical.js";
+  applyMcpCorsPreflight,
+  applyMcpTransportArmor,
+  decorateMcpCorsResponse,
+  inspectInboundMcpEnvelope,
+  isSuccessfulJsonRpcResponse,
+  type EvaluatedCorsOrigin,
+  type InboundMcpEnvelope,
+} from "./transport.js";
+import type {
+  CreateSupabaseMcpOptions,
+  RuntimeDependencies,
+  SupabaseMcpApiKeyAuth,
+  SupabaseMcpApp,
+  SupabaseMcpAuthentication,
+  SupabaseMcpContext,
+  SupabaseMcpPostgresRateLimit,
+  SupabaseMcpProtectedAuth,
+  VerifiedSupabaseIdentity,
+} from "./types.js";
 import { PACKAGE_VERSION } from "./version.js";
 
 const IDENTITY_KEY = "createSupabaseMcpIdentity";
@@ -68,20 +68,11 @@ const DEFAULT_RATE_LIMIT = {
 } as const;
 const REMOTE_JWKS_TTL_MS = 60_000;
 const MAX_JWKS_BYTES = 64 * 1024;
-const MAX_SURFACE_REQUEST_BYTES = 64 * 1024;
-const MAX_SURFACE_RESPONSE_BYTES = 512 * 1024;
-const MAX_RESULT_MIDDLEWARE = 16;
 type InlineJwks = Exclude<NonNullable<SupabaseEnv["jwks"]>, URL>;
 const remoteJwksCache = new Map<
   string,
   { expiresAt: number; value: Promise<InlineJwks> }
 >();
-const REGISTRATION_METHODS = new Set([
-  "registerPrompt",
-  "registerResource",
-  "registerResourceTemplate",
-  "registerTool",
-]);
 
 interface RequestIdentity<Database> {
   token: string;
@@ -196,605 +187,6 @@ function actualClientId(claims: JWTClaims): string | undefined {
   return typeof claims.client_id === "string" ? claims.client_id : undefined;
 }
 
-function normalizedScopes(scopes: readonly string[]): string[] {
-  return [...new Set(scopes.map((scope) => scope.trim()).filter(Boolean))];
-}
-
-const DEFAULT_CLIENT_CONTEXT = Object.freeze({
-  era: "modern" as const,
-  info: null,
-  capabilities: null,
-  supports: Object.freeze({
-    elicitationForm: false,
-    elicitationUrl: false,
-    mcpAppsUi: false,
-    sampling: false,
-    roots: false,
-    resourceLinks: "unknown" as const,
-  }),
-});
-
-type PartialContextInput<Database> = Omit<
-  SupabaseMcpContext<Database>,
-  "scopes" | "hasScope" | "hasScopes" | "client" | "sessionId"
-> & {
-  readonly client?: SupabaseMcpContext<Database>["client"];
-  readonly sessionId?: string | null;
-};
-
-function contextWithScopes<Database>(
-  value: PartialContextInput<Database>,
-  scopes: readonly string[],
-): SupabaseMcpContext<Database> {
-  const normalized = Object.freeze(normalizedScopes(scopes));
-  const set = new Set(normalized);
-  return Object.freeze({
-    ...value,
-    client: value.client ?? DEFAULT_CLIENT_CONTEXT,
-    sessionId: value.sessionId ?? null,
-    scopes: normalized,
-    hasScope(scope: string) {
-      return set.has(scope);
-    },
-    hasScopes(required: readonly string[]) {
-      return required.every((scope) => set.has(scope));
-    },
-  });
-}
-
-function scopedServer<Database>(
-  server: McpServerType,
-  context: SupabaseMcpContext<Database>,
-  lifecycle: LifecycleEmitter<Database> | undefined,
-  resultMiddleware: ResultMiddlewareRunner<Database> | undefined,
-  requiredScopes: readonly string[] = [],
-): SupabaseMcpServer {
-  const required = normalizedScopes(requiredScopes);
-  return new Proxy(server, {
-    get(target, property) {
-      if (property === "withScopes") {
-        return (additional: readonly string[]) =>
-          scopedServer(target, context, lifecycle, resultMiddleware, [
-            ...required,
-            ...additional,
-          ]);
-      }
-      const value = Reflect.get(target, property, target);
-      if (typeof property !== "string" || typeof value !== "function") {
-        return value;
-      }
-      if (!REGISTRATION_METHODS.has(property)) return value.bind(target);
-      return (...args: unknown[]) => {
-        let registrationArgs = lifecycle
-          ? lifecycle.wrapRegistration(property, args, context)
-          : args;
-        registrationArgs = resultMiddleware
-          ? resultMiddleware.wrapRegistration(
-              property,
-              registrationArgs,
-              context,
-            )
-          : registrationArgs;
-        const registration = Reflect.apply(value, target, registrationArgs) as {
-          disable?(): void;
-        };
-        if (!context.hasScopes(required)) registration.disable?.();
-        return registration;
-      };
-    },
-  }) as SupabaseMcpServer;
-}
-
-interface ResultMiddlewareRunner<Database> {
-  wrapRegistration(
-    method: string,
-    args: readonly unknown[],
-    context: SupabaseMcpContext<Database>,
-  ): unknown[];
-}
-
-function deepFreeze<Value>(value: Value, seen = new WeakSet<object>()): Value {
-  if (typeof value !== "object" || value === null || seen.has(value)) {
-    return value;
-  }
-  seen.add(value);
-  for (const nested of Object.values(value)) deepFreeze(nested, seen);
-  return Object.freeze(value);
-}
-
-function createResultMiddlewareRunner<Database>(
-  options: CreateSupabaseMcpOptions<Database>,
-): ResultMiddlewareRunner<Database> | undefined {
-  if (!options.resultMiddleware) return undefined;
-  const configured = Array.isArray(options.resultMiddleware)
-    ? [...options.resultMiddleware]
-    : [options.resultMiddleware as SupabaseMcpResultMiddleware<Database>];
-  if (configured.length === 0) return undefined;
-  if (configured.length > MAX_RESULT_MIDDLEWARE) {
-    throw new RangeError(
-      `createSupabaseMcp accepts at most ${MAX_RESULT_MIDDLEWARE} result middleware functions`,
-    );
-  }
-  if (configured.some((middleware) => typeof middleware !== "function")) {
-    throw new TypeError("resultMiddleware must contain only functions");
-  }
-
-  const reportFailure = (error: unknown, traceId: string): void => {
-    try {
-      const reported = options.onError?.({
-        error: normalizeError(error),
-        phase: "results",
-        traceId,
-      });
-      void Promise.resolve(reported).catch(() => {});
-    } catch {
-      // An operator hook must not change the authored tool result.
-    }
-  };
-
-  return {
-    wrapRegistration(method, args, context) {
-      const name = args[0];
-      const callbackIndex = args.length - 1;
-      const callback = args[callbackIndex];
-      if (
-        method !== "registerTool" ||
-        typeof name !== "string" ||
-        typeof callback !== "function"
-      ) {
-        return [...args];
-      }
-
-      const wrapped = async function (
-        this: unknown,
-        ...callbackArgs: unknown[]
-      ): Promise<unknown> {
-        const original = await Reflect.apply(callback, this, callbackArgs);
-        if (
-          !isCallToolResult(original) ||
-          isInputRequiredResult(original) ||
-          original.isError === true
-        ) {
-          return original;
-        }
-
-        let snapshot: CallToolResult;
-        try {
-          snapshot = deepFreeze(structuredClone(original));
-        } catch (error) {
-          reportFailure(error, context.traceId);
-          return original;
-        }
-
-        let composition: ResultContentComposition = {};
-        let composed = original;
-        const input = Object.freeze({
-          context,
-          tool: Object.freeze({ name }),
-          result: snapshot,
-        });
-        for (const middleware of configured) {
-          try {
-            const addition = await middleware(input);
-            if (!addition) continue;
-            const candidate = {
-              prepend: [
-                ...(composition.prepend ?? []),
-                ...(addition.prepend ?? []),
-              ],
-              append: [
-                ...(composition.append ?? []),
-                ...(addition.append ?? []),
-              ],
-            } satisfies ResultContentComposition;
-            composed = composeResultContent(original, candidate);
-            composition = candidate;
-          } catch (error) {
-            reportFailure(error, context.traceId);
-          }
-        }
-        return composed;
-      };
-
-      const wrappedArgs = [...args];
-      wrappedArgs[callbackIndex] = wrapped;
-      return wrappedArgs;
-    },
-  };
-}
-
-interface LifecycleEmitter<Database> {
-  wrapRegistration(
-    method: string,
-    args: readonly unknown[],
-    context: SupabaseMcpContext<Database>,
-  ): unknown[];
-}
-
-function capabilityKind(method: string): SupabaseMcpCapabilityKind | undefined {
-  if (method === "registerTool") return "tool";
-  if (method === "registerPrompt") return "prompt";
-  if (method === "registerResource" || method === "registerResourceTemplate") {
-    return "resource";
-  }
-  return undefined;
-}
-
-function lifecycleOutcome(
-  kind: SupabaseMcpCapabilityKind,
-  result: unknown,
-): SupabaseMcpLifecycleOutcome {
-  if (isInputRequiredResult(result)) return "input-required";
-  if (
-    kind === "tool" &&
-    typeof result === "object" &&
-    result !== null &&
-    "isError" in result &&
-    result.isError === true
-  ) {
-    return "tool-error";
-  }
-  return "success";
-}
-
-const runFactIdPattern = /^run_[A-Za-z0-9_-]{43}$/;
-
-function lifecycleRunFact(run: SupabaseMcpRunFact): SupabaseMcpRunFact {
-  const startedAt = Date.parse(run.startedAt);
-  const expiresAt = Date.parse(run.expiresAt);
-  if (
-    run.schemaVersion !== 1 ||
-    !runFactIdPattern.test(run.id) ||
-    !Number.isFinite(startedAt) ||
-    !Number.isFinite(expiresAt) ||
-    new Date(startedAt).toISOString() !== run.startedAt ||
-    new Date(expiresAt).toISOString() !== run.expiresAt ||
-    expiresAt <= startedAt
-  ) {
-    throw new Error("Run correlation returned an invalid fact");
-  }
-  return Object.freeze({
-    schemaVersion: 1,
-    id: run.id,
-    startedAt: run.startedAt,
-    expiresAt: run.expiresAt,
-  });
-}
-
-function createLifecycleEmitter<Database>(
-  options: CreateSupabaseMcpOptions<Database>,
-  dependencies: RuntimeDependencies<Database>,
-): LifecycleEmitter<Database> | undefined {
-  if (!options.onEvent && !options.runCorrelation) return undefined;
-
-  const now = (): number => dependencies.now?.() ?? Date.now();
-
-  const server = Object.freeze({
-    name: options.server.name,
-    version: options.server.version,
-  });
-
-  const reportSinkFailure = (error: unknown, traceId: string): void => {
-    try {
-      const reported = (
-        options.onError as
-          | ((event: SupabaseMcpErrorEvent) => unknown)
-          | undefined
-      )?.({ error: normalizeError(error), phase: "events", traceId });
-      void Promise.resolve(reported).catch(() => {});
-    } catch {
-      // An operator hook must not create a second lifecycle failure.
-    }
-  };
-
-  const emit = (event: SupabaseMcpLifecycleEvent): void => {
-    if (!options.onEvent) return;
-    try {
-      const pending = options.onEvent(event);
-      void Promise.resolve(pending).catch((error) => {
-        reportSinkFailure(error, event.traceId);
-      });
-    } catch (error) {
-      reportSinkFailure(error, event.traceId);
-    }
-  };
-
-  return {
-    wrapRegistration(method, args, context) {
-      const kind = capabilityKind(method);
-      const name = args[0];
-      const callbackIndex = args.length - 1;
-      const callback = args[callbackIndex];
-      if (!kind || typeof name !== "string" || typeof callback !== "function") {
-        return [...args];
-      }
-
-      const authentication = Object.freeze({ ...context.authentication });
-      const principal = context.principal
-        ? Object.freeze({
-            subject: context.principal.subject,
-            ...(context.principal.clientId
-              ? { clientId: context.principal.clientId }
-              : {}),
-            authentication: Object.freeze({
-              ...context.principal.authentication,
-            }),
-          })
-        : null;
-      const capability = Object.freeze({ kind, name });
-      const common = {
-        traceId: context.traceId,
-        server,
-        capability,
-        principal,
-        authentication,
-      };
-
-      const internals = getRunCorrelationInternals(options.runCorrelation);
-
-      const wrapped = async function (
-        this: unknown,
-        ...callbackArgs: unknown[]
-      ): Promise<unknown> {
-        const serverContext = callbackArgs.at(-1) as ServerContext;
-        const initialRun = options.runCorrelation
-          ? await options.runCorrelation.resolve(context, {
-              serverContext,
-              ...(kind === "tool" && callbackArgs.length > 1
-                ? { toolArguments: callbackArgs[0] }
-                : {}),
-            })
-          : undefined;
-        const meta =
-          options.runCorrelation && serverContext
-            ? internals?.resolutionMeta(serverContext)
-            : undefined;
-        const startedBase = options.runCorrelation
-          ? {
-              ...common,
-              schemaVersion: 2 as const,
-              run: initialRun ? lifecycleRunFact(initialRun) : null,
-              ...(meta?.sessionId ? { sessionId: meta.sessionId } : {}),
-            }
-          : { ...common, schemaVersion: 1 as const };
-        const startedAt = now();
-        emit(
-          Object.freeze({
-            ...startedBase,
-            type: "capability.started" as const,
-            timestamp: new Date(startedAt).toISOString(),
-          }),
-        );
-        const buildFinishedBase = () => {
-          if (!options.runCorrelation) {
-            return { ...common, schemaVersion: 1 as const };
-          }
-          const finalRun = initialRun ?? internals?.mintedFor(context) ?? null;
-          return {
-            ...common,
-            schemaVersion: 2 as const,
-            run: finalRun ? lifecycleRunFact(finalRun) : null,
-            ...(meta?.runRejected ? { runRejected: meta.runRejected } : {}),
-            ...(meta?.sessionId ? { sessionId: meta.sessionId } : {}),
-          };
-        };
-        try {
-          const result = await Reflect.apply(callback, this, callbackArgs);
-          const finishedAt = now();
-          emit(
-            Object.freeze({
-              ...buildFinishedBase(),
-              type: "capability.finished" as const,
-              timestamp: new Date(finishedAt).toISOString(),
-              durationMs: Math.max(0, finishedAt - startedAt),
-              outcome: lifecycleOutcome(kind, result),
-            }),
-          );
-          return result;
-        } catch (error) {
-          const finishedAt = now();
-          emit(
-            Object.freeze({
-              ...buildFinishedBase(),
-              type: "capability.finished" as const,
-              timestamp: new Date(finishedAt).toISOString(),
-              durationMs: Math.max(0, finishedAt - startedAt),
-              outcome: "failure" as const,
-            }),
-          );
-          throw error;
-        }
-      };
-
-      const wrappedArgs = [...args];
-      wrappedArgs[callbackIndex] = wrapped;
-      return wrappedArgs;
-    },
-  };
-}
-
-async function sha256(value: string): Promise<string> {
-  return sha256Hex(value);
-}
-
-interface SurfaceListRequest {
-  protocolVersion?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
-  try {
-    void reader.cancel().catch(() => {});
-  } catch {
-    // The observed clone is disposable; the actual protocol body is untouched.
-  }
-}
-
-async function boundedBodyText(
-  body: Request | Response,
-  maxBytes: number,
-): Promise<string | null> {
-  const contentLength = body.headers.get("content-length");
-  if (contentLength !== null) {
-    const declared = Number(contentLength);
-    if (Number.isFinite(declared) && declared > maxBytes) return null;
-  }
-  let clone: Request | Response;
-  try {
-    clone = body.clone();
-  } catch {
-    return null;
-  }
-  if (!clone.body) return "";
-  const reader = clone.body.getReader();
-  const decoder = new TextDecoder();
-  let total = 0;
-  let text = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        // A cloned response is a tee. Waiting for cancellation can wait for the
-        // untouched response branch, so cancellation must remain non-blocking.
-        cancelReader(reader);
-        return null;
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-    return text + decoder.decode();
-  } catch {
-    cancelReader(reader);
-    return null;
-  }
-}
-
-function protocolVersionFromRequest(
-  request: Request,
-  payload: Record<string, unknown>,
-): string | undefined {
-  const header = request.headers.get("mcp-protocol-version")?.trim();
-  const params = isRecord(payload.params) ? payload.params : undefined;
-  const meta = params && isRecord(params._meta) ? params._meta : undefined;
-  const metadataVersion = meta?.["io.modelcontextprotocol/protocolVersion"];
-  const candidate =
-    header ||
-    (typeof metadataVersion === "string" ? metadataVersion.trim() : "");
-  return /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : undefined;
-}
-
-async function inspectInitializeRequest(request: Request): Promise<boolean> {
-  if (request.method !== "POST") return false;
-  const text = await boundedBodyText(request, MAX_SURFACE_REQUEST_BYTES);
-  if (text === null) return false;
-  try {
-    const payload = JSON.parse(text) as unknown;
-    return isRecord(payload) && payload.method === "initialize";
-  } catch {
-    return false;
-  }
-}
-
-async function inspectSurfaceListRequest(
-  request: Request,
-): Promise<SurfaceListRequest | null> {
-  if (request.method !== "POST") return null;
-  const text = await boundedBodyText(request, MAX_SURFACE_REQUEST_BYTES);
-  if (text === null) return null;
-  let payload: unknown;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  if (!isRecord(payload) || payload.method !== "tools/list") return null;
-  const params = isRecord(payload.params) ? payload.params : undefined;
-  if (params && typeof params.cursor === "string") return null;
-  const protocolVersion = protocolVersionFromRequest(request, payload);
-  return protocolVersion ? { protocolVersion } : {};
-}
-
-function jsonRpcPayloadFromResponse(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    for (const line of text.split(/\r?\n/)) {
-      if (!line.startsWith("data:")) continue;
-      const data = line.slice("data:".length).trim();
-      if (!data || data === "[DONE]") continue;
-      try {
-        const payload = JSON.parse(data) as unknown;
-        if (isRecord(payload) && isRecord(payload.result)) return payload;
-      } catch {
-        // Ignore unrelated or malformed SSE events.
-      }
-    }
-    return null;
-  }
-}
-
-async function createSurfaceProof(
-  response: Response,
-  request: SurfaceListRequest,
-  server: CreateSupabaseMcpOptions["server"],
-  authentication: SupabaseMcpAuthentication,
-): Promise<SupabaseMcpSurfaceProof | null> {
-  if (!response.ok) return null;
-  if (
-    !boundedUtf8(server.name, SURFACE_CANONICAL_LIMITS.maxServerNameBytes) ||
-    !server.name ||
-    !boundedUtf8(
-      server.version,
-      SURFACE_CANONICAL_LIMITS.maxServerVersionBytes,
-    ) ||
-    !server.version ||
-    !boundedUtf8(
-      authentication.strategy,
-      SURFACE_CANONICAL_LIMITS.maxNameBytes,
-    ) ||
-    !authentication.strategy
-  ) {
-    return null;
-  }
-  const text = await boundedBodyText(response, MAX_SURFACE_RESPONSE_BYTES);
-  if (text === null) return null;
-  const payload = jsonRpcPayloadFromResponse(text);
-  if (!isRecord(payload) || payload.jsonrpc !== "2.0" || "error" in payload) {
-    return null;
-  }
-  const result = isRecord(payload.result) ? payload.result : undefined;
-  if (!result || !Array.isArray(result.tools) || result.nextCursor != null) {
-    return null;
-  }
-  const computed = await computeCanonicalSurfaceDigest(result.tools);
-  if (!computed) return null;
-  const proof: SupabaseMcpSurfaceProof = {
-    schemaVersion: 1,
-    server: Object.freeze({ name: server.name, version: server.version }),
-    runtime: Object.freeze({
-      name: "chumbo" as const,
-      version: PACKAGE_VERSION,
-    }),
-    authentication: Object.freeze({ ...authentication }),
-    ...(request.protocolVersion
-      ? { protocolVersion: request.protocolVersion }
-      : {}),
-    tools: computed.tools,
-    contentDigest: computed.contentDigest,
-  };
-  if (
-    new TextEncoder().encode(JSON.stringify(proof)).byteLength >
-    SURFACE_CANONICAL_LIMITS.maxProofBytes
-  ) {
-    return null;
-  }
-  return Object.freeze(proof);
-}
-
 function callerAddress(request: Request): string {
   return (
     request.headers.get("cf-connecting-ip") ??
@@ -841,19 +233,6 @@ function jsonResponse(value: unknown, status = 200, cache = false): Response {
   });
 }
 
-function responseWithHeaders(
-  response: Response,
-  values: Readonly<Record<string, string>>,
-): Response {
-  const headers = new Headers(response.headers);
-  for (const [name, value] of Object.entries(values)) headers.set(name, value);
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
 function metadataPreflight(request: Request): Response | undefined {
   if (request.method !== "OPTIONS") return undefined;
   return new Response(null, {
@@ -864,10 +243,6 @@ function metadataPreflight(request: Request): Response | undefined {
       "access-control-allow-headers": "authorization, content-type",
     },
   });
-}
-
-function normalizeError(error: unknown): Error {
-  return error instanceof Error ? error : new Error("Unknown runtime error");
 }
 
 function runtimeVariable(name: string): string | undefined {
@@ -1024,8 +399,19 @@ export function createSupabaseMcpInternal<Database = unknown>(
   const stateFactory = options.state
     ? createSupabaseMcpStateFactory(options.state)
     : undefined;
-  const lifecycle = createLifecycleEmitter(options, dependencies);
+  const runSlotByContext = new WeakMap<object, RunSlot>();
+  const lifecycle = createLifecycleEmitter(options, dependencies, (context) =>
+    runSlotByContext.get(context),
+  );
   const resultMiddleware = createResultMiddlewareRunner(options);
+  const subscriptions = options.protocol?.subscriptions ?? "disabled";
+  const disableSubscriptions = subscriptions === "disabled";
+  const sessionIdMode = options.protocol?.sessionId ?? "stateless";
+  const customBus =
+    subscriptions !== "disabled" && subscriptions !== "in-memory"
+      ? subscriptions
+      : undefined;
+
   const oauthStrategy = strategies.find(
     (strategy) => strategy.mode === "oauth",
   );
@@ -1059,9 +445,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
     auth.mode === "public" && auth.rateLimit
       ? rateLimitConfig(auth.rateLimit)
       : undefined;
-  const runtimeHeaders = {
-    "access-control-expose-headers":
-      "x-chumbo-version, x-chumbo-auth-mode, x-chumbo-auth-strategy, x-chumbo-resource-url, x-supa-mcp-version, x-supa-mcp-auth-mode, x-supa-mcp-auth-strategy, x-supa-mcp-resource-url",
+  const runtimeHeaders: Record<string, string> = {
     "x-chumbo-version": PACKAGE_VERSION,
     "x-chumbo-auth-mode": auth.mode,
     "x-chumbo-resource-url": resourceUrl.href,
@@ -1086,12 +470,15 @@ export function createSupabaseMcpInternal<Database = unknown>(
   async function buildContext(
     value: PartialContextInput<Database>,
     initialScopes: readonly string[],
+    runSlot: RunSlot,
   ): Promise<SupabaseMcpContext<Database>> {
-    const initial = contextWithScopes(value, initialScopes);
+    const initial = contextWithScopes(value, initialScopes, runSlot);
     const resolved = options.access?.resolveScopes
       ? await options.access.resolveScopes(initial)
       : initialScopes;
-    return contextWithScopes(value, resolved);
+    const finalized = contextWithScopes(value, resolved, runSlot);
+    runSlotByContext.set(finalized, runSlot);
+    return finalized;
   }
 
   let oauthMetadataPromise: Promise<OAuthMetadata> | undefined;
@@ -1146,19 +533,11 @@ export function createSupabaseMcpInternal<Database = unknown>(
 
       let context: SupabaseMcpContext<Database>;
       if (auth.mode === "public") {
-        context = await buildContext(
-          {
-            request,
-            supabase: dependencies.createClient(null, options.supabase?.env),
-            user: null,
-            jwtClaims: null,
-            principal: null,
-            authentication: { mode: "public", strategy: "public" },
-            traceId: dependencies.randomUUID(),
-          },
-          auth.scopes ?? [],
-        );
-        lastPublicContext.set(request, context);
+        const stored = lastPublicContext.get(request);
+        if (!stored) {
+          throw new Error("Public request context is unavailable");
+        }
+        context = stored;
       } else {
         const extra = mcpContext.authInfo?.extra;
         const stored = extra?.[CONTEXT_KEY] as
@@ -1178,7 +557,9 @@ export function createSupabaseMcpInternal<Database = unknown>(
         instructions ? { instructions } : undefined,
       );
       await options.register(
-        scopedServer(server, context, lifecycle, resultMiddleware),
+        scopedServer(server, context, lifecycle, resultMiddleware, {
+          disableSubscriptions,
+        }),
         context,
       );
       return server;
@@ -1186,6 +567,11 @@ export function createSupabaseMcpInternal<Database = unknown>(
     {
       legacy: options.protocol?.legacy ?? "stateless",
       responseMode: options.protocol?.responseMode ?? "auto",
+      ...(disableSubscriptions
+        ? { maxSubscriptions: 0, keepAliveMs: 0 }
+        : customBus
+          ? { bus: customBus }
+          : {}),
       onerror(error) {
         options.onError?.({ error, phase: "mcp" });
       },
@@ -1202,57 +588,79 @@ export function createSupabaseMcpInternal<Database = unknown>(
 
   async function fetchMcp(
     request: Request,
-    authentication: SupabaseMcpAuthentication,
+    envelope: InboundMcpEnvelope,
+    context: SupabaseMcpContext<Database>,
     authInfo?: AuthInfo,
   ): Promise<Response> {
-    const surfaceRequest = options.onSurface
-      ? await inspectSurfaceListRequest(request)
-      : null;
-    const isInitialize = runCorrelationInternals?.sessionHeaderName
-      ? await inspectInitializeRequest(request)
-      : false;
+    const refused = applyMcpTransportArmor(request, envelope, {
+      subscriptions,
+      sessionId: sessionIdMode,
+    });
+    if (refused) return refused;
+
+    const accessCheck = await checkAccessGates(
+      context,
+      options.access,
+      oauthStrategy ? resourceMetadataUrl.href : undefined,
+    );
+    if (!accessCheck.allowed && accessCheck.response) {
+      return accessCheck.response;
+    }
+
     let response = authInfo
-      ? await mcpHandler.fetch(request, { authInfo })
-      : await mcpHandler.fetch(request);
+      ? await mcpHandler.fetch(request, {
+          authInfo,
+          ...(envelope.parsedBody !== undefined
+            ? { parsedBody: envelope.parsedBody }
+            : {}),
+        })
+      : await mcpHandler.fetch(
+          request,
+          envelope.parsedBody !== undefined
+            ? { parsedBody: envelope.parsedBody }
+            : undefined,
+        );
 
     if (
-      isInitialize &&
+      envelope.method === "initialize" &&
       response.ok &&
       runCorrelationInternals?.sessionHeaderName &&
       !response.headers.get(runCorrelationInternals.sessionHeaderName)
     ) {
-      const context =
-        (authInfo?.extra?.[CONTEXT_KEY] as
-          | SupabaseMcpContext<Database>
-          | undefined) ?? lastPublicContext.get(request);
-      if (context) {
-        try {
-          const handle =
-            await runCorrelationInternals.issueSessionHeader(context);
-          const headerName = runCorrelationInternals.sessionHeaderName;
-          const existingExpose = response.headers.get(
-            "access-control-expose-headers",
-          );
-          const exposeList = existingExpose
-            ? `${existingExpose}, ${headerName}`
-            : headerName;
-          response = responseWithHeaders(response, {
-            [headerName]: handle,
-            "access-control-expose-headers": exposeList,
-          });
-        } catch (error) {
-          options.onError?.({ error: normalizeError(error), phase: "runtime" });
-        }
+      try {
+        const handle =
+          await runCorrelationInternals.issueSessionHeader(context);
+        const headerName = runCorrelationInternals.sessionHeaderName;
+        response = responseWithMergedHeaders(
+          response,
+          { [headerName]: handle },
+          [headerName],
+        );
+      } catch (error) {
+        options.onError?.({ error: normalizeError(error), phase: "runtime" });
       }
     }
 
-    if (!surfaceRequest || !options.onSurface) return response;
+    if (
+      sessionIdMode === "stateless" &&
+      envelope.era === "legacy" &&
+      envelope.method === "initialize" &&
+      (await isSuccessfulJsonRpcResponse(response))
+    ) {
+      response = issueMcpSessionId(
+        response,
+        context.client.supports,
+        dependencies.randomUUID,
+      );
+    }
+
+    if (!envelope.surfaceList || !options.onSurface) return response;
     try {
       const proof = await createSurfaceProof(
         response,
-        surfaceRequest,
+        envelope.surfaceList,
         options.server,
-        authentication,
+        context.authentication,
       );
       if (!proof) return response;
       try {
@@ -1306,7 +714,8 @@ export function createSupabaseMcpInternal<Database = unknown>(
                 if (selected) {
                   const verified =
                     typeof selected.key === "string"
-                      ? (await sha256(token)) === (await sha256(selected.key))
+                      ? (await sha256Hex(token)) ===
+                        (await sha256Hex(selected.key))
                         ? {
                             subject: selected.subject ?? "api-key",
                             scopes: selected.scopes,
@@ -1525,15 +934,27 @@ export function createSupabaseMcpInternal<Database = unknown>(
     }
   }
 
-  async function fetchRequest(request: Request): Promise<Response> {
+  async function fetchRequest(request: Request): Promise<{
+    readonly response: Response;
+    readonly cors?: EvaluatedCorsOrigin;
+  }> {
     const metadata = await serveMetadata(request);
-    if (metadata) return metadata;
+    if (metadata) return { response: metadata };
+
+    let evaluatedCors: EvaluatedCorsOrigin | undefined;
+    if (options.cors) {
+      const preflight = applyMcpCorsPreflight(request, options.cors);
+      evaluatedCors = preflight.evaluated;
+      if (preflight.shortCircuit) {
+        return { response: preflight.shortCircuit };
+      }
+    }
 
     let rateHeaders: Record<string, string> | undefined;
     if (publicRateLimit && request.method === "POST") {
       try {
         const admin = dependencies.createAdminClient(options.supabase?.env);
-        const key = await sha256(
+        const key = await sha256Hex(
           `${resourceUrl.href}|${callerAddress(request)}`,
         );
         const { data, error } = await admin.rpc(
@@ -1557,20 +978,23 @@ export function createSupabaseMcpInternal<Database = unknown>(
         );
         const resetAt = String(Math.ceil(Date.parse(row.reset_at) / 1000));
         if (!row.allowed) {
-          return Response.json(
-            { error: "rate_limit_exceeded" },
-            {
-              status: 429,
-              headers: {
-                "access-control-allow-origin": "*",
-                "cache-control": "no-store",
-                "retry-after": String(resetSeconds),
-                "x-ratelimit-limit": String(publicRateLimit.requests),
-                "x-ratelimit-remaining": "0",
-                "x-ratelimit-reset": resetAt,
+          return {
+            response: Response.json(
+              { error: "rate_limit_exceeded" },
+              {
+                status: 429,
+                headers: {
+                  "access-control-allow-origin": "*",
+                  "cache-control": "no-store",
+                  "retry-after": String(resetSeconds),
+                  "x-ratelimit-limit": String(publicRateLimit.requests),
+                  "x-ratelimit-remaining": "0",
+                  "x-ratelimit-reset": resetAt,
+                },
               },
-            },
-          );
+            ),
+            cors: evaluatedCors,
+          };
         }
         rateHeaders = {
           "x-ratelimit-limit": String(publicRateLimit.requests),
@@ -1584,21 +1008,64 @@ export function createSupabaseMcpInternal<Database = unknown>(
           error: normalizeError(error),
           phase: "rate-limit",
         });
-        return jsonResponse({ error: "rate_limit_unavailable" }, 503);
+        return {
+          response: jsonResponse({ error: "rate_limit_unavailable" }, 503),
+          cors: evaluatedCors,
+        };
       }
     }
 
     if (!bearerGate) {
-      const response = await fetchMcp(request, {
-        mode: "public",
-        strategy: "public",
+      const envelope = await inspectInboundMcpEnvelope(request);
+      const sessionId = mcpSessionId(request);
+      const client = resolveMcpClientContext(request, envelope, {
+        sessionId,
+        clientPolicy: options.clientPolicy,
       });
-      return rateHeaders
-        ? responseWithHeaders(response, rateHeaders)
-        : response;
+      const traceId = dependencies.randomUUID();
+      const runSlot = createRunSlot(Boolean(options.runCorrelation));
+      let context: SupabaseMcpContext<Database>;
+      try {
+        context = await buildContext(
+          {
+            request,
+            supabase: dependencies.createClient(null, options.supabase?.env),
+            user: null,
+            jwtClaims: null,
+            principal: null,
+            authentication: { mode: "public", strategy: "public" },
+            traceId,
+            client,
+            sessionId,
+          },
+          auth.mode === "public" ? (auth.scopes ?? []) : [],
+          runSlot,
+        );
+      } catch (error) {
+        options.onError?.({
+          error: normalizeError(error),
+          phase: "runtime",
+          traceId,
+        });
+        return {
+          response: jsonResponse({ error: "server_error", traceId }, 500),
+          cors: evaluatedCors,
+        };
+      }
+      lastPublicContext.set(request, context);
+      const response = await fetchMcp(request, envelope, context);
+      return {
+        response: rateHeaders
+          ? responseWithMergedHeaders(response, rateHeaders)
+          : response,
+        cors: evaluatedCors,
+      };
     }
+
     const authInfo = await bearerGate(request);
-    if (authInfo instanceof Response) return authInfo;
+    if (authInfo instanceof Response) {
+      return { response: authInfo, cors: evaluatedCors };
+    }
 
     const identity = authInfo.extra?.[IDENTITY_KEY] as
       | RequestIdentity<Database>
@@ -1608,23 +1075,45 @@ export function createSupabaseMcpInternal<Database = unknown>(
         error: new Error("Verified identity was not attached"),
         phase: "runtime",
       });
-      return jsonResponse({ error: "server_error" }, 500);
+      return {
+        response: jsonResponse({ error: "server_error" }, 500),
+        cors: evaluatedCors,
+      };
     }
+    const envelope = await inspectInboundMcpEnvelope(request);
+    const sessionId = mcpSessionId(request);
+    const client = resolveMcpClientContext(request, envelope, {
+      sessionId,
+      clientPolicy: options.clientPolicy,
+    });
     const traceId = dependencies.randomUUID();
+    const runSlot = createRunSlot(Boolean(options.runCorrelation));
     let context: SupabaseMcpContext<Database>;
     try {
       let state: SupabaseMcpContext<Database>["state"];
+      let sessionState: SupabaseMcpContext<Database>["sessionState"];
       if (stateFactory) {
         try {
+          const adminClient = dependencies.createAdminClient(
+            options.state?.supabase?.env ?? options.supabase?.env,
+          );
           state = await stateFactory.create(
             {
               credential: identity.token,
               authentication: identity.authentication,
             },
-            dependencies.createAdminClient(
-              options.state?.supabase?.env ?? options.supabase?.env,
-            ),
+            adminClient,
           );
+          if (sessionId) {
+            sessionState = await stateFactory.create(
+              {
+                credential: identity.token,
+                authentication: identity.authentication,
+                sessionId,
+              },
+              adminClient,
+            );
+          }
         } catch {
           throw new SupabaseMcpStateUnavailableError();
         }
@@ -1644,9 +1133,13 @@ export function createSupabaseMcpInternal<Database = unknown>(
           },
           authentication: identity.authentication,
           traceId,
+          client,
+          sessionId,
           ...(state ? { state } : {}),
+          ...(sessionState ? { sessionState } : {}),
         },
         identity.scopes,
+        runSlot,
       );
     } catch (error) {
       options.onError?.({
@@ -1654,15 +1147,30 @@ export function createSupabaseMcpInternal<Database = unknown>(
         phase: "runtime",
         traceId,
       });
-      return jsonResponse({ error: "server_error", traceId }, 500);
+      return {
+        response: jsonResponse({ error: "server_error", traceId }, 500),
+        cors: evaluatedCors,
+      };
     }
     authInfo.extra = { ...authInfo.extra, [CONTEXT_KEY]: context };
-    return fetchMcp(request, context.authentication, authInfo);
+    return {
+      response: await fetchMcp(request, envelope, context, authInfo),
+      cors: evaluatedCors,
+    };
   }
 
   return {
     async fetch(request) {
-      return responseWithHeaders(await fetchRequest(request), runtimeHeaders);
+      const { response, cors } = await fetchRequest(request);
+      let decorated = responseWithMergedHeaders(
+        response,
+        runtimeHeaders,
+        options.cors?.exposeHeaders,
+      );
+      if (cors && options.cors) {
+        decorated = decorateMcpCorsResponse(decorated, cors, options.cors);
+      }
+      return decorated;
     },
     close: mcpHandler.close,
     notify: mcpHandler.notify,
