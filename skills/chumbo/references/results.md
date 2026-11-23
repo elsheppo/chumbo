@@ -4,13 +4,16 @@ Choose the smallest result contract that serves a real consumer. Returning the
 same value as both text and structured data wastes model context and usually
 makes neither representation better.
 
-| Helper                            | Use it for                                                | Wire contract                                                                  |
-| --------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `textResult(text)`                | A model or person needs a purpose-written answer          | Text content only                                                              |
-| `structuredResult(value)`         | A typed client, UI, or later composition needs exact data | `structuredContent` matching the tool's `outputSchema`                         |
-| `renderResult(value, render)`     | Both model-facing and typed consumers genuinely matter    | Purpose-written text plus exact structured data and `outputSchema`             |
-| `resourceResult(text, link)`      | Content is complete, large, or independently addressable  | A short reading card and `resource_link`; the body comes from `resources/read` |
-| `errorResult(message, nextStep?)` | The operation failed                                      | Error text and a valid recovery step when one exists                           |
+| Helper                             | Use it for                                                                      | Wire contract                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `textResult(text)`                 | A model or person needs a purpose-written answer                                | Text content only                                                                      |
+| `structuredResult(value)`          | A typed client, UI, or later composition needs exact data                       | `structuredContent` matching the tool's `outputSchema`                                 |
+| `renderResult(value, render)`      | Both model-facing and typed consumers genuinely matter                          | Purpose-written text plus exact structured data and `outputSchema`                     |
+| `resourceResult(text, link)`       | Content is complete, large, or independently addressable                        | A short reading card and `resource_link`; the body comes from `resources/read`         |
+| `guidedResult(value, guidance)`    | Structured data needs next-step or warning guidance in both text and JSON lanes | Dual-lane `next` / `warnings` in leading `structuredContent` keys and `content[].text` |
+| `renderGuidedResult(val, g, fn)`   | Both custom prose and structured guidance are needed                            | Purpose-written text plus dual-lane `next` / `warnings` respecting collection budgets  |
+| `fromSupabaseError(err, handlers)` | Map PostgREST/Postgres errors to domain-explicit replies                        | Safe `errorResult` without leaking SQL internals; dev-only stderr hint on `42501`      |
+| `errorResult(message, nextStep?)`  | The operation failed                                                            | Error text and a valid recovery step when one exists                                   |
 
 ## Text for the model
 

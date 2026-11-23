@@ -205,11 +205,12 @@ authenticated start for a prototype or trusted machine caller.
 
 Ignore these paths unless the application has the corresponding need:
 
-- multiple auth strategies or identity-specific discovery;
-- credential-partitioned request-to-request state;
-- lifecycle events, advertised-surface proofs, or application-run correlation;
-- MCP Apps, clean public URLs, or many MCPs from one function;
-- Chumbo Cloud provisioning or the separate Durable runtime.
+- composing onto an existing official `@supabase/server` MCP function with `chumbo/middleware` (`withChumbo`, `chumboMcpHandler`, `withMcpCors`, `withMcpTransportArmor`);
+- multiple auth strategies, declarative capability profiles (`defineProfiles`, `withProfile`, `projectInputFields`, `scopedGuidance`), or canonical vocabulary resolution (`resolveCanonicalVocabulary`);
+- credential- or session-partitioned coordination state (`ctx.state`, `ctx.sessionState`, `observeResource`/`requireObserved`, `mintPreview`/`consumePreview`, `registerUseWorkspace`);
+- lifecycle events, self-hosted Insights (`chumbo/insights`), advertised-surface lockfiles (`chumbo surface snapshot|diff`), or application-run correlation (`ctx.run`, `withRunInput`);
+- turnkey MCP Apps (`defineMcpApp`, `registerMcpApp`, `callAppTool`, `chumbo app add|build`, `chumbo dev --workbench --app`), project-branded CLIs (`chumbo cli init|render|try`), or end-user connection flows (`chumbo/connect`);
+- clean public URLs, many MCPs from one function, Chumbo Cloud provisioning, or the separate Durable runtime.
 
 Read [advanced patterns](references/advanced-patterns.md) to select one of these
 compositions without adding its concepts to the ordinary starter.

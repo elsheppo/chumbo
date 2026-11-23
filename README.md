@@ -658,6 +658,30 @@ the complete executable read-before-edit pattern, safe cross-database ordering,
 credential-rotation behavior, and split-project runbook. This is coordination
 storage, not a resident actor or Durable Object runtime.
 
+### Package exports and CLI workflows
+
+Chumbo keeps Edge Function runtimes lightweight by separating server, client, testing, and CLI surfaces into explicit subpaths:
+
+- `chumbo` — server runtime (`createSupabaseMcp`), result/guidance contracts (`guidedResult`, `fromSupabaseError`, `collectionResult`, `defineCursor`, `registerCollection`), capability profiles (`defineProfiles`, `withProfile`, `projectInputFields`, `scopedGuidance`), stateful coordination (`observeResource`, `requireObserved`, `mintPreview`, `consumePreview`, `registerUseWorkspace`), and MCP Apps (`defineMcpApp`, `registerMcpApp`).
+- `chumbo/middleware` — `@supabase/middleware` pipeline entries (`withChumbo`, `chumboMcpHandler`, `withMcpCors`, `withMcpTransportArmor`) for composing Chumbo on top of an official `@supabase/server` MCP function.
+- `chumbo/testing` — in-process multi-persona test client (`createMcpTestClient`, `createTestAuthHarness`, `lintUnmountedToolReferences`, `assertRlsIsolation`, `estimateCatalogTokens`, `diffSurfaceSnapshots`).
+- `chumbo/app` — browser MCP App workspace helpers (`createAppWorkspace`, `readAppPresentation`, `applyAppPresentation`, `callAppTool`, `createAppMutation`).
+- `chumbo/connect` — zero-dependency, auth-mode-aware connection descriptors (`describeAgentConnections`, `renderConnectMarkdown`) for Claude, ChatGPT, Claude Code, Cursor, and project CLIs.
+- `chumbo/cli-host` & `chumbo/cli-package` — project-branded CLI runtime (OAuth PKCE keychain, headless `<BINARY>_TOKEN` / `--token-stdin`, HMAC-partitioned discovery cache, `<binary> skill`, `<binary> completions`) and manifest-backed safe-update package planning.
+- `chumbo/insights` — payload-free self-hosted telemetry sinks and run timeline helpers.
+- `chumbo/node` — standalone Node HTTP server adapter (`toNodeHandler`, `serve`).
+
+Local developer CLI commands support `--plan`, `--yes`, and `--json` for non-interactive automation:
+
+```sh
+npx chumbo try <tool> --as user-a,user-b     # Compare local multi-persona RLS results
+npx chumbo surface snapshot --yes            # Lock mcp-surface.lock.json for CI diffing
+npx chumbo surface diff                      # Detect breaking, authority-widening, or token regressions
+npx chumbo app add <name> && npx chumbo app build
+npx chumbo cli init --bin <name> --plan      # Preview a project-owned branded CLI package
+npx chumbo test scaffold --from-run <file>   # Generate a contract test from a run timeline
+```
+
 ### Advanced patterns
 
 The ordinary path remains one Edge Function with builder-authored capabilities.

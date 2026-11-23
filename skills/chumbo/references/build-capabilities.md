@@ -64,3 +64,11 @@ Before implementation, answer:
 3. Can any input improperly select caller identity or authority?
 4. Does the result contain only what the next reasoning step needs?
 5. Is a tool, Resource, prompt, or instruction the clearest primitive?
+
+## Shared capability metadata, profiles, and field projection
+
+- Use `defineCapability` and `registerCapability` to declare `risk` (`"read" | "write" | "destructive"`), `idempotent`, `scopes`, and optional `cli` command projections in one place; Chumbo checks that MCP annotations match `risk` and `idempotent` and rejects reserved root CLI verbs (`login`, `logout`, `status`, `commands`, `skill`, `completions`, `help`).
+- Use `defineCursor` and `registerCollection` for composite keyset pagination bound to active filters so cursor reuse across changed filters fails closed.
+- Use `defineProfiles` + `withProfile` + `scopedGuidance` + `scopedInputSchema` when different caller audiences see different subsets or aliases of tools, preventing unmounted tool names from leaking into descriptions.
+- Use `projectInputFields` / `registerProjectedCapability` when a single mutation tool exposes optional fields only to callers with the matching scopes or grants, re-checking authorization at call time.
+- Use `resolveCanonicalVocabulary` to normalize user-supplied tags or taxonomy names against a paginated lookup callback, failing closed if pagination truncates.

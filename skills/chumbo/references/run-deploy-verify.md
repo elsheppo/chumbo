@@ -53,6 +53,14 @@ locally. For public mode, first apply the generated rate-limit migration with
 5. Invoke one explicitly safe application tool through the updated test or a
    configured MCP client. Check the application result, not just HTTP 200.
 
+### Multi-persona testing, surface lockfiles, and `chumbo/testing`
+
+- **In-process contract tests (`chumbo/testing`):** Use `createMcpTestClient(app)` with `createTestAuthHarness()`, `assertRlsIsolation(...)`, and `lintUnmountedToolReferences(...)` to verify multi-user RLS isolation and profile description hygiene without external network calls.
+- **Local two-persona runner (`npx chumbo try`):** Run `npx chumbo try <tool> --as user-a,user-b` against local Supabase to compare side-by-side results, byte/token budgets, and RLS isolation (non-read tools fail closed without `--yes`).
+- **Surface lockfiles (`npx chumbo surface`):** Lock the advertised tool catalog with `npx chumbo surface snapshot --yes` (`mcp-surface.lock.json`) and gate CI with `npx chumbo surface diff` to catch breaking schema changes, authority widening, or catalog token regressions.
+- **Journey test scaffolding (`npx chumbo test scaffold`):** Generate a runnable Deno or Vitest contract test skeleton from a payload-free run friction receipt (`--from-run <file>`).
+- **Local workbench & MCP App simulator:** Run `npx chumbo dev --workbench` (and `--app <name>` for `ui://` apps) to inspect cold-start token budgets, test personas, and simulate inline/fullscreen CSP-enforced MCP App hosts locally.
+
 ## Host-target loop
 
 A `--target next` or `--target node` scaffold runs inside the application
