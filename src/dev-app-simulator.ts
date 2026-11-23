@@ -6,12 +6,6 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
-import {
-  localhostAllowedHostnames,
-  localhostAllowedOrigins,
-  validateHostHeader,
-  validateOriginHeader,
-} from "@modelcontextprotocol/server";
 import type { McpAppCsp } from "./mcp-apps.js";
 import { PACKAGE_VERSION } from "./version.js";
 
@@ -270,6 +264,12 @@ export async function startDevAppSimulator(
     string,
     { readonly html: string; readonly cspHeader: string; readonly uri?: string }
   >();
+  const {
+    localhostAllowedHostnames,
+    localhostAllowedOrigins,
+    validateHostHeader,
+    validateOriginHeader,
+  } = await import("@modelcontextprotocol/server");
   const allowedHosts = localhostAllowedHostnames();
   const allowedOrigins = localhostAllowedOrigins();
 

@@ -1,10 +1,12 @@
+import type {
+  ChumboCapabilityManifestV1,
+  ChumboCapabilityRisk,
+  ChumboCliPresentation,
+} from "./capabilities.js";
 import {
   CHUMBO_CAPABILITY_META_KEY,
-  type ChumboCapabilityManifestV1,
-  type ChumboCapabilityRisk,
-  type ChumboCliPresentation,
-} from "./capabilities.js";
-import { RESERVED_CLI_ROOT_COMMANDS } from "./types.js";
+  RESERVED_CLI_ROOT_COMMANDS,
+} from "./types.js";
 
 export interface CliToolDescriptor {
   readonly name: string;

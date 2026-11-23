@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { isLoopbackHost } from "./doctor-http.js";
 
 const execFileAsync = promisify(execFile);
@@ -192,7 +192,11 @@ export async function resolveLocalSupabaseStack(
   });
 }
 
-function defaultCreateClient(url: string, key: string): SupabaseClient {
+async function defaultCreateClient(
+  url: string,
+  key: string,
+): Promise<SupabaseClient> {
+  const { createClient } = await import("@supabase/supabase-js");
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -413,7 +417,7 @@ export async function listLocalSeedUsers(
     deps,
     SEED_LIST_TIMEOUT_MS,
   );
-  const admin = (deps?.createAdminClient ?? defaultCreateClient)(
+  const admin = await (deps?.createAdminClient ?? defaultCreateClient)(
     stack.apiUrl,
     stack.secretKey,
   );
@@ -486,7 +490,7 @@ export async function resolveLocalPersonas(
         options.projectRoot,
         options.deps,
       );
-      admin = (options.deps?.createAdminClient ?? defaultCreateClient)(
+      admin = await (options.deps?.createAdminClient ?? defaultCreateClient)(
         stack.apiUrl,
         stack.secretKey,
       );
@@ -641,10 +645,9 @@ export async function resolveLocalPersonas(
             `Could not generate local sign-in link for '${matched.email}': ${link.error?.message ?? "missing hashed_token"}`,
           );
         }
-        anonClient = (options.deps?.createAnonClient ?? defaultCreateClient)(
-          localStack.apiUrl,
-          localStack.publishableKey,
-        );
+        anonClient = await (
+          options.deps?.createAnonClient ?? defaultCreateClient
+        )(localStack.apiUrl, localStack.publishableKey);
         const verified = await anonClient.auth.verifyOtp({
           token_hash: hashedToken,
           type: "magiclink",

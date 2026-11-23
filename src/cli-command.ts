@@ -11,13 +11,15 @@ import {
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
-import {
-  createBrandedCli,
-  defaultTokenEnvVar,
-  type BrandedCliAuthMode,
-  type BrandedCliConfig,
-  type BrandedCliDependencies,
+import type {
+  BrandedCliAuthMode,
+  BrandedCliConfig,
+  BrandedCliDependencies,
 } from "./cli-host.js";
+
+function defaultTokenEnvVar(binaryName: string): string {
+  return `${binaryName.replaceAll("-", "_").toUpperCase()}_TOKEN`;
+}
 import {
   BRANDED_CLI_MANIFEST_PATH,
   packBrandedCliSourceTarball,
@@ -859,6 +861,7 @@ export async function runCliCommand(
       return 0;
     }
 
+    const { createBrandedCli } = await import("./cli-host.js");
     const brandedCli = createBrandedCli(config, {
       cwd,
       io: {

@@ -19,6 +19,8 @@ export type DeepReadonly<Value> = Value extends (...args: never[]) => unknown
       ? { readonly [Key in keyof Value]: DeepReadonly<Value[Key]> }
       : Value;
 
+export const CHUMBO_CAPABILITY_META_KEY = "dev.chumbo/capability" as const;
+
 export const RESERVED_CLI_ROOT_COMMANDS = Object.freeze([
   "login",
   "logout",

@@ -5,9 +5,13 @@ import type {
   ToolCallback,
 } from "@modelcontextprotocol/server";
 import { withOpenOutputSchema } from "./internal/open-output-schema.js";
-import { RESERVED_CLI_ROOT_COMMANDS, type SupabaseMcpServer } from "./types.js";
+import {
+  CHUMBO_CAPABILITY_META_KEY,
+  RESERVED_CLI_ROOT_COMMANDS,
+  type SupabaseMcpServer,
+} from "./types.js";
 
-export const CHUMBO_CAPABILITY_META_KEY = "dev.chumbo/capability";
+export { CHUMBO_CAPABILITY_META_KEY };
 
 export type ChumboCapabilityRisk = "read" | "write" | "destructive";
 export type ChumboCliPresentation = "auto" | "text" | "json";

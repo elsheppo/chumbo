@@ -5,10 +5,9 @@ import { dirname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import {
-  MCP_APP_PRESENTATION_PLACEHOLDER,
-  MCP_APP_PRESENTATION_SCRIPT_ID,
-} from "./mcp-apps.js";
+import { MCP_APP_PRESENTATION_SCRIPT_ID } from "./internal/app-presentation-shared.js";
+
+const MCP_APP_PRESENTATION_PLACEHOLDER = "__MCP_APP_PRESENTATION__" as const;
 import {
   applyPlan,
   displayPlan,
