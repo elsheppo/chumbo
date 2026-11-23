@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import { AsyncEntry } from "@napi-rs/keyring";
 import type {
   OAuthClientInformationContext,
   OAuthClientMetadata,
@@ -15,19 +14,50 @@ export interface SecureCredentialStore {
   delete(account: string): Promise<boolean>;
 }
 
+interface KeyringEntry {
+  getPassword(): Promise<string | undefined>;
+  setPassword(password: string): Promise<void>;
+  deleteCredential(): Promise<boolean>;
+}
+
+interface KeyringModule {
+  AsyncEntry: new (service: string, account: string) => KeyringEntry;
+}
+
+let keyringModulePromise: Promise<KeyringModule> | undefined;
+
+async function loadKeyringEntry(
+  service: string,
+  account: string,
+): Promise<KeyringEntry> {
+  if (!keyringModulePromise) {
+    keyringModulePromise = (
+      import("@napi-rs/keyring") as Promise<KeyringModule>
+    ).catch((error: unknown) => {
+      keyringModulePromise = undefined;
+      throw error;
+    });
+  }
+  const { AsyncEntry } = await keyringModulePromise;
+  return new AsyncEntry(service, account);
+}
+
 export class SystemCredentialStore implements SecureCredentialStore {
   constructor(private readonly service: string) {}
 
-  get(account: string): Promise<string | undefined> {
-    return new AsyncEntry(this.service, account).getPassword();
+  async get(account: string): Promise<string | undefined> {
+    const entry = await loadKeyringEntry(this.service, account);
+    return entry.getPassword();
   }
 
-  set(account: string, value: string): Promise<void> {
-    return new AsyncEntry(this.service, account).setPassword(value);
+  async set(account: string, value: string): Promise<void> {
+    const entry = await loadKeyringEntry(this.service, account);
+    await entry.setPassword(value);
   }
 
-  delete(account: string): Promise<boolean> {
-    return new AsyncEntry(this.service, account).deleteCredential();
+  async delete(account: string): Promise<boolean> {
+    const entry = await loadKeyringEntry(this.service, account);
+    return entry.deleteCredential();
   }
 }
 
@@ -44,6 +74,10 @@ interface EndpointState {
 interface IssuerState {
   clientInformation?: StoredOAuthClientInformation;
   tokens?: StoredOAuthTokens;
+}
+
+interface StaticTokenState {
+  token?: string;
 }
 
 function digest(value: string): string {
@@ -71,6 +105,35 @@ function stampedIssuer(value: unknown): string | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const issuer = (value as { issuer?: unknown }).issuer;
   return typeof issuer === "string" && issuer ? issuer : undefined;
+}
+
+/** Endpoint-partitioned static bearer/API-key credential stored in the OS keychain. */
+export class StaticTokenCredentialStore {
+  private readonly account: string;
+
+  constructor(
+    private readonly store: SecureCredentialStore,
+    endpoint: string,
+  ) {
+    this.account = `token:${digest(new URL(endpoint).href)}`;
+  }
+
+  async get(): Promise<string | undefined> {
+    const state = parseState<StaticTokenState>(
+      await this.store.get(this.account),
+    );
+    return typeof state.token === "string" && state.token.length > 0
+      ? state.token
+      : undefined;
+  }
+
+  async set(token: string): Promise<void> {
+    await this.store.set(this.account, JSON.stringify({ token }));
+  }
+
+  async delete(): Promise<boolean> {
+    return this.store.delete(this.account);
+  }
 }
 
 export interface KeychainOAuthProviderOptions {
