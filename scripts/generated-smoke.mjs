@@ -379,6 +379,7 @@ try {
     const denoPath = join(functionDirectory, "deno.json");
     const denoConfig = JSON.parse(await readFile(denoPath, "utf8"));
     delete denoConfig.imports["chumbo"];
+    delete denoConfig.imports["chumbo/insights"];
     denoConfig.nodeModulesDir = "manual";
     await writeFile(denoPath, `${JSON.stringify(denoConfig, null, 2)}\n`);
     run("deno", ["task", "check"], { cwd: functionDirectory });

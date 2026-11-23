@@ -510,6 +510,35 @@ function publicRunFact(fact: RunCorrelationFact): SupabaseMcpRunFact {
   return fact;
 }
 
+export const RUN_CORRELATION_INTERNALS = Symbol.for(
+  "chumbo.runCorrelation.internals",
+);
+
+export interface RunResolutionMetadata {
+  readonly runRejected?: string;
+  readonly sessionId?: string;
+}
+
+export interface RunCorrelationInternals<Database = unknown> {
+  readonly sessionHeaderName?: string;
+  mintedFor(context: SupabaseMcpContext<Database>): SupabaseMcpRunFact | null;
+  resolutionMeta(serverContext: object): RunResolutionMetadata | undefined;
+  issueSessionHeader(context: SupabaseMcpContext<Database>): Promise<string>;
+}
+
+export function getRunCorrelationInternals<Database = unknown>(
+  correlation: SupabaseMcpRunCorrelation<Database> | undefined,
+): RunCorrelationInternals<Database> | undefined {
+  if (!correlation || typeof correlation !== "object") return undefined;
+  return (
+    correlation as SupabaseMcpRunCorrelation<Database> & {
+      [RUN_CORRELATION_INTERNALS]?: RunCorrelationInternals<Database>;
+    }
+  )[RUN_CORRELATION_INTERNALS];
+}
+
+const headerFieldNamePattern = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/;
+
 export function createRunCorrelationInternal<Database = unknown>(
   options: SupabaseMcpRunCorrelationOptions<Database>,
   dependencies: RunCorrelationDependencies,
@@ -520,6 +549,13 @@ export function createRunCorrelationInternal<Database = unknown>(
     options.ttlSeconds ??
     Math.min(runCorrelationLimits.defaultTtlSeconds, maxTtlSeconds);
   const argumentName = options.argumentName ?? "run_id";
+  const onInvalidHandle = options.onInvalidHandle ?? "reject";
+  const sessionHeaderName =
+    options.sessionHeader === true
+      ? "Mcp-Session-Id"
+      : options.sessionHeader && typeof options.sessionHeader === "object"
+        ? (options.sessionHeader.headerName ?? "Mcp-Session-Id")
+        : undefined;
   const scopeResolver = options.scope;
   if (
     !Number.isSafeInteger(maxTtlSeconds) ||
@@ -547,6 +583,21 @@ export function createRunCorrelationInternal<Database = unknown>(
       "Run argumentName must be a 1-64 character ASCII field name.",
     );
   }
+  if (onInvalidHandle !== "reject" && onInvalidHandle !== "ignore") {
+    throw fail(
+      "invalid_carrier",
+      'Run onInvalidHandle must be "reject" or "ignore".',
+    );
+  }
+  if (
+    sessionHeaderName !== undefined &&
+    !headerFieldNamePattern.test(sessionHeaderName)
+  ) {
+    throw fail(
+      "invalid_carrier",
+      "Run sessionHeader.headerName must be a 1-64 character HTTP header name.",
+    );
+  }
   if (typeof scopeResolver !== "function") {
     throw fail("invalid_scope", "Run correlation requires a scope resolver.");
   }
@@ -567,6 +618,8 @@ export function createRunCorrelationInternal<Database = unknown>(
     previousKey ? [currentKey, previousKey] : [currentKey],
   );
   const cache = new WeakMap<object, Promise<SupabaseMcpRunFact | null>>();
+  const mintedByContext = new WeakMap<object, SupabaseMcpRunFact>();
+  const metaByServerContext = new WeakMap<object, RunResolutionMetadata>();
 
   const scopeFor = async (
     context: SupabaseMcpContext<Database>,
@@ -576,28 +629,62 @@ export function createRunCorrelationInternal<Database = unknown>(
     return scope;
   };
 
+  const mintInternal = async (
+    context: SupabaseMcpContext<Database>,
+    mintOptions: { readonly ttlSeconds?: number } = {},
+    recordOnContext = true,
+  ): Promise<SupabaseMcpRunHandle> => {
+    const now = dependencies.now();
+    const scope = await scopeFor(context);
+    const handle = await mintRunHandle({
+      scope,
+      key: currentKey,
+      now,
+      nonce: dependencies.randomUUID(),
+      ttlSeconds: mintOptions.ttlSeconds ?? ttlSeconds,
+      maxTtlSeconds,
+    });
+    const run = publicRunFact(
+      await verifyRunHandle({
+        handle,
+        scope,
+        keys,
+        now,
+        maxTtlSeconds,
+      }),
+    );
+    if (recordOnContext && context && typeof context === "object") {
+      mintedByContext.set(context, run);
+    }
+    return Object.freeze({ handle, run });
+  };
+
+  const isCallerHandleError = (
+    error: unknown,
+  ): error is SupabaseMcpRunCorrelationError =>
+    error instanceof SupabaseMcpRunCorrelationError &&
+    error.code !== "invalid_scope" &&
+    error.code !== "invalid_key";
+
+  const internals: RunCorrelationInternals<Database> = Object.freeze({
+    ...(sessionHeaderName ? { sessionHeaderName } : {}),
+    mintedFor(context: SupabaseMcpContext<Database>) {
+      return context && typeof context === "object"
+        ? (mintedByContext.get(context) ?? null)
+        : null;
+    },
+    resolutionMeta(serverContext: object) {
+      return metaByServerContext.get(serverContext);
+    },
+    async issueSessionHeader(context: SupabaseMcpContext<Database>) {
+      const minted = await mintInternal(context, {}, false);
+      return minted.handle;
+    },
+  });
+
   const correlation: SupabaseMcpRunCorrelation<Database> = {
     async mint(context, mintOptions = {}): Promise<SupabaseMcpRunHandle> {
-      const now = dependencies.now();
-      const scope = await scopeFor(context);
-      const handle = await mintRunHandle({
-        scope,
-        key: currentKey,
-        now,
-        nonce: dependencies.randomUUID(),
-        ttlSeconds: mintOptions.ttlSeconds ?? ttlSeconds,
-        maxTtlSeconds,
-      });
-      const run = publicRunFact(
-        await verifyRunHandle({
-          handle,
-          scope,
-          keys,
-          now,
-          maxTtlSeconds,
-        }),
-      );
-      return Object.freeze({ handle, run });
+      return mintInternal(context, mintOptions, true);
     },
     resolve(context, input): Promise<SupabaseMcpRunFact | null> {
       const serverContext = input?.serverContext;
@@ -612,27 +699,97 @@ export function createRunCorrelationInternal<Database = unknown>(
       const cached = cache.get(serverContext);
       if (cached) return cached;
       const pending = (async () => {
-        const handle = resolveRunHandle({
-          requestMeta: serverContext.mcpReq?._meta,
-          toolArguments: input.toolArguments,
-          argumentName,
-        });
-        if (!handle) return null;
-        const scope = await scopeFor(context);
-        return publicRunFact(
-          await verifyRunHandle({
-            handle,
-            scope,
-            keys,
-            now: dependencies.now(),
-            maxTtlSeconds,
-          }),
-        );
+        let explicitHandle: string | null = null;
+        try {
+          explicitHandle = resolveRunHandle({
+            requestMeta: serverContext.mcpReq?._meta,
+            toolArguments: input.toolArguments,
+            argumentName,
+          });
+        } catch (error) {
+          if (onInvalidHandle === "ignore" && isCallerHandleError(error)) {
+            metaByServerContext.set(
+              serverContext,
+              Object.freeze({ runRejected: error.code }),
+            );
+            return null;
+          }
+          throw error;
+        }
+
+        if (explicitHandle) {
+          const scope = await scopeFor(context);
+          try {
+            return publicRunFact(
+              await verifyRunHandle({
+                handle: explicitHandle,
+                scope,
+                keys,
+                now: dependencies.now(),
+                maxTtlSeconds,
+              }),
+            );
+          } catch (error) {
+            if (onInvalidHandle === "ignore" && isCallerHandleError(error)) {
+              metaByServerContext.set(
+                serverContext,
+                Object.freeze({ runRejected: error.code }),
+              );
+              return null;
+            }
+            throw error;
+          }
+        }
+
+        if (sessionHeaderName && context?.request) {
+          const headerValue = context.request.headers
+            .get(sessionHeaderName)
+            ?.trim();
+          if (headerValue) {
+            const scope = await scopeFor(context);
+            try {
+              const verified = publicRunFact(
+                await verifyRunHandle({
+                  handle: headerValue,
+                  scope,
+                  keys,
+                  now: dependencies.now(),
+                  maxTtlSeconds,
+                }),
+              );
+              metaByServerContext.set(
+                serverContext,
+                Object.freeze({ sessionId: verified.id }),
+              );
+              return verified;
+            } catch (error) {
+              if (isCallerHandleError(error)) {
+                metaByServerContext.set(
+                  serverContext,
+                  Object.freeze({
+                    runRejected:
+                      error.code === "expired" ? "expired" : "invalid_session",
+                  }),
+                );
+                return null;
+              }
+              throw error;
+            }
+          }
+        }
+
+        return null;
       })();
       cache.set(serverContext, pending);
       return pending;
     },
   };
+  Object.defineProperty(correlation, RUN_CORRELATION_INTERNALS, {
+    value: internals,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
   return Object.freeze(correlation);
 }
 

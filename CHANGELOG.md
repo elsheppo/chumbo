@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.14.0 – 2026-11-23
+
+- Add self-hosted Insights support with `chumbo setup --insights`, the `chumbo/insights` subpath (`createTelemetrySink`, `composeEventSinks`, `buildRunTimeline`, `collapseStepRepeats`, and `createSupabaseInsightsAdapter`), the `chumbo-telemetry@2` Postgres migration (`templates/migrations/telemetry.sql.tpl`), and a standalone Supabase Auth dashboard (`insights/index.html`) that captures capability names, counts, outcomes, and response times without storing prompts, arguments, or results.
+- Upgrade `createRunCorrelation` with `onInvalidHandle: "ignore"` (recording `runRejected` on `capability.finished` instead of failing tool calls when an expired or malformed handle arrives), first-call run preservation when `mint(context)` runs inside a handler, and `sessionHeader` for issuing and verifying HMAC-signed `Mcp-Session-Id` headers across MCP sessions.
+- Compose existing `onEvent` sinks with `chumboCloudOnEvent` during `chumbo cloud setup` instead of refusing projects that already record self-hosted telemetry.
+
 ## 0.13.0 – 2026-11-09
 
 - Run `chumbo doctor --url` against any Supabase-backed MCP server, including

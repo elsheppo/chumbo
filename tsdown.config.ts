@@ -13,6 +13,7 @@ export default defineConfig({
     "src/cli-host.ts",
     "src/cli-package.ts",
     "src/cli-surface.ts",
+    "src/insights.ts",
   ],
   format: "esm",
   dts: true,

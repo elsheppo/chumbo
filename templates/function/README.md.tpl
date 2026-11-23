@@ -3,7 +3,7 @@
 This function exposes application capabilities to end users through MCP.
 {{ACCESS_DESCRIPTION}}
 {{API_KEY_SETUP}}
-{{PUBLIC_SETUP}}{{STATE_README}}
+{{PUBLIC_SETUP}}{{STATE_README}}{{INSIGHTS_README}}
 
 For agent-assisted development, install the version-matched project guidance:
 

@@ -29,6 +29,7 @@ export interface InitOptions {
   consent: "none" | "minimal";
   patchConfig: boolean;
   stateNamespace?: string;
+  insights?: boolean;
   target?: SetupTarget;
 }
 
@@ -215,6 +216,8 @@ async function classifyFile(
 const RATE_LIMIT_MIGRATION = "20260813000000_create_supa_mcp_rate_limits.sql";
 const DURABLE_STATE_MIGRATION =
   "20260826000000_create_supa_mcp_durable_state.sql";
+const TELEMETRY_INSIGHTS_MIGRATION =
+  "20261120000000_create_chumbo_telemetry_v2.sql";
 
 function sharedReplacements(
   options: InitOptions,
@@ -240,6 +243,15 @@ function sharedReplacements(
           ? "Requests use your application's API key. Tools receive `ctx.subject` and an anonymous Supabase client; your capability code decides what the key may do."
           : "A request's `ctx.supabase` client carries that user's Supabase access token, so your existing Row Level Security policies decide which rows are visible.",
     FUNCTION_NAME: options.functionName,
+    INSIGHTS_IMPORTS: options.insights
+      ? 'import { createRunCorrelation } from "chumbo";\nimport { createTelemetrySink } from "chumbo/insights";\nimport { createClient } from "@supabase/supabase-js";\n'
+      : "",
+    INSIGHTS_SETUP: options.insights
+      ? `const insightsServiceKey = ${envRead("SUPABASE_SECRET_KEY")} ?? ${envRead("SUPABASE_SERVICE_ROLE_KEY")};\nconst runHmacKey = ${envRead("CHUMBO_RUN_HMAC_KEY")};\nconst telemetrySink = insightsServiceKey\n  ? createTelemetrySink({\n      supabase: createClient(projectUrl, insightsServiceKey, {\n        auth: { persistSession: false, autoRefreshToken: false },\n      }),\n    })\n  : undefined;\nconst runCorrelation =\n  runHmacKey && runHmacKey.length >= 32\n    ? createRunCorrelation({\n        currentKey: { version: "v1", secret: runHmacKey },\n        sessionHeader: true,\n        onInvalidHandle: "ignore",\n        scope: (ctx) => ({\n          installation: "self-hosted",\n          surface: "default",\n          partition: ctx.subject ?? "anonymous",\n        }),\n      })\n    : undefined;\n`
+      : "",
+    INSIGHTS_CONFIG: options.insights
+      ? "  ...(runCorrelation ? { runCorrelation } : {}),\n  ...(telemetrySink ? { onEvent: telemetrySink } : {}),\n"
+      : "",
     LOCAL_DOCTOR_AUTH:
       options.auth === "public"
         ? ""
@@ -299,6 +311,9 @@ async function planEdgeInit(options: InitOptions): Promise<PlannedFile[]> {
     STATE_README: options.stateNamespace
       ? `\nThis function opts into credential-partitioned durable state in the ${JSON.stringify(options.stateNamespace)} namespace. Apply the generated migration, then set a unique deployment HMAC secret before starting or deploying:\n\n\`\`\`sh\nsupabase db push\nsupabase secrets set CHUMBO_STATE_HMAC_KEY=\"replace-with-at-least-32-random-bytes\"\n\`\`\`\n\nThe runtime keeps its service-role client private. Capability code sees only \`ctx.state.get\`, revision-checked \`put\`, and revision-checked \`delete\`.\n`
       : "",
+    INSIGHTS_README: options.insights
+      ? `\nSelf-hosted Insights is enabled. Apply the generated \`${TELEMETRY_INSIGHTS_MIGRATION}\` migration and set \`CHUMBO_RUN_HMAC_KEY\` (at least 32 random bytes) for signed \`Mcp-Session-Id\` run correlation, then open \`insights/index.html\` and sign in with Supabase Auth to inspect live calls and runs:\n\n\`\`\`sh\nsupabase db push\nsupabase secrets set CHUMBO_RUN_HMAC_KEY="replace-with-at-least-32-random-bytes"\n\`\`\`\n`
+      : "",
     STATE_TEST_SETUP: options.stateNamespace
       ? 'Deno.env.set("CHUMBO_STATE_HMAC_KEY", "generated-state-test-hmac-key-32-bytes");\nDeno.env.set("SUPABASE_SECRET_KEY", Deno.env.get("SUPABASE_SECRET_KEY") ?? "generated-secret-key");\n'
       : "",
@@ -319,12 +334,16 @@ async function planEdgeInit(options: InitOptions): Promise<PlannedFile[]> {
 
   const files: PlannedFile[] = [];
   for (const [template, path] of templates) {
-    files.push(
-      await classifyFile(
-        path,
-        render(await loadTemplate(template), replacements),
-      ),
-    );
+    let rendered = render(await loadTemplate(template), replacements);
+    if (options.insights && template === "function/deno.json.tpl") {
+      const parsed = JSON.parse(rendered) as {
+        imports: Record<string, string>;
+      };
+      parsed.imports["chumbo/insights"] =
+        `npm:chumbo@${PACKAGE_VERSION}/insights`;
+      rendered = `${JSON.stringify(parsed, null, 2)}\n`;
+    }
+    files.push(await classifyFile(path, rendered));
   }
 
   if (options.auth === "public") {
@@ -349,6 +368,21 @@ async function planEdgeInit(options: InitOptions): Promise<PlannedFile[]> {
           await loadTemplate("migrations/durable-state.sql.tpl"),
           replacements,
         ),
+      ),
+    );
+  }
+
+  if (options.insights) {
+    files.push(
+      await classifyFile(
+        join(root, "supabase", "migrations", TELEMETRY_INSIGHTS_MIGRATION),
+        await loadTemplate("migrations/telemetry.sql.tpl"),
+      ),
+    );
+    files.push(
+      await classifyFile(
+        join(root, "insights", "index.html"),
+        render(await loadTemplate("insights/index.html.tpl"), replacements),
       ),
     );
   }
@@ -555,6 +589,23 @@ async function planHostInit(options: InitOptions): Promise<PlannedFile[]> {
           await loadTemplate("migrations/durable-state.sql.tpl"),
           replacements,
         ),
+      ),
+    );
+  }
+  if (options.insights) {
+    files.push(
+      await classifyFile(
+        join(migrationDirectory, TELEMETRY_INSIGHTS_MIGRATION),
+        await loadTemplate("migrations/telemetry.sql.tpl"),
+      ),
+    );
+    files.push(
+      await classifyFile(
+        join(root, "insights", "index.html"),
+        render(await loadTemplate("insights/index.html.tpl"), {
+          ...replacements,
+          LOCAL_ORIGIN: "http://127.0.0.1:54321",
+        }),
       ),
     );
   }

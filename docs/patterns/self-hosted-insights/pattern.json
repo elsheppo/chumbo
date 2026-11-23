@@ -1,0 +1,10 @@
+{
+  "slug": "self-hosted-insights",
+  "kind": "pattern",
+  "title": "Self-hosted Insights in your own Supabase project",
+  "summary": "Write privacy-bounded MCP lifecycle events into chumbo_telemetry in your own Postgres database and read aggregate usage, people, and run timelines through fail-closed RPCs.",
+  "officialDocs": [
+    "https://supabase.com/docs/guides/auth",
+    "https://supabase.com/docs/guides/database/postgres/row-level-security"
+  ]
+}

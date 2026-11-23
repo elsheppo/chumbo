@@ -49,6 +49,7 @@ import {
   createSupabaseMcpStateFactory,
   SupabaseMcpStateUnavailableError,
 } from "./state.js";
+import { getRunCorrelationInternals } from "./internal/run-correlation.js";
 import { PACKAGE_VERSION } from "./version.js";
 
 const IDENTITY_KEY = "createSupabaseMcpIdentity";
@@ -510,39 +511,60 @@ function createLifecycleEmitter<Database>(
         authentication,
       };
 
+      const internals = getRunCorrelationInternals(options.runCorrelation);
+
       const wrapped = async function (
         this: unknown,
         ...callbackArgs: unknown[]
       ): Promise<unknown> {
-        const run = options.runCorrelation
+        const serverContext = callbackArgs.at(-1) as ServerContext;
+        const initialRun = options.runCorrelation
           ? await options.runCorrelation.resolve(context, {
-              serverContext: callbackArgs.at(-1) as ServerContext,
+              serverContext,
               ...(kind === "tool" && callbackArgs.length > 1
                 ? { toolArguments: callbackArgs[0] }
                 : {}),
             })
           : undefined;
-        const base = options.runCorrelation
+        const meta =
+          options.runCorrelation && serverContext
+            ? internals?.resolutionMeta(serverContext)
+            : undefined;
+        const startedBase = options.runCorrelation
           ? {
               ...common,
               schemaVersion: 2 as const,
-              run: run ? lifecycleRunFact(run) : null,
+              run: initialRun ? lifecycleRunFact(initialRun) : null,
+              ...(meta?.sessionId ? { sessionId: meta.sessionId } : {}),
             }
           : { ...common, schemaVersion: 1 as const };
         const startedAt = now();
         emit(
           Object.freeze({
-            ...base,
+            ...startedBase,
             type: "capability.started" as const,
             timestamp: new Date(startedAt).toISOString(),
           }),
         );
+        const buildFinishedBase = () => {
+          if (!options.runCorrelation) {
+            return { ...common, schemaVersion: 1 as const };
+          }
+          const finalRun = initialRun ?? internals?.mintedFor(context) ?? null;
+          return {
+            ...common,
+            schemaVersion: 2 as const,
+            run: finalRun ? lifecycleRunFact(finalRun) : null,
+            ...(meta?.runRejected ? { runRejected: meta.runRejected } : {}),
+            ...(meta?.sessionId ? { sessionId: meta.sessionId } : {}),
+          };
+        };
         try {
           const result = await Reflect.apply(callback, this, callbackArgs);
           const finishedAt = now();
           emit(
             Object.freeze({
-              ...base,
+              ...buildFinishedBase(),
               type: "capability.finished" as const,
               timestamp: new Date(finishedAt).toISOString(),
               durationMs: Math.max(0, finishedAt - startedAt),
@@ -554,7 +576,7 @@ function createLifecycleEmitter<Database>(
           const finishedAt = now();
           emit(
             Object.freeze({
-              ...base,
+              ...buildFinishedBase(),
               type: "capability.finished" as const,
               timestamp: new Date(finishedAt).toISOString(),
               durationMs: Math.max(0, finishedAt - startedAt),
@@ -659,6 +681,18 @@ function protocolVersionFromRequest(
     header ||
     (typeof metadataVersion === "string" ? metadataVersion.trim() : "");
   return /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : undefined;
+}
+
+async function inspectInitializeRequest(request: Request): Promise<boolean> {
+  if (request.method !== "POST") return false;
+  const text = await boundedBodyText(request, MAX_SURFACE_REQUEST_BYTES);
+  if (text === null) return false;
+  try {
+    const payload = JSON.parse(text) as unknown;
+    return isRecord(payload) && payload.method === "initialize";
+  } catch {
+    return false;
+  }
 }
 
 async function inspectSurfaceListRequest(
@@ -1211,6 +1245,14 @@ export function createSupabaseMcpInternal<Database = unknown>(
     return oauthMetadataPromise;
   };
 
+  const runCorrelationInternals = getRunCorrelationInternals(
+    options.runCorrelation,
+  );
+  const lastPublicContext = new WeakMap<
+    Request,
+    SupabaseMcpContext<Database>
+  >();
+
   const mcpHandler = createMcpHandler(
     async (mcpContext) => {
       const request = mcpContext.requestInfo;
@@ -1230,6 +1272,7 @@ export function createSupabaseMcpInternal<Database = unknown>(
           },
           auth.scopes ?? [],
         );
+        lastPublicContext.set(request, context);
       } else {
         const extra = mcpContext.authInfo?.extra;
         const stored = extra?.[CONTEXT_KEY] as
@@ -1279,9 +1322,44 @@ export function createSupabaseMcpInternal<Database = unknown>(
     const surfaceRequest = options.onSurface
       ? await inspectSurfaceListRequest(request)
       : null;
-    const response = authInfo
+    const isInitialize = runCorrelationInternals?.sessionHeaderName
+      ? await inspectInitializeRequest(request)
+      : false;
+    let response = authInfo
       ? await mcpHandler.fetch(request, { authInfo })
       : await mcpHandler.fetch(request);
+
+    if (
+      isInitialize &&
+      response.ok &&
+      runCorrelationInternals?.sessionHeaderName &&
+      !response.headers.get(runCorrelationInternals.sessionHeaderName)
+    ) {
+      const context =
+        (authInfo?.extra?.[CONTEXT_KEY] as
+          | SupabaseMcpContext<Database>
+          | undefined) ?? lastPublicContext.get(request);
+      if (context) {
+        try {
+          const handle =
+            await runCorrelationInternals.issueSessionHeader(context);
+          const headerName = runCorrelationInternals.sessionHeaderName;
+          const existingExpose = response.headers.get(
+            "access-control-expose-headers",
+          );
+          const exposeList = existingExpose
+            ? `${existingExpose}, ${headerName}`
+            : headerName;
+          response = responseWithHeaders(response, {
+            [headerName]: handle,
+            "access-control-expose-headers": exposeList,
+          });
+        } catch (error) {
+          options.onError?.({ error: normalizeError(error), phase: "runtime" });
+        }
+      }
+    }
+
     if (!surfaceRequest || !options.onSurface) return response;
     try {
       const proof = await createSurfaceProof(

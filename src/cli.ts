@@ -88,6 +88,7 @@ Setup options:
   --project-ref <ref>     Supabase project ref for deploy and endpoint discovery
   --public-url <url>      Clean URL clients will use, such as https://app.com/mcp
   --state-namespace <id>  Opt into credential-partitioned Postgres state
+  --insights              Generate self-hosted telemetry schema, sink, and dashboard
   --apply-migrations      Apply explicitly generated database support
   --deploy                Deploy after generation and local checks
   --skip-checks           Do not run generated Deno checks
@@ -137,6 +138,7 @@ function parse(commandArgs: string[]) {
       "env-file": { type: "string" },
       function: { type: "string" },
       help: { type: "boolean" },
+      insights: { type: "boolean" },
       json: { type: "boolean" },
       "no-config": { type: "boolean" },
       "second-token": { type: "string" },
@@ -808,6 +810,7 @@ async function init(args: string[]): Promise<void> {
     consent,
     patchConfig: !parsed.values["no-config"],
     stateNamespace: parsed.values["state-namespace"],
+    insights: Boolean(parsed.values.insights),
     target,
   });
   const conflicts = files.filter((file) => file.status === "conflict");
@@ -1104,11 +1107,16 @@ async function setupHostTarget(
     : undefined;
   const endpoint = parsed.values.url ?? publicUrl;
   const planOnly = Boolean(parsed.values.plan);
+  const insights = Boolean(parsed.values.insights);
+  const detectedInsights = await pathExists(
+    join(root, "insights", "index.html"),
+  );
+  const addInsights = Boolean(existingAuth && insights && !detectedInsights);
   let files: PlannedFile[] = [];
-  let applied = Boolean(existingAuth);
+  let applied = Boolean(existingAuth) && !addInsights;
 
-  if (!existingAuth) {
-    files = await planInit({
+  if (!existingAuth || addInsights) {
+    const fullPlan = await planInit({
       cwd: root,
       functionName,
       serverName: parsed.values["server-name"] ?? basename(root),
@@ -1116,8 +1124,17 @@ async function setupHostTarget(
       consent: parsed.values.consent === "minimal" ? "minimal" : "none",
       patchConfig: false,
       stateNamespace,
+      insights,
       target,
     });
+    files = addInsights
+      ? fullPlan.filter(
+          (file) =>
+            file.path.endsWith(
+              "20261120000000_create_chumbo_telemetry_v2.sql",
+            ) || file.path.endsWith(join("insights", "index.html")),
+        )
+      : fullPlan;
     const conflicts = files.filter((file) => file.status === "conflict");
     if (conflicts.length > 0) {
       throw new Error(
@@ -1337,13 +1354,23 @@ async function setup(args: string[]): Promise<void> {
     ? await localCheckCommand(root, functionName)
     : undefined;
   const planOnly = Boolean(parsed.values.plan);
+  const insights = Boolean(parsed.values.insights);
+  const detectedInsights = await pathExists(
+    join(
+      root,
+      "supabase",
+      "migrations",
+      "20261120000000_create_chumbo_telemetry_v2.sql",
+    ),
+  );
   let files: PlannedFile[] = [];
   const addConsent = Boolean(
     existingAuth && consent === "minimal" && !detectedConsent,
   );
-  let applied = Boolean(existingAuth) && !addConsent;
+  const addInsights = Boolean(existingAuth && insights && !detectedInsights);
+  let applied = Boolean(existingAuth) && !addConsent && !addInsights;
 
-  if (!existingAuth || addConsent) {
+  if (!existingAuth || addConsent || addInsights) {
     const fullPlan = await planInit({
       cwd: root,
       functionName,
@@ -1352,14 +1379,22 @@ async function setup(args: string[]): Promise<void> {
       consent,
       patchConfig: !parsed.values["no-config"],
       stateNamespace,
+      insights,
     });
-    files = addConsent
-      ? fullPlan.filter(
-          (file) =>
-            file.path.includes(`${functionName}-consent`) ||
-            file.path.endsWith(join("supabase", "config.toml")),
-        )
-      : fullPlan;
+    files =
+      addConsent || addInsights
+        ? fullPlan.filter(
+            (file) =>
+              (addConsent &&
+                (file.path.includes(`${functionName}-consent`) ||
+                  file.path.endsWith(join("supabase", "config.toml")))) ||
+              (addInsights &&
+                (file.path.endsWith(
+                  "20261120000000_create_chumbo_telemetry_v2.sql",
+                ) ||
+                  file.path.endsWith(join("insights", "index.html")))),
+          )
+        : fullPlan;
     const conflicts = files.filter((file) => file.status === "conflict");
     if (conflicts.length > 0) {
       throw new Error(
@@ -1393,7 +1428,8 @@ async function setup(args: string[]): Promise<void> {
       endpoint,
       publicUrl,
       localChecks: "ready",
-      migrations: auth === "public" || stateNamespace ? "ready" : "skipped",
+      migrations:
+        auth === "public" || stateNamespace || insights ? "ready" : "skipped",
       durableState: Boolean(stateNamespace),
       apiKeyStrategy,
       localCheckCommand: existingLocalCheckCommand,
@@ -1461,10 +1497,10 @@ async function setup(args: string[]): Promise<void> {
   }
 
   let migrations: "complete" | "ready" | "blocked" | "skipped" =
-    auth === "public" || stateNamespace ? "ready" : "skipped";
+    auth === "public" || stateNamespace || insights ? "ready" : "skipped";
   let migrationDetail: string | undefined;
   if (
-    (auth === "public" || stateNamespace) &&
+    (auth === "public" || stateNamespace || insights) &&
     parsed.values["apply-migrations"]
   ) {
     if (!machine) console.log("\nApplying pending Supabase migrations...");
@@ -1489,10 +1525,12 @@ async function setup(args: string[]): Promise<void> {
   let deploymentAllowed =
     parsed.values.deploy &&
     localChecks !== "blocked" &&
-    (!(auth === "public" || stateNamespace) || migrations === "complete");
+    (!(auth === "public" || stateNamespace || insights) ||
+      migrations === "complete");
   if (parsed.values.deploy && !deploymentAllowed) {
     deployDetail =
-      (auth === "public" || stateNamespace) && migrations !== "complete"
+      (auth === "public" || stateNamespace || insights) &&
+      migrations !== "complete"
         ? "Deployment paused: the generated database support requires --apply-migrations before the endpoint starts."
         : "Deployment paused until local checks pass.";
   }

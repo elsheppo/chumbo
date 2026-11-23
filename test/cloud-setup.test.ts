@@ -63,13 +63,45 @@ describe("Chumbo Cloud setup patch", () => {
     );
   });
 
-  it("refuses to overwrite a custom lifecycle hook", () => {
+  it("composes an existing onEvent sink with chumboCloudOnEvent idempotently", () => {
+    const first = planCloudPatch({
+      ...input,
+      currentSource: input.currentSource.replace(
+        'name: "Notes",',
+        'name: "Notes",\n  onEvent: customHook,',
+      ),
+    });
+    expect(first.changed).toBe(true);
+    expect(first.functionSource).toContain(
+      'import { composeEventSinks } from "chumbo/insights";',
+    );
+    expect(first.functionSource).toContain(
+      "onEvent: composeEventSinks(customHook, chumboCloudOnEvent),",
+    );
+    const second = planCloudPatch({
+      ...input,
+      currentSource: first.functionSource,
+      currentAdapter: first.adapter,
+    });
+    expect(second.changed).toBe(false);
+  });
+
+  it("refuses to overwrite a custom surface hook or inline method hook", () => {
     expect(() =>
       planCloudPatch({
         ...input,
         currentSource: input.currentSource.replace(
           'name: "Notes",',
-          'name: "Notes",\n  onEvent: customHook,',
+          'name: "Notes",\n  onSurface: customSurfaceHook,',
+        ),
+      }),
+    ).toThrow(/custom lifecycle hook/u);
+    expect(() =>
+      planCloudPatch({
+        ...input,
+        currentSource: input.currentSource.replace(
+          'name: "Notes",',
+          'name: "Notes",\n  onEvent(event) { void event; },',
         ),
       }),
     ).toThrow(/custom lifecycle hook/u);

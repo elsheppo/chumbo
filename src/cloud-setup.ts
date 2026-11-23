@@ -576,6 +576,77 @@ function findCreateSupabaseMcpCall(source: string): number {
   return -1;
 }
 
+function findTopLevelOnEventValue(
+  config: string,
+): { start: number; end: number; expression: string } | null {
+  let depth = 0;
+  let quote: '"' | "'" | "`" | null = null;
+  for (let i = 0; i < config.length; i += 1) {
+    const ch = config[i]!;
+    if (quote) {
+      if (ch === "\\") {
+        i += 1;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "{" || ch === "(" || ch === "[") {
+      depth += 1;
+      continue;
+    }
+    if (ch === "}" || ch === ")" || ch === "]") {
+      depth -= 1;
+      continue;
+    }
+    if (depth === 1 && config.slice(i, i + 7) === "onEvent") {
+      const prev = i > 0 ? config[i - 1]! : "";
+      const next = config[i + 7] ?? "";
+      if (/[A-Za-z0-9_$]/u.test(prev) || /[A-Za-z0-9_$]/u.test(next)) continue;
+      let cursor = i + 7;
+      while (/\s/u.test(config[cursor] ?? "")) cursor += 1;
+      if (config[cursor] !== ":") return null;
+      cursor += 1;
+      while (/\s/u.test(config[cursor] ?? "")) cursor += 1;
+      const exprStart = cursor;
+      let exprDepth = 0;
+      let exprQuote: '"' | "'" | "`" | null = null;
+      for (; cursor < config.length; cursor += 1) {
+        const c = config[cursor]!;
+        if (exprQuote) {
+          if (c === "\\") {
+            cursor += 1;
+            continue;
+          }
+          if (c === exprQuote) exprQuote = null;
+          continue;
+        }
+        if (c === '"' || c === "'" || c === "`") {
+          exprQuote = c;
+          continue;
+        }
+        if (c === "{" || c === "(" || c === "[") {
+          exprDepth += 1;
+          continue;
+        }
+        if (exprDepth === 0 && (c === "," || c === "}")) {
+          const expression = config.slice(exprStart, cursor).trim();
+          if (!expression) return null;
+          return { start: exprStart, end: cursor, expression };
+        }
+        if (c === "}" || c === ")" || c === "]") {
+          exprDepth -= 1;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 export function planCloudPatch(input: {
   root: string;
   functionSlug: string;
@@ -615,28 +686,64 @@ export function planCloudPatch(input: {
     functionSource = `${importLine}\n${functionSource}`;
     functionAdditions.push(`${importLine}\n`);
   }
-  const call = findCreateSupabaseMcpCall(functionSource);
+  let call = findCreateSupabaseMcpCall(functionSource);
   if (call < 0)
     throw new Error(
       `Could not find createSupabaseMcp(...) in ${input.functionSlug}/index.ts.`,
     );
-  const opening = functionSource.indexOf("{", call);
-  const closing = opening < 0 ? -1 : matchingBrace(functionSource, opening);
+  let opening = functionSource.indexOf("{", call);
+  let closing = opening < 0 ? -1 : matchingBrace(functionSource, opening);
   if (closing < 0)
     throw new Error(
       "Could not safely read the createSupabaseMcp configuration.",
     );
-  const config = functionSource.slice(opening, closing + 1);
-  const hasEvent = /\bonEvent\s*:/u.test(config);
-  const hasSurface = /\bonSurface\s*:/u.test(config);
+  let config = functionSource.slice(opening, closing + 1);
+  const hasEventMethod = /\bonEvent\s*\(/u.test(config);
+  const hasEventProperty = /\bonEvent\s*:/u.test(config);
+  const hasEvent = hasEventProperty || hasEventMethod;
+  const hasSurface = /\bonSurface\s*[:(]/u.test(config);
   if (
-    (hasEvent && !config.includes("chumboCloudOnEvent")) ||
+    hasEventMethod ||
     (hasSurface && !config.includes("chumboCloudOnSurface"))
   ) {
     throw new Error(
       "This MCP already has a custom lifecycle hook. Chumbo will not overwrite it automatically.",
     );
   }
+
+  if (hasEventProperty && !config.includes("chumboCloudOnEvent")) {
+    const existing = findTopLevelOnEventValue(config);
+    if (!existing) {
+      throw new Error(
+        "This MCP already has a custom lifecycle hook. Chumbo will not overwrite it automatically.",
+      );
+    }
+    const composeImport =
+      'import { composeEventSinks } from "chumbo/insights";';
+    if (!/\bcomposeEventSinks\b/u.test(functionSource)) {
+      functionSource = `${composeImport}\n${functionSource}`;
+      functionAdditions.push(`${composeImport}\n`);
+      call = findCreateSupabaseMcpCall(functionSource);
+      opening = functionSource.indexOf("{", call);
+      closing = matchingBrace(functionSource, opening);
+      config = functionSource.slice(opening, closing + 1);
+    }
+    const refreshed = findTopLevelOnEventValue(config)!;
+    const composedExpr = `composeEventSinks(${refreshed.expression}, chumboCloudOnEvent)`;
+    const updatedConfig =
+      config.slice(0, refreshed.start) +
+      composedExpr +
+      config.slice(refreshed.end);
+    functionSource =
+      functionSource.slice(0, opening) +
+      updatedConfig +
+      functionSource.slice(closing + 1);
+    functionAdditions.push(`  onEvent: ${composedExpr},\n`);
+    call = findCreateSupabaseMcpCall(functionSource);
+    opening = functionSource.indexOf("{", call);
+    closing = matchingBrace(functionSource, opening);
+  }
+
   const additions = [
     !hasEvent ? "onEvent: chumboCloudOnEvent," : "",
     !hasSurface ? "onSurface: chumboCloudOnSurface," : "",
