@@ -72,6 +72,20 @@ function applicationContext(subject = "user-42"): SupabaseMcpContext {
     hasScope: () => false,
     hasScopes: (required: readonly string[]) => required.length === 0,
     traceId: `fixture-${subject}`,
+    client: Object.freeze({
+      era: "modern" as const,
+      info: null,
+      capabilities: null,
+      supports: Object.freeze({
+        elicitationForm: false,
+        elicitationUrl: false,
+        mcpAppsUi: false,
+        sampling: false,
+        roots: false,
+        resourceLinks: "unknown" as const,
+      }),
+    }),
+    sessionId: null,
   });
 }
 

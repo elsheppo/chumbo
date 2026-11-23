@@ -344,6 +344,7 @@ try {
   );
   for (const dependency of [
     "@modelcontextprotocol/server",
+    "@supabase/middleware",
     "@supabase/server",
     "@supabase/supabase-js",
     "zod",
@@ -378,8 +379,11 @@ try {
     );
     const denoPath = join(functionDirectory, "deno.json");
     const denoConfig = JSON.parse(await readFile(denoPath, "utf8"));
-    delete denoConfig.imports["chumbo"];
-    delete denoConfig.imports["chumbo/insights"];
+    for (const key of Object.keys(denoConfig.imports ?? {})) {
+      if (key === "chumbo" || key.startsWith("chumbo/")) {
+        delete denoConfig.imports[key];
+      }
+    }
     denoConfig.nodeModulesDir = "manual";
     await writeFile(denoPath, `${JSON.stringify(denoConfig, null, 2)}\n`);
     run("deno", ["task", "check"], { cwd: functionDirectory });
@@ -409,6 +413,7 @@ async function linkRuntimeModules(root) {
   );
   for (const dependency of [
     "@modelcontextprotocol/server",
+    "@supabase/middleware",
     "@supabase/server",
     "@supabase/supabase-js",
     "zod",

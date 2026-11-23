@@ -94,11 +94,22 @@
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/server": "2.0.0",
     "@napi-rs/keyring": "2.0.0",
+    "@supabase/middleware": "1.0.0",
     "@supabase/server": "1.9.2",
     "@supabase/supabase-js": "2.105.4"
   },
   "peerDependencies": {
+    "vite": "^6.0.0 || ^7.0.0 || ^8.0.0",
+    "vite-plugin-singlefile": "^2.0.0",
     "zod": "^4.2.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
+    "vite-plugin-singlefile": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "24.10.1",

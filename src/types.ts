@@ -1,21 +1,36 @@
 import type {
   CallToolResult,
+  ClientCapabilities,
   Implementation,
   McpServer,
   ServerContext,
+  ServerEventBus,
   ServerNotifier,
 } from "@modelcontextprotocol/server";
 import type { JWTClaims, SupabaseEnv, UserClaims } from "@supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { JsonValue, ResultContentComposition } from "./results.js";
 
-type DeepReadonly<Value> = Value extends (...args: never[]) => unknown
+export type DeepReadonly<Value> = Value extends (...args: never[]) => unknown
   ? Value
   : Value extends readonly (infer Item)[]
     ? readonly DeepReadonly<Item>[]
     : Value extends object
       ? { readonly [Key in keyof Value]: DeepReadonly<Value[Key]> }
       : Value;
+
+export const RESERVED_CLI_ROOT_COMMANDS = Object.freeze([
+  "login",
+  "logout",
+  "status",
+  "commands",
+  "skill",
+  "completions",
+  "help",
+] as const);
+
+export type ReservedCliRootCommand =
+  (typeof RESERVED_CLI_ROOT_COMMANDS)[number];
 
 export interface SupabaseMcpApiKeyIdentity {
   /** Stable application-owned identity for audit logs and scope resolution. */
@@ -89,12 +104,25 @@ export interface SupabaseMcpRunFact {
   readonly expiresAt: string;
 }
 
-export interface SupabaseMcpRunHandle {
+/** Opaque HMAC-signed wire carrier string (`crun1.<payload>.<mac>`). */
+export type RunHandle = string;
+export type RunScope = SupabaseMcpRunScope;
+export type RunCorrelationKey = SupabaseMcpRunCorrelationKey;
+export type PreviousRunCorrelationKey = SupabaseMcpPreviousRunCorrelationKey;
+export type RunFact = SupabaseMcpRunFact;
+
+export interface MintedRun {
   /** Opaque signed value carried by a controlled client or run-aware tool. */
-  readonly handle: string;
+  readonly handle: RunHandle;
   /** The bounded fact the same server will recover from handle. */
   readonly run: SupabaseMcpRunFact;
 }
+
+/**
+ * @deprecated Prefer `MintedRun` for `{ handle, run }` pairs returned by `mint`,
+ * or `RunHandle` (`string`) for wire handle carriers.
+ */
+export type SupabaseMcpRunHandle = MintedRun;
 
 export interface SupabaseMcpRunCorrelationOptions<Database = unknown> {
   readonly currentKey: SupabaseMcpRunCorrelationKey;
@@ -125,10 +153,15 @@ export interface SupabaseMcpRunCorrelationOptions<Database = unknown> {
   ): SupabaseMcpRunScope | Promise<SupabaseMcpRunScope>;
 }
 
+export type RunCorrelationOptions<Database = unknown> =
+  SupabaseMcpRunCorrelationOptions<Database>;
+
 export interface SupabaseMcpMintRunOptions {
   /** Defaults to the correlation instance's configured lifetime. */
   readonly ttlSeconds?: number;
 }
+
+export type MintRunOptions = SupabaseMcpMintRunOptions;
 
 export interface SupabaseMcpResolveRunInput {
   readonly serverContext: ServerContext;
@@ -136,11 +169,14 @@ export interface SupabaseMcpResolveRunInput {
   readonly toolArguments?: unknown;
 }
 
+export type ResolveRunInput = SupabaseMcpResolveRunInput;
+
 export interface SupabaseMcpRunCorrelation<Database = unknown> {
+  readonly argumentName?: string;
   mint(
     context: SupabaseMcpContext<Database>,
     options?: SupabaseMcpMintRunOptions,
-  ): Promise<SupabaseMcpRunHandle>;
+  ): Promise<MintedRun>;
   resolve(
     context: SupabaseMcpContext<Database>,
     input: SupabaseMcpResolveRunInput,
@@ -152,6 +188,8 @@ export type SupabaseMcpCapabilityKind = "tool" | "resource" | "prompt";
 export interface SupabaseMcpLifecycleCapability {
   readonly kind: SupabaseMcpCapabilityKind;
   readonly name: string;
+  /** Underlying canonical tool name when an active capability profile aliases `name`. */
+  readonly canonicalName?: string;
 }
 
 export interface SupabaseMcpLifecycleServer {
@@ -254,9 +292,86 @@ export interface SupabaseMcpSurfaceProof {
   };
   readonly authentication: SupabaseMcpAuthentication;
   readonly protocolVersion?: string;
+  /** Active capability profile ID when `profiles` is configured on this server. */
+  readonly profile?: string;
   readonly tools: readonly SupabaseMcpSurfaceTool[];
   /** SHA-256 of canonical JSON containing schemaVersion and tools. */
   readonly contentDigest: `sha256:${string}`;
+}
+
+export interface SupabaseMcpClientInfo {
+  readonly name: string;
+  readonly version: string;
+  readonly title?: string;
+}
+
+export type ResourceLinkSupport = "supported" | "unsupported" | "unknown";
+
+export interface SupabaseMcpClientSupport {
+  /** Client declared `elicitation: {}` or `elicitation.form` (supports form MRTR). */
+  readonly elicitationForm: boolean;
+  /** Client declared `elicitation.url` (supports out-of-band URL elicitation). */
+  readonly elicitationUrl: boolean;
+  /** Client declared `extensions["io.modelcontextprotocol/ui"]` (renders `ui://` MCP Apps). */
+  readonly mcpAppsUi: boolean;
+  /** Client declared `sampling`. */
+  readonly sampling: boolean;
+  /** Client declared `roots`. */
+  readonly roots: boolean;
+  /**
+   * Host heuristic for `resource_link` content blocks (`ClientCapabilities` has
+   * no wire bit for `resource_link`). Defaults to `"unknown"`, or `"unsupported"`
+   * for known non-resource bridges or builder-configured `clientPolicy.resourceLinks`.
+   */
+  readonly resourceLinks: ResourceLinkSupport;
+}
+
+export interface SupabaseMcpClientContext {
+  /** Protocol era of the current HTTP exchange. */
+  readonly era: "modern" | "legacy";
+  /** Validated `YYYY-MM-DD` protocol revision when known. */
+  readonly protocolVersion?: string;
+  /** Validated client `Implementation` when carried on this request (`initialize` or 2026 envelope). */
+  readonly info: SupabaseMcpClientInfo | null;
+  /** Raw validated `ClientCapabilities` from this request when present, deeply frozen. */
+  readonly capabilities: DeepReadonly<ClientCapabilities> | null;
+  /** Normalized feature flags (recovered across 2025 requests via `cs1_` session bitmask). */
+  readonly supports: SupabaseMcpClientSupport;
+}
+
+export interface SupabaseMcpClientPolicy {
+  /** Override `supports.resourceLinks` classification based on `clientInfo` or `User-Agent`. */
+  resourceLinks?(input: {
+    readonly info: SupabaseMcpClientInfo | null;
+    readonly userAgent: string | null;
+  }): ResourceLinkSupport;
+}
+
+export interface McpCorsOptions {
+  /**
+   * Allowed browser origins (`["https://claude.ai"]`, `"*"`, or predicate).
+   * Literal `"null"` origins are always rejected with HTTP 403.
+   */
+  readonly origins: readonly string[] | "*" | ((origin: string) => boolean);
+  /** Additional request headers allowed in preflight beyond standard MCP headers. */
+  readonly allowHeaders?: readonly string[];
+  /** Additional response headers exposed to browser JS beyond MCP/Chumbo defaults. */
+  readonly exposeHeaders?: readonly string[];
+  /** `Access-Control-Max-Age` in seconds on `204` preflights. Defaults to `600`. */
+  readonly maxAgeSeconds?: number;
+}
+
+export interface McpTransportArmorOptions {
+  /**
+   * How server-push subscription streams (`GET` SSE and `POST` `subscriptions/listen`)
+   * are handled. Defaults to `"disabled"` on stateless endpoints.
+   */
+  readonly subscriptions?: "disabled" | "in-memory" | ServerEventBus;
+  /**
+   * Stateless `Mcp-Session-Id` header issuance on 2025-era `initialize` responses.
+   * Defaults to `"stateless"`.
+   */
+  readonly sessionId?: "stateless" | "disabled";
 }
 
 export interface SupabaseMcpApiKeyVerifyContext<Database = unknown> {
@@ -416,6 +531,12 @@ export interface SupabaseMcpState {
     key: string,
     options: SupabaseMcpStateDeleteOptions,
   ): Promise<boolean>;
+  /** Configured TTL bounds for `namespace`, used by short-TTL preview helpers. */
+  namespaceOptions?(
+    namespace: string,
+  ):
+    | { readonly ttlSeconds: number; readonly maxTtlSeconds: number }
+    | undefined;
 }
 
 export type SupabaseMcpServer = McpServer & {
@@ -442,11 +563,27 @@ export interface SupabaseMcpContext<Database = unknown> {
   hasScope(scope: string): boolean;
   hasScopes(scopes: readonly string[]): boolean;
   readonly traceId: string;
+  /** Normalized protocol era, client identity, and capability support flags. */
+  readonly client: SupabaseMcpClientContext;
+  /** Validated visible-ASCII `Mcp-Session-Id` header when supplied, else `null`. */
+  readonly sessionId: string | null;
   /**
    * Optional request-scoped, credential-partitioned state. Present only when
    * protected authentication and durable state are both configured.
    */
   readonly state?: SupabaseMcpState;
+  /**
+   * Optional `(credential, sessionId)`-partitioned durable state. Present only
+   * when protected authentication, durable state, and a valid `Mcp-Session-Id`
+   * header are all present.
+   */
+  readonly sessionState?: SupabaseMcpState;
+  /**
+   * Verified explicit application-run fact when `runCorrelation` is configured:
+   * `RunFact` when request carried a valid handle, `null` when none was supplied,
+   * `undefined` when `runCorrelation` is not configured.
+   */
+  readonly run?: SupabaseMcpRunFact | null;
 }
 
 export interface SupabaseMcpErrorEvent {
@@ -457,6 +594,7 @@ export interface SupabaseMcpErrorEvent {
     | "metadata"
     | "mcp"
     | "rate-limit"
+    | "register"
     | "results"
     | "runtime"
     | "surface";
@@ -491,6 +629,67 @@ export interface SupabaseMcpAccessOptions<Database = unknown> {
   resolveScopes?(
     context: SupabaseMcpContext<Database>,
   ): readonly string[] | Promise<readonly string[]>;
+  /**
+   * Restrict which verified OAuth / API-key `clientId` values may call this
+   * MCP surface. Checked against verified `jwtClaims.client_id` / verifier
+   * `clientId` (never unverified `clientInfo.name`). Rejects with HTTP 403.
+   */
+  readonly allowClients?:
+    | readonly string[]
+    | ((
+        clientId: string | undefined,
+        context: SupabaseMcpContext<Database>,
+      ) => boolean | Promise<boolean>);
+  /**
+   * Require every listed scope before entering the MCP handler. Missing scopes
+   * short-circuit with HTTP 403 + RFC 6750 `WWW-Authenticate` `insufficient_scope`.
+   */
+  readonly requiredScopes?: readonly string[];
+}
+
+export type SupabaseMcpPipelineAccessOptions<Database = unknown> =
+  SupabaseMcpAccessOptions<Database>;
+
+export interface SupabaseMcpProfileLike<
+  Id extends string = string,
+  Database = unknown,
+> {
+  readonly id: Id;
+  readonly tools: ReadonlySet<string>;
+  readonly systemTools: ReadonlySet<string>;
+  readonly presentedNameFor: (canonicalName: string) => string | undefined;
+  readonly canonicalNameFor: (presentedName: string) => string | undefined;
+  readonly instructions?:
+    | string
+    | ((
+        context: SupabaseMcpContext<Database>,
+      ) => string | undefined | Promise<string | undefined>);
+}
+
+export interface SupabaseMcpProfileCatalogLike<
+  ProfileId extends string = string,
+  Database = unknown,
+> {
+  readonly ids: readonly ProfileId[];
+  readonly vocabulary?: {
+    readonly knownTools: ReadonlySet<string>;
+    readonly plainWordTools: ReadonlySet<string>;
+    rewrite(
+      text: string,
+      mounted: ReadonlySet<string>,
+      aliases?: ReadonlyMap<string, string>,
+    ): string;
+  };
+  get(id: ProfileId): SupabaseMcpProfileLike<ProfileId, Database>;
+  parseId(value: string): ProfileId;
+}
+
+export interface SupabaseMcpProfilesOptions<
+  ProfileId extends string = string,
+  Database = unknown,
+> {
+  readonly catalog: SupabaseMcpProfileCatalogLike<ProfileId, Database>;
+  select(context: SupabaseMcpContext<Database>): ProfileId | Promise<ProfileId>;
 }
 
 export interface CreateSupabaseMcpOptions<Database = unknown> {
@@ -514,6 +713,12 @@ export interface CreateSupabaseMcpOptions<Database = unknown> {
   /** Optional explicit application-run correlation for handlers and lifecycle v2. */
   runCorrelation?: SupabaseMcpRunCorrelation<Database>;
   access?: SupabaseMcpAccessOptions<Database>;
+  /** Optional multi-audience capability profile catalog and request-time selector. */
+  profiles?: SupabaseMcpProfilesOptions<string, Database>;
+  /** Optional client capability heuristics and fallback policies. */
+  clientPolicy?: SupabaseMcpClientPolicy;
+  /** Optional browser MCP host CORS preflight and origin allowlist. */
+  cors?: McpCorsOptions;
   register(
     server: SupabaseMcpServer,
     context: SupabaseMcpContext<Database>,
@@ -531,6 +736,8 @@ export interface CreateSupabaseMcpOptions<Database = unknown> {
   protocol?: {
     legacy?: "stateless" | "reject";
     responseMode?: "auto" | "json" | "sse";
+    subscriptions?: McpTransportArmorOptions["subscriptions"];
+    sessionId?: McpTransportArmorOptions["sessionId"];
   };
   /**
    * Receive redacted lifecycle facts in an application-owned sink. Returned

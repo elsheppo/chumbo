@@ -213,6 +213,7 @@ createSupabaseMcp({
   await cp(packageRoot, join(nodeModules, "chumbo"), { recursive: true });
   for (const dependency of [
     "@modelcontextprotocol/server",
+    "@supabase/middleware",
     "@supabase/server",
     "@supabase/supabase-js",
     "zod",
