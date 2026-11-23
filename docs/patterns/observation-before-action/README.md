@@ -81,6 +81,94 @@ Missing or expired state, credential rotation, and state-service failure must
 all fail closed for guarded mutations. Return an actionable instruction to
 reread or retry; never silently bypass the observation requirement.
 
+## SDK helpers: `observeResource` and `requireObserved`
+
+Chumbo ships two helpers on the root `"chumbo"` export that implement this
+3-step contract directly over `ctx.state`:
+
+- `observeResource(ctx.state, { namespace, resourceKey, resourceVersion, scope?, meta?, ttlSeconds? })`
+  writes a versioned `ObservationReceipt` (`{ v: 1, resourceVersion, scope, observedAt, meta? }`)
+  using compare-and-swap retries against `ctx.state`.
+- `requireObserved(ctx.state, { namespace, resourceKey, readToolName, verifyScope?, ttlSeconds?, mutate })`
+  enforces all three steps in order:
+  1. Loads and validates the receipt (failing closed with
+     `phase: "observation"`, `reason: "state_unavailable" | "not_observed" | "insufficient_scope"`,
+     and an actionable `CallToolResult` naming `readToolName`).
+  2. Runs `mutate({ observedVersion, receipt, stateRevision })` only after Step 1
+     succeeds. Your `mutate` callback performs the authoritative domain CAS
+     (e.g. `UPDATE ... WHERE id = $1 AND version = $2`) and returns either
+     `{ status: "committed", value, nextVersion?, receipt? }` or
+     `{ status: "rejected", reason, error }`.
+  3. Only after `status === "committed"`, advances the receipt to `nextVersion`
+     (or deletes it when `receipt: "invalidate"` or `nextVersion` is omitted)
+     using `expectedRevision: stateRevision`. If Step 3 fails after Step 2
+     already committed in the database, `requireObserved` catches the state
+     error and returns `{ ok: true, value, receiptAdvanced: false, rereadRequired: true }`
+     so the committed write is never reported as failed while the next mutation
+     still requires a fresh read.
+
+```ts
+import {
+  errorResult,
+  observeResource,
+  requireObserved,
+  structuredResult,
+} from "chumbo";
+
+// Read tool: load authoritative snapshot, then record the receipt.
+const doc = await loadDocument(ctx, documentId);
+await observeResource(ctx.state, {
+  namespace: "docs",
+  resourceKey: `project:${doc.projectId}:document:${doc.id}`,
+  resourceVersion: doc.version,
+  scope: "full",
+  ttlSeconds: 900,
+});
+
+// Mutating tool: guard with requireObserved and atomic DB version check.
+const guarded = await requireObserved(ctx.state, {
+  namespace: "docs",
+  resourceKey: `project:${projectId}:document:${documentId}`,
+  readToolName: "read_document",
+  verifyScope: (receipt) => receipt.scope === "full",
+  async mutate({ observedVersion }) {
+    const updated = await updateDocumentIfVersionMatches(
+      ctx,
+      documentId,
+      observedVersion,
+      patch,
+    );
+    if (!updated) {
+      return {
+        status: "rejected",
+        reason: "stale_version",
+        error: errorResult(
+          "state_changed: Document changed since your last read.",
+          "Call read_document to inspect the latest version before retrying.",
+        ),
+      };
+    }
+    return {
+      status: "committed",
+      value: updated,
+      nextVersion: updated.version,
+    };
+  },
+});
+
+if (!guarded.ok) {
+  return guarded.error;
+}
+return structuredResult({
+  document: guarded.value,
+  rereadRequired: guarded.rereadRequired,
+});
+```
+
+See [test/governed-review-pattern.test.ts](../../../test/governed-review-pattern.test.ts)
+for an end-to-end test covering read -> observe -> guarded mutation, missing
+and stale refusals, and Step 3 safe false-negative recovery.
+
 ## Identity semantics
 
 Chumbo partitions state by the exact authenticated credential, authentication

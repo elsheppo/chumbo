@@ -1,4 +1,5 @@
 export {
+  capabilityAnnotationsFor,
   capabilityManifest,
   CHUMBO_CAPABILITY_META_KEY,
   defineCapability,
@@ -23,48 +24,249 @@ export type {
   CliToolDescriptor,
 } from "./cli-surface.js";
 export {
+  decodeClientSupportMask,
+  DEFAULT_CLIENT_CONTEXT,
+  DEFAULT_CLIENT_SUPPORT,
+  encodeClientSupportMask,
+  resolveMcpClientContext,
+  resourceLinkFallbackMiddleware,
+} from "./client-context.js";
+export type {
+  ClientEnvelopeInput,
+  ResourceLinkFallbackMiddlewareOptions,
+} from "./client-context.js";
+export {
   collectionInputSchema,
+  collectionLimits,
   collectionOutputSchema,
   collectionResult,
-  collectionLimits,
+  defineCursor,
+  registerCollection,
 } from "./collections.js";
 export type {
-  CollectionPage,
+  CollectionHandlerInput,
   CollectionNextCall,
+  CollectionPage,
+  CollectionPageBuilderOptions,
   CollectionResultOptions,
+  DecodedCursorResult,
+  DefineCursorOptions,
+  DefinedCursor,
+  RegisterCollectionConfig,
 } from "./collections.js";
-export { createSupabaseMcp, oauthDefaults, runtimeUrls } from "./runtime.js";
 export {
-  createRunCorrelation,
-  runCorrelationLimits,
-  SupabaseMcpRunCorrelationError,
-} from "./internal/run-correlation.js";
-export type { SupabaseMcpRunCorrelationErrorCode } from "./internal/run-correlation.js";
+  projectInputFields,
+  registerProjectedCapability,
+} from "./field-projection.js";
+export type {
+  FieldPlanAuthorizationResult,
+  ProjectedCapabilityRegistration,
+  ProjectedFieldRule,
+  ProjectedToolContract,
+  ProjectInputFieldsConfig,
+  ValidatedFieldPlan,
+} from "./field-projection.js";
+export {
+  DEFAULT_PLAIN_WORD_TOOLS,
+  defineToolVocabulary,
+  mapInputSchemaDescriptions,
+  rewriteSchemaDescriptions,
+  scopedGuidance,
+  scopedInputSchema,
+} from "./guidance.js";
+export type {
+  GuidanceVocabularyOptions,
+  ToolGuidanceVocabulary,
+  ToolReferenceRule,
+} from "./guidance.js";
+export {
+  assertMcpAppUri,
+  buildHubUrl,
+  defineMcpApp,
+  idempotencyConflictResult,
+  injectAppPresentation,
+  isMcpAppOnlyTool,
+  MCP_APP_MIME_TYPE,
+  MCP_APP_PRESENTATION_PLACEHOLDER,
+  MCP_APP_PRESENTATION_SCRIPT_ID,
+  MCP_APP_RESOURCE_URI_META_KEY,
+  McpAppPresentationError,
+  McpAppPresentationManifestSchema,
+  mcpAppPresentationOrigins,
+  mcpAppResourceMeta,
+  mcpAppToolMeta,
+  NEUTRAL_APP_PRESENTATION,
+  parseAppPresentationEnv,
+  parseAppPresentationManifest,
+  registerMcpApp,
+  requestIdFieldSchema,
+  resolveAppPresentation,
+  scriptSafeJson,
+} from "./mcp-apps.js";
+export type {
+  AppToolConfig,
+  DefinedMcpApp,
+  McpAppBrand,
+  McpAppBrandColors,
+  McpAppCsp,
+  McpAppCspInput,
+  McpAppDefinition,
+  McpAppPermissions,
+  McpAppPresentation,
+  McpAppPresentationInput,
+  McpAppPresentationManifestInput,
+  McpAppPresentationResolveInput,
+  McpAppReadContext,
+  McpAppResourceMeta,
+  McpAppThemePalette,
+  McpAppToolMeta,
+  McpAppToolVisibility,
+  McpAppUri,
+  OpenToolConfig,
+  RegisteredMcpApp,
+  RegisterMcpAppOptions,
+} from "./mcp-apps.js";
+export { observeResource, requireObserved } from "./observations.js";
+export type {
+  GuardedMutationOutcome,
+  ObservationFailureReason,
+  ObservationReceipt,
+  ObservedResourceStateValue,
+  ObservedResourceVersion,
+  ObserveResourceOptions,
+  RequireObservedOptions,
+  RequireObservedResult,
+} from "./observations.js";
+export { consumePreview, mintPreview, previewLimits } from "./previews.js";
+export type {
+  ConsumePreviewFailureReason,
+  ConsumePreviewOptions,
+  ConsumePreviewResult,
+  MintedPreview,
+  MintPreviewOptions,
+} from "./previews.js";
+export {
+  CHUMBO_CANONICAL_TOOL,
+  defineProfile,
+  defineProfiles,
+  withProfile,
+} from "./profiles.js";
+export type {
+  ChumboProfileDefinition,
+  DefinedChumboProfile,
+  DefinedProfileCatalog,
+  ToolAliasPresentation,
+} from "./profiles.js";
 export {
   appendResultText,
   composeResultContent,
   errorResult,
+  formatGuidanceLines,
+  fromSupabaseError,
+  guidanceFields,
+  guidedResult,
+  openJsonSchema,
+  openOutputSchema,
   prependResultText,
+  renderGuidedResult,
   renderResult,
   resourceResult,
+  resultGuidanceSchema,
+  resultGuidanceShape,
   structuredResult,
   textResult,
+  withOpenOutputSchema,
+  withResultGuidance,
 } from "./results.js";
 export type {
+  FromSupabaseErrorHandlers,
+  FromSupabaseErrorOptions,
+  GuidedValue,
   JsonValue,
+  NormalizedResultGuidance,
+  RedactedSupabaseErrorInfo,
+  ResourceResultFallbackOptions,
   ResourceResultLink,
   ResultContentBlock,
   ResultContentComposition,
+  ResultGuidance,
+  SupabaseErrorCategory,
+  SupabaseErrorHandler,
+  SupabaseErrorReply,
 } from "./results.js";
+export {
+  createRunCorrelation,
+  RunCorrelationError,
+  runCorrelationLimits,
+  runHandleInputSchema,
+  SupabaseMcpRunCorrelationError,
+  withRunInput,
+} from "./run-correlation.js";
+export type {
+  MintedRun,
+  PreviousRunCorrelationKey,
+  RunCorrelationKey,
+  RunFact,
+  RunHandle,
+  RunScope,
+  SupabaseMcpRunCorrelationErrorCode,
+} from "./run-correlation.js";
+export { createSupabaseMcp, oauthDefaults, runtimeUrls } from "./runtime.js";
+export {
+  activeWorkspaceStore,
+  DEFAULT_ACTIVE_WORKSPACE_TTL_SECONDS,
+  issueMcpSessionId,
+  MCP_SESSION_HEADER,
+  mcpSessionId,
+  registerUseWorkspace,
+  resolveActiveWorkspace,
+  withWorkspaceEcho,
+  workspaceRequiredMessage,
+} from "./session-state.js";
+export type {
+  ActiveWorkspaceStore,
+  ActiveWorkspaceStoreOptions,
+  RegisterUseWorkspaceOptions,
+  ResolveActiveWorkspaceOptions,
+  ResolveActiveWorkspaceResult,
+  WorkspaceDescriptor,
+  WorkspaceRouteProblem,
+  WorkspaceRoutingTerminology,
+} from "./session-state.js";
+export {
+  durableStateLimits,
+  SupabaseMcpStateConflictError,
+  SupabaseMcpStateMissingError,
+  SupabaseMcpStateUnavailableError,
+  validateDurableStateNamespace,
+} from "./state.js";
+export {
+  applyMcpCorsPreflight,
+  applyMcpTransportArmor,
+  decorateMcpCorsResponse,
+  DEFAULT_MCP_ALLOW_HEADERS,
+  DEFAULT_MCP_EXPOSE_HEADERS,
+  evaluateMcpCorsOrigin,
+  forbiddenOriginResponse,
+  inspectInboundMcpEnvelope,
+  mergeExposedHeaders,
+  mergeHeaderTokens,
+} from "./transport.js";
+export type {
+  EvaluatedCorsOrigin,
+  InboundMcpEnvelope,
+  SurfaceListRequest,
+} from "./transport.js";
+export { RESERVED_CLI_ROOT_COMMANDS } from "./types.js";
 export type {
   CreateSupabaseMcpOptions,
+  McpCorsOptions,
+  McpTransportArmorOptions,
+  ResourceLinkSupport,
+  SupabaseMcpAccessOptions,
   SupabaseMcpApiKeyAuth,
   SupabaseMcpApiKeyIdentity,
   SupabaseMcpApiKeyVerifyContext,
-  SupabaseMcpOAuthAuth,
-  SupabaseMcpOAuthIdentity,
-  SupabaseMcpOAuthVerifyContext,
-  SupabaseMcpAccessOptions,
   SupabaseMcpApp,
   SupabaseMcpAuth,
   SupabaseMcpAuthentication,
@@ -76,6 +278,10 @@ export type {
   SupabaseMcpCapabilityStartedEvent,
   SupabaseMcpCapabilityStartedEventV1,
   SupabaseMcpCapabilityStartedEventV2,
+  SupabaseMcpClientContext,
+  SupabaseMcpClientInfo,
+  SupabaseMcpClientPolicy,
+  SupabaseMcpClientSupport,
   SupabaseMcpContext,
   SupabaseMcpDurableStateOptions,
   SupabaseMcpErrorEvent,
@@ -83,20 +289,27 @@ export type {
   SupabaseMcpLifecycleEvent,
   SupabaseMcpLifecycleOutcome,
   SupabaseMcpLifecycleServer,
-  SupabaseMcpPostgresRateLimit,
-  SupabaseMcpPrincipal,
-  SupabaseMcpProtectedAuth,
   SupabaseMcpMintRunOptions,
+  SupabaseMcpOAuthAuth,
+  SupabaseMcpOAuthIdentity,
+  SupabaseMcpOAuthVerifyContext,
+  SupabaseMcpPipelineAccessOptions,
+  SupabaseMcpPostgresRateLimit,
   SupabaseMcpPreviousRunCorrelationKey,
+  SupabaseMcpPrincipal,
+  SupabaseMcpProfileCatalogLike,
+  SupabaseMcpProfileLike,
+  SupabaseMcpProfilesOptions,
+  SupabaseMcpProtectedAuth,
   SupabaseMcpResolveRunInput,
+  SupabaseMcpResultMiddleware,
+  SupabaseMcpResultMiddlewareInput,
   SupabaseMcpRunCorrelation,
   SupabaseMcpRunCorrelationKey,
   SupabaseMcpRunCorrelationOptions,
   SupabaseMcpRunFact,
   SupabaseMcpRunHandle,
   SupabaseMcpRunScope,
-  SupabaseMcpResultMiddleware,
-  SupabaseMcpResultMiddlewareInput,
   SupabaseMcpServer,
   SupabaseMcpState,
   SupabaseMcpStateDeleteOptions,
@@ -108,9 +321,12 @@ export type {
   SupabaseMcpSurfaceToolAnnotations,
 } from "./types.js";
 export {
-  durableStateLimits,
-  SupabaseMcpStateConflictError,
-  SupabaseMcpStateMissingError,
-  SupabaseMcpStateUnavailableError,
-  validateDurableStateNamespace,
-} from "./state.js";
+  canonicalTerm,
+  canonicalTermKey,
+  resolveCanonicalVocabulary,
+  VocabularyIncompleteError,
+} from "./vocabulary.js";
+export type {
+  ResolveCanonicalVocabularyOptions,
+  VocabularyLookupPage,
+} from "./vocabulary.js";

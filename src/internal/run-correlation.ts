@@ -1,4 +1,6 @@
+import { z } from "zod";
 import type {
+  MintedRun,
   SupabaseMcpContext,
   SupabaseMcpRunCorrelation,
   SupabaseMcpRunCorrelationOptions,
@@ -33,6 +35,8 @@ export type SupabaseMcpRunCorrelationErrorCode =
   | "invalid_token"
   | "unknown_key";
 
+export type RunCorrelationErrorCode = SupabaseMcpRunCorrelationErrorCode;
+
 export class SupabaseMcpRunCorrelationError extends Error {
   constructor(
     readonly code: SupabaseMcpRunCorrelationErrorCode,
@@ -42,6 +46,9 @@ export class SupabaseMcpRunCorrelationError extends Error {
     this.name = "SupabaseMcpRunCorrelationError";
   }
 }
+
+export const RunCorrelationError = SupabaseMcpRunCorrelationError;
+export type RunCorrelationError = SupabaseMcpRunCorrelationError;
 
 export interface RunCorrelationScope {
   /** Stable builder-project or installed-integration boundary. */
@@ -488,6 +495,55 @@ interface RunCorrelationDependencies {
 
 const runArgumentPattern = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
+/** Bounded string schema for an explicit tool run-handle input field. */
+export const runHandleInputSchema: z.ZodString = z
+  .string()
+  .min(1)
+  .max(runCorrelationLimits.tokenBytes)
+  .describe(
+    "Optional signed run handle linking this call to an explicit multi-step workflow.",
+  );
+
+/** Extend a Zod object inputSchema with the optional run-handle field (`run_id` by default). */
+export function withRunInput<
+  Shape extends z.ZodRawShape,
+  ArgName extends string = "run_id",
+>(
+  schema: z.ZodObject<Shape>,
+  options?: { readonly argumentName?: ArgName; readonly description?: string },
+): z.ZodObject<Shape & Record<ArgName, z.ZodOptional<z.ZodString>>> {
+  const name = (options?.argumentName ?? "run_id") as ArgName;
+  if (!runArgumentPattern.test(name)) {
+    throw fail(
+      "invalid_carrier",
+      "Run argumentName must be a 1-64 character ASCII field name.",
+    );
+  }
+  const field = (
+    options?.description
+      ? z
+          .string()
+          .min(1)
+          .max(runCorrelationLimits.tokenBytes)
+          .describe(options.description)
+      : runHandleInputSchema
+  ).optional();
+  return schema.extend({
+    [name]: field,
+  } as Record<ArgName, z.ZodOptional<z.ZodString>>) as z.ZodObject<
+    Shape & Record<ArgName, z.ZodOptional<z.ZodString>>
+  >;
+}
+
+export interface RunCorrelation<
+  Database = unknown,
+> extends SupabaseMcpRunCorrelation<Database> {
+  readonly argumentName: string;
+  withInput<Shape extends z.ZodRawShape>(
+    schema: z.ZodObject<Shape>,
+  ): z.ZodObject<Shape & Record<string, z.ZodOptional<z.ZodString>>>;
+}
+
 function parsedPreviousKey(
   configured: SupabaseMcpRunCorrelationOptions["previousKey"],
 ): RunCorrelationKey | undefined {
@@ -542,7 +598,7 @@ const headerFieldNamePattern = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/;
 export function createRunCorrelationInternal<Database = unknown>(
   options: SupabaseMcpRunCorrelationOptions<Database>,
   dependencies: RunCorrelationDependencies,
-): SupabaseMcpRunCorrelation<Database> {
+): RunCorrelation<Database> {
   const maxTtlSeconds =
     options.maxTtlSeconds ?? runCorrelationLimits.maxTtlSeconds;
   const ttlSeconds =
@@ -633,7 +689,7 @@ export function createRunCorrelationInternal<Database = unknown>(
     context: SupabaseMcpContext<Database>,
     mintOptions: { readonly ttlSeconds?: number } = {},
     recordOnContext = true,
-  ): Promise<SupabaseMcpRunHandle> => {
+  ): Promise<MintedRun> => {
     const now = dependencies.now();
     const scope = await scopeFor(context);
     const handle = await mintRunHandle({
@@ -682,7 +738,11 @@ export function createRunCorrelationInternal<Database = unknown>(
     },
   });
 
-  const correlation: SupabaseMcpRunCorrelation<Database> = {
+  const correlation: RunCorrelation<Database> = {
+    argumentName,
+    withInput<Shape extends z.ZodRawShape>(schema: z.ZodObject<Shape>) {
+      return withRunInput(schema, { argumentName });
+    },
     async mint(context, mintOptions = {}): Promise<SupabaseMcpRunHandle> {
       return mintInternal(context, mintOptions, true);
     },
@@ -796,7 +856,7 @@ export function createRunCorrelationInternal<Database = unknown>(
 /** Create an optional, application-scoped signed run-handle codec. */
 export function createRunCorrelation<Database = unknown>(
   options: SupabaseMcpRunCorrelationOptions<Database>,
-): SupabaseMcpRunCorrelation<Database> {
+): RunCorrelation<Database> {
   return createRunCorrelationInternal(options, {
     now: () => Date.now(),
     randomUUID: () => crypto.randomUUID(),

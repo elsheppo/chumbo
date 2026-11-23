@@ -57,9 +57,15 @@ interface StateRow {
   expires_at?: unknown;
 }
 
-interface StateFactoryIdentity {
+export interface StateFactoryIdentity {
   readonly credential: string;
   readonly authentication: SupabaseMcpAuthentication;
+  /**
+   * Optional validated `Mcp-Session-Id` header value. When supplied, derives a
+   * domain-separated `(credential, sessionId)` partition (`supa-mcp-session-state-v1`)
+   * isolated from both other credentials and other sessions of the same credential.
+   */
+  readonly sessionId?: string;
 }
 
 export interface SupabaseMcpStateFactory {
@@ -289,18 +295,36 @@ export function createSupabaseMcpStateFactory(
         false,
         ["sign"],
       );
+      if (
+        identity.sessionId !== undefined &&
+        (!identity.sessionId ||
+          controlPattern.test(identity.sessionId) ||
+          byteLength(identity.sessionId) > 1024)
+      ) {
+        throw new TypeError(
+          "Durable session state requires a non-empty ASCII sessionId of at most 1024 bytes.",
+        );
+      }
       const callerKey = hex(
         await crypto.subtle.sign(
           "HMAC",
           await cryptoKey,
-          framed([
-            // Stable domain separator: changing it would orphan existing
-            // credential partitions after a package or product rename.
-            "supa-mcp-state-v1",
-            identity.authentication.mode,
-            identity.authentication.strategy,
-            identity.credential,
-          ]),
+          identity.sessionId !== undefined
+            ? framed([
+                "supa-mcp-session-state-v1",
+                identity.authentication.mode,
+                identity.authentication.strategy,
+                identity.credential,
+                identity.sessionId,
+              ])
+            : framed([
+                // Stable domain separator: changing it would orphan existing
+                // credential partitions after a package or product rename.
+                "supa-mcp-state-v1",
+                identity.authentication.mode,
+                identity.authentication.strategy,
+                identity.credential,
+              ]),
         ),
       );
 
@@ -315,7 +339,7 @@ export function createSupabaseMcpStateFactory(
         return configured;
       }
 
-      return Object.freeze({
+      const state: SupabaseMcpState = {
         async get<Value extends JsonValue = JsonValue>(
           namespace: string,
           key: string,
@@ -398,7 +422,14 @@ export function createSupabaseMcpStateFactory(
           }
           throw new SupabaseMcpStateUnavailableError();
         },
+      };
+      Object.defineProperty(state, "namespaceOptions", {
+        value: (namespace: string) => namespaceOptions(namespace),
+        enumerable: false,
+        configurable: false,
+        writable: false,
       });
+      return Object.freeze(state);
     },
   });
 }

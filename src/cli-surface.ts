@@ -1,9 +1,12 @@
+import type {
+  ChumboCapabilityManifestV1,
+  ChumboCapabilityRisk,
+  ChumboCliPresentation,
+} from "./capabilities.js";
 import {
   CHUMBO_CAPABILITY_META_KEY,
-  type ChumboCapabilityManifestV1,
-  type ChumboCapabilityRisk,
-  type ChumboCliPresentation,
-} from "./capabilities.js";
+  RESERVED_CLI_ROOT_COMMANDS,
+} from "./types.js";
 
 export interface CliToolDescriptor {
   readonly name: string;
@@ -37,11 +40,19 @@ export interface CliInvocation {
 }
 
 const commandSegment = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
+const reservedCliRoots = new Set<string>(RESERVED_CLI_ROOT_COMMANDS);
 
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function isAppOnlyTool(tool: CliToolDescriptor): boolean {
+  const ui = record(tool._meta?.ui);
+  const visibility = ui?.visibility;
+  if (!Array.isArray(visibility)) return false;
+  return visibility.includes("app") && !visibility.includes("model");
 }
 
 function manifestFrom(
@@ -59,16 +70,19 @@ function manifestFrom(
   ) {
     return null;
   }
-  const cli = record(value.cli);
-  if (
-    !cli ||
-    !Array.isArray(cli.command) ||
-    cli.command.length === 0 ||
-    !cli.command.every(
-      (segment) => typeof segment === "string" && commandSegment.test(segment),
-    )
-  ) {
-    return null;
+  if (value.cli !== undefined) {
+    const cli = record(value.cli);
+    if (
+      !cli ||
+      !Array.isArray(cli.command) ||
+      cli.command.length === 0 ||
+      !cli.command.every(
+        (segment) =>
+          typeof segment === "string" && commandSegment.test(segment),
+      )
+    ) {
+      return null;
+    }
   }
   return value as unknown as ChumboCapabilityManifestV1;
 }
@@ -83,34 +97,43 @@ export function cliCapabilities(
   tools: readonly CliToolDescriptor[],
 ): readonly CliCapability[] {
   const commands = new Set<string>();
-  return tools
-    .map((tool): CliCapability => {
-      const manifest = manifestFrom(tool);
-      const command = manifest?.cli.command ?? ["run", tool.name];
-      const key = command.join("\u0000");
-      if (commands.has(key)) {
-        throw new TypeError(`Duplicate CLI command: ${command.join(" ")}`);
-      }
-      commands.add(key);
-      return Object.freeze({
+  const resolved: CliCapability[] = [];
+  for (const tool of tools) {
+    const manifest = manifestFrom(tool);
+    if (isAppOnlyTool(tool) && !manifest?.cli) {
+      continue;
+    }
+    const rawCommand = manifest?.cli?.command ?? ["run", tool.name];
+    const command =
+      manifest?.cli && reservedCliRoots.has(manifest.cli.command[0])
+        ? ["run", ...manifest.cli.command]
+        : rawCommand;
+    const key = command.join("\u0000");
+    if (commands.has(key)) {
+      throw new TypeError(`Duplicate CLI command: ${command.join(" ")}`);
+    }
+    commands.add(key);
+    resolved.push(
+      Object.freeze({
         id: manifest?.id ?? tool.name,
         mcpName: tool.name,
         title: tool.title ?? tool.name,
-        description: manifest?.cli.description ?? tool.description ?? "",
+        description: manifest?.cli?.description ?? tool.description ?? "",
         command: Object.freeze([...command]),
         risk: manifest?.risk ?? inferredRisk(tool),
         idempotent:
           manifest?.idempotent ?? tool.annotations?.idempotentHint === true,
         scopes: Object.freeze([...(manifest?.scopes ?? [])]),
-        presentation: manifest?.cli.presentation ?? "auto",
-        examples: Object.freeze([...(manifest?.cli.examples ?? [])]),
+        presentation: manifest?.cli?.presentation ?? "auto",
+        examples: Object.freeze([...(manifest?.cli?.examples ?? [])]),
         inputSchema: Object.freeze({ ...(tool.inputSchema ?? {}) }),
         authored: manifest !== null,
-      });
-    })
-    .sort((left, right) =>
-      left.command.join(" ").localeCompare(right.command.join(" ")),
+      }),
     );
+  }
+  return resolved.sort((left, right) =>
+    left.command.join(" ").localeCompare(right.command.join(" ")),
+  );
 }
 
 function propertyName(

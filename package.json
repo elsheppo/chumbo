@@ -1,6 +1,6 @@
 {
   "name": "chumbo",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "MCP made easy on Supabase.",
   "type": "module",
   "license": "MIT",
@@ -57,6 +57,14 @@
     "./insights": {
       "types": "./dist/insights.d.ts",
       "import": "./dist/insights.js"
+    },
+    "./middleware": {
+      "types": "./dist/middleware.d.ts",
+      "import": "./dist/middleware.js"
+    },
+    "./connect": {
+      "types": "./dist/connect.d.ts",
+      "import": "./dist/connect.js"
     }
   },
   "files": [
@@ -94,11 +102,22 @@
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/server": "2.0.0",
     "@napi-rs/keyring": "2.0.0",
+    "@supabase/middleware": "1.0.0",
     "@supabase/server": "1.9.2",
     "@supabase/supabase-js": "2.105.4"
   },
   "peerDependencies": {
+    "vite": "^6.0.0 || ^7.0.0 || ^8.0.0",
+    "vite-plugin-singlefile": "^2.0.0",
     "zod": "^4.2.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
+    "vite-plugin-singlefile": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "24.10.1",

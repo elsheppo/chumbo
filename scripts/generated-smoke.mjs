@@ -344,6 +344,7 @@ try {
   );
   for (const dependency of [
     "@modelcontextprotocol/server",
+    "@supabase/middleware",
     "@supabase/server",
     "@supabase/supabase-js",
     "zod",
@@ -378,8 +379,11 @@ try {
     );
     const denoPath = join(functionDirectory, "deno.json");
     const denoConfig = JSON.parse(await readFile(denoPath, "utf8"));
-    delete denoConfig.imports["chumbo"];
-    delete denoConfig.imports["chumbo/insights"];
+    for (const key of Object.keys(denoConfig.imports ?? {})) {
+      if (key === "chumbo" || key.startsWith("chumbo/")) {
+        delete denoConfig.imports[key];
+      }
+    }
     denoConfig.nodeModulesDir = "manual";
     await writeFile(denoPath, `${JSON.stringify(denoConfig, null, 2)}\n`);
     run("deno", ["task", "check"], { cwd: functionDirectory });
@@ -389,6 +393,138 @@ try {
     "check",
     join(fixture, "supabase", "functions", "mcp-consent", "index.ts"),
   ]);
+
+  const cliEntry = join(repository, "dist", "cli.js");
+  const rejectedTryArgs = spawnSync(
+    "node",
+    [
+      cliEntry,
+      "try",
+      "--json",
+      "--args",
+      JSON.stringify({ secret: "never-echo-try-arg" }),
+    ],
+    { cwd: fixture, encoding: "utf8", env: process.env },
+  );
+  if (
+    rejectedTryArgs.status === 0 ||
+    rejectedTryArgs.stdout.includes("never-echo-try-arg") ||
+    rejectedTryArgs.stderr.includes("never-echo-try-arg")
+  ) {
+    throw new Error(
+      `chumbo try without tool echoed or accepted --args:\n${rejectedTryArgs.stdout}\n${rejectedTryArgs.stderr}`,
+    );
+  }
+
+  const cliInitPlan = JSON.parse(
+    run("node", [
+      cliEntry,
+      "cli",
+      "init",
+      "--bin",
+      "acme",
+      "--package",
+      "@acme/cli",
+      "--url",
+      "https://api.acme.example/mcp",
+      "--plan",
+      "--json",
+    ]).stdout,
+  );
+  if (cliInitPlan.status !== "planned") {
+    throw new Error(
+      `Expected chumbo cli init --plan to report planned, got: ${JSON.stringify(cliInitPlan)}`,
+    );
+  }
+
+  const appList = JSON.parse(
+    run("node", [cliEntry, "app", "list", "--json"]).stdout,
+  );
+  if (!Array.isArray(appList.apps)) {
+    throw new Error(
+      `Expected chumbo app list --json to return an apps array: ${JSON.stringify(appList)}`,
+    );
+  }
+
+  const scaffoldPlan = JSON.parse(
+    run("node", [
+      cliEntry,
+      "test",
+      "scaffold",
+      "--steps",
+      "whoami",
+      "--runner",
+      "deno",
+      "--plan",
+      "--json",
+    ]).stdout,
+  );
+  if (scaffoldPlan.status !== "planned") {
+    throw new Error(
+      `Expected chumbo test scaffold --plan to report planned, got: ${JSON.stringify(scaffoldPlan)}`,
+    );
+  }
+
+  const officialDir = join(fixture, "supabase", "functions", "official-mcp");
+  await mkdir(officialDir, { recursive: true });
+  await writeFile(
+    join(officialDir, "index.ts"),
+    [
+      'import { McpServer } from "@modelcontextprotocol/server";',
+      'import { pipeline, withOAuthProtectedResource, withSupabase } from "@supabase/middleware";',
+      'import { serveMcp } from "@supabase/server";',
+      "",
+      'const server = new McpServer({ name: "official-mcp", version: "1.0.0" });',
+      "export const handler = pipeline(",
+      '  [withOAuthProtectedResource(), withSupabase({ auth: "user" })],',
+      "  serveMcp(server),",
+      ");",
+      "Deno.serve(handler);",
+      "",
+    ].join("\n"),
+  );
+  const officialDryRun = JSON.parse(
+    run("node", [
+      cliEntry,
+      "init",
+      "--function",
+      "official-mcp",
+      "--dry-run",
+      "--json",
+    ]).stdout,
+  );
+  if (
+    officialDryRun.status !== "planned" ||
+    officialDryRun.adoptedOfficial !== true
+  ) {
+    throw new Error(
+      `Expected official MCP dry-run adoption to plan cleanly: ${JSON.stringify(officialDryRun)}`,
+    );
+  }
+  const officialApplied = JSON.parse(
+    run("node", [
+      cliEntry,
+      "init",
+      "--function",
+      "official-mcp",
+      "--yes",
+      "--json",
+    ]).stdout,
+  );
+  if (
+    officialApplied.status !== "complete" ||
+    officialApplied.adoptedOfficial !== true
+  ) {
+    throw new Error(
+      `Expected official MCP adoption to complete cleanly: ${JSON.stringify(officialApplied)}`,
+    );
+  }
+  const adoptedSource = await readFile(join(officialDir, "index.ts"), "utf8");
+  if (!adoptedSource.includes("withChumbo(")) {
+    throw new Error(
+      `Adopted official MCP entry did not include withChumbo:\n${adoptedSource}`,
+    );
+  }
 
   await smokeHostTargets();
   console.log("Generated project type-check, test, and doctor passed.");
@@ -409,6 +545,7 @@ async function linkRuntimeModules(root) {
   );
   for (const dependency of [
     "@modelcontextprotocol/server",
+    "@supabase/middleware",
     "@supabase/server",
     "@supabase/supabase-js",
     "zod",

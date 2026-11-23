@@ -13,15 +13,16 @@ and preferably Deno for generated type-checks and tests.
 
 ## Identify what is already present
 
-| You find                                                                                          | Next action                                                           |
-| ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `supabase/config.toml`, but no generated MCP function                                             | Preview and run setup                                                 |
-| `supabase/functions/<name>/` with `index.ts`, `capabilities.ts`, `deno.json`, and `index_test.ts` | Run `npx chumbo status --json` before editing                         |
-| A Next.js app (`next` in package.json) with no Supabase directory                                 | Use `npx chumbo setup --target next`                                  |
-| `app/<name>/[[...path]]/route.ts` or `<name>/index.ts` built on `createSupabaseMcp`               | An applied host-target scaffold; run `npx chumbo status --json`       |
-| A Node service that should own its MCP process                                                    | Use `npx chumbo setup --target node`                                  |
-| Application-authored capabilities                                                                 | Preserve them; resume setup around them                               |
-| Missing generated files or configuration drift                                                    | Run status, then use resumable setup rather than regenerating by hand |
+| You find                                                                                             | Next action                                                                                        |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `supabase/config.toml`, but no generated MCP function                                                | Preview and run setup                                                                              |
+| `supabase/functions/<name>/` with `index.ts`, `capabilities.ts`, `deno.json`, and `index_test.ts`    | Run `npx chumbo status --json` before editing                                                      |
+| An existing official `@supabase/server` MCP function (`withSupabase` / `withOAuthProtectedResource`) | Run `npx chumbo setup --plan --json` to adopt via `chumbo/middleware` without replacing `index.ts` |
+| A Next.js app (`next` in package.json) with no Supabase directory                                    | Use `npx chumbo setup --target next`                                                               |
+| `app/<name>/[[...path]]/route.ts` or `<name>/index.ts` built on `createSupabaseMcp`                  | An applied host-target scaffold; run `npx chumbo status --json`                                    |
+| A Node service that should own its MCP process                                                       | Use `npx chumbo setup --target node`                                                               |
+| Application-authored capabilities                                                                    | Preserve them; resume setup around them                                                            |
+| Missing generated files or configuration drift                                                       | Run status, then use resumable setup rather than regenerating by hand                              |
 
 Inspect the existing auth mode, package import, function name, tests, RLS,
 grants, RPCs, and application APIs before deciding what to change.

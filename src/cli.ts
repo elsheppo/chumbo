@@ -4,6 +4,8 @@ import { access, readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
+import { appCommand } from "./app-bundler.js";
+import { cliCommand, splitArgsAtDoubleDash } from "./cli-command.js";
 import {
   applyCloudPatch,
   cloudDeviceName,
@@ -17,8 +19,23 @@ import {
   resolveCloudDeployCommand,
   reportCloudSetupEvent,
 } from "./cloud-setup.js";
-import { functionNameFromUrl, runDoctor, type DoctorCheck } from "./doctor.js";
+import { startDevAppSimulator } from "./dev-app-simulator.js";
+import {
+  gatherDevStartupBanner,
+  startDevWorkbench,
+  type DevAppSimulatorHook,
+} from "./dev-workbench.js";
+import {
+  buildDoctorReport,
+  functionNameFromUrl,
+  runDoctor,
+  type DoctorCheck,
+} from "./doctor.js";
 import { buildHostTargetReport, type HostTarget } from "./host-target.js";
+import {
+  inspectMcpEntryAt,
+  planOfficialAdoption,
+} from "./official-adoption.js";
 import {
   applyPlan,
   displayPlan,
@@ -56,17 +73,30 @@ import {
   type SkillAction,
   type SkillPlan,
 } from "./skill.js";
+import type { SurfaceDiffCategory } from "./surface-diff.js";
+import {
+  formatSurfaceDiffReport,
+  runSurfaceDiff,
+  runSurfaceSnapshot,
+} from "./surface-lock.js";
+import { runTestScaffold } from "./test-scaffold.js";
+import { formatTryReport, parseTryArgs, runTry } from "./try.js";
 
 const HELP = `chumbo ${PACKAGE_VERSION}
 
 Usage:
-  chumbo setup [options]   Guided, resumable installation
-  chumbo status [options]  Read-only setup status
-  chumbo init [options]    Generate files only
-  chumbo doctor [options]  Check local or deployed setup
-  chumbo dev [options]     Serve the function locally
-  chumbo skill <action>    Install, inspect, or update the project agent skill
-  chumbo cloud setup       Pair with Cloud and finish analytics setup
+  chumbo setup [options]              Guided, resumable installation
+  chumbo status [options]             Read-only setup status
+  chumbo init [options]               Generate files or adopt an official Supabase MCP
+  chumbo doctor [options]             Check local or deployed setup, grants, and token budget
+  chumbo dev [options]                Serve the function locally (with optional --workbench)
+  chumbo try [<tool>] [options]       Run discovery or a tool locally across personas
+  chumbo surface <snapshot|diff>      Manage canonical mcp-surface.lock.json for Git review
+  chumbo test scaffold [options]      Generate a journey contract test from a run receipt
+  chumbo app <add|build|list>         Scaffold, bundle, or inspect single-file MCP Apps
+  chumbo cli <init|status|render|try> Create, update, or test a project-branded CLI
+  chumbo skill <action>               Install, inspect, or update the project agent skill
+  chumbo cloud setup                  Pair with Cloud and finish analytics setup
 
 Skill actions:
   skill install           Install the versioned skill into this project
@@ -93,15 +123,35 @@ Setup options:
   --deploy                Deploy after generation and local checks
   --skip-checks           Do not run generated Deno checks
   --resume                Re-observe the current setup and continue safely
-  --plan                  Print the complete setup plan without writing
+  --plan                  Print the complete plan without writing
+
+Local workbench, surface & test options:
+  --args <json|@file|->   Tool arguments for chumbo try (alias of --call-args)
+  --as <personas>         Comma-separated local personas (loopback only)
+  --ephemeral-users       Create and delete temporary local seed users for chumbo try
+  --scopes <list>         Comma-separated scopes for static inspection or local JWTs
+  --workbench             Start loopback local workbench alongside chumbo dev
+  --workbench-port <port> Loopback port for --workbench
+  --app <name>            Mount MCP App View simulator in chumbo dev --workbench
+  --profile <id>          Snapshot or diff one named capability profile
+  --all-profiles          Snapshot or diff all configured capability profiles
+  --lockfile <path>       Surface lockfile path (default: mcp-surface.lock.json)
+  --fail-on <categories>  Surface diff failure categories
+  --frozen                Fail surface diff on any contentDigest drift
+  --max-token-delta <n>   Max cold-start prompt token increase before context-regression
+  --max-catalog-tokens <n> Cold-start catalog prompt token ceiling (default: 8000)
+  --from-receipt <path|-> RunFrictionReceiptV1 JSON path or - (stdin) for test scaffold
+  --steps <list>          Comma-separated capability sequence for test scaffold
+  --runner <deno|vitest>  Target test runner for test scaffold
+  --out <path>            Destination test file path for test scaffold
 
 Shared options:
-  --url <url>             Deployed MCP URL for status or doctor
+  --url <url>             Deployed MCP URL for status, doctor, try, or surface
   --token <token>         User token or application API key for an MCP probe
-  --second-token <token>  Second user's token for doctor; compares what each user sees
+  --second-token <token>  Second user's token for doctor or try; compares what each user sees
   --call-tool <name>      Explicit tool for doctor to invoke after discovery
   --call-args <json>      JSON object passed to --call-tool (default: {})
-  --env-file <path>       Local secrets file passed through by chumbo dev
+  --env-file <path>       Local secrets file passed through by chumbo dev or try
   --dry-run               Print init's file plan without writing
   --yes                   Never prompt; accept the selected/default choices
   --json                  Stable machine-readable output; never prompts
@@ -126,7 +176,11 @@ function parse(commandArgs: string[]) {
     allowPositionals: true,
     strict: true,
     options: {
+      "all-profiles": { type: "boolean" },
+      app: { type: "string" },
       "apply-migrations": { type: "boolean" },
+      args: { type: "string" },
+      as: { type: "string" },
       auth: { type: "string" },
       "agent-name": { type: "string" },
       "call-args": { type: "string" },
@@ -136,23 +190,37 @@ function parse(commandArgs: string[]) {
       deploy: { type: "boolean" },
       "dry-run": { type: "boolean" },
       "env-file": { type: "string" },
+      "ephemeral-users": { type: "boolean" },
+      "fail-on": { type: "string" },
+      "from-receipt": { type: "string" },
+      frozen: { type: "boolean" },
       function: { type: "string" },
       help: { type: "boolean" },
       insights: { type: "boolean" },
       json: { type: "boolean" },
+      lockfile: { type: "string" },
+      "max-catalog-tokens": { type: "string" },
+      "max-token-delta": { type: "string" },
       "no-config": { type: "boolean" },
       "second-token": { type: "string" },
       "no-browser": { type: "boolean" },
+      out: { type: "string" },
       plan: { type: "boolean" },
+      profile: { type: "string" },
       "project-ref": { type: "string" },
       "public-url": { type: "string" },
       resume: { type: "boolean" },
+      runner: { type: "string" },
+      scopes: { type: "string" },
       "server-name": { type: "string" },
       "skip-checks": { type: "boolean" },
       "state-namespace": { type: "string" },
+      steps: { type: "string" },
       target: { type: "string" },
       token: { type: "string" },
       url: { type: "string" },
+      workbench: { type: "boolean" },
+      "workbench-port": { type: "string" },
       yes: { type: "boolean", short: "y" },
     },
   });
@@ -769,6 +837,47 @@ async function cloud(args: string[]): Promise<void> {
   }
 }
 
+async function planOfficialEntryAdoption(
+  root: string,
+  functionName: string,
+  serverName: string,
+): Promise<{
+  inspection: Awaited<ReturnType<typeof inspectMcpEntryAt>>;
+  plan?: ReturnType<typeof planOfficialAdoption>;
+  file?: PlannedFile;
+}> {
+  const entryPath = join(
+    root,
+    "supabase",
+    "functions",
+    functionName,
+    "index.ts",
+  );
+  const inspection = await inspectMcpEntryAt(entryPath);
+  if (inspection?.kind !== "supabase-official") {
+    return { inspection };
+  }
+  const currentSource = await readFile(entryPath, "utf8");
+  const usesBareNpmSpecifiers = !(await pathExists(
+    join(root, "supabase", "functions", functionName, "deno.json"),
+  ));
+  const plan = planOfficialAdoption({
+    entryPath,
+    currentSource,
+    serverName,
+    usesBareNpmSpecifiers,
+  });
+  return {
+    inspection,
+    plan,
+    file: {
+      path: entryPath,
+      status: plan.status,
+      content: plan.source,
+    },
+  };
+}
+
 async function init(args: string[]): Promise<void> {
   const parsed = parse(args);
   const machine = parsed.values.json ?? false;
@@ -785,6 +894,101 @@ async function init(args: string[]): Promise<void> {
     target,
   );
   const targetFlag = target === "edge-function" ? "" : ` --target ${target}`;
+  const serverName = parsed.values["server-name"] ?? basename(root);
+
+  if (target === "edge-function") {
+    const official = await planOfficialEntryAdoption(
+      root,
+      functionName,
+      serverName,
+    );
+    if (official.inspection?.kind === "supabase-official" && official.plan) {
+      const adoptedAuth = official.inspection.mode;
+      if (official.plan.status === "conflict" || !official.file) {
+        const message =
+          official.plan.blocker ??
+          "Could not automatically adopt the existing Supabase MCP server.";
+        if (machine) {
+          printJson({
+            schemaVersion: 1,
+            command: "init",
+            status: "conflict",
+            projectRoot: root,
+            functionName,
+            localEndpoint,
+            auth: adoptedAuth,
+            adoptedOfficial: true,
+            blocker: message,
+            manualSnippet: official.plan.manualSnippet,
+            files: official.file ? fileSummary([official.file], root) : [],
+          });
+          process.exitCode = 1;
+          return;
+        }
+        throw new Error(
+          `${message}\n\nManual snippet:\n${official.plan.manualSnippet}`,
+        );
+      }
+      const files: PlannedFile[] = [official.file];
+      const planOnly = Boolean(parsed.values["dry-run"] || parsed.values.plan);
+      const needsConfirmation = machine && !parsed.values.yes && !planOnly;
+      if (machine && (planOnly || needsConfirmation)) {
+        printJson({
+          schemaVersion: 1,
+          command: "init",
+          status: needsConfirmation ? "needs_confirmation" : "planned",
+          projectRoot: root,
+          functionName,
+          localEndpoint,
+          auth: adoptedAuth,
+          adoptedOfficial: true,
+          files: fileSummary(files, root),
+          nextCommand: needsConfirmation
+            ? `npx chumbo init --function ${functionName} --yes --json`
+            : undefined,
+        });
+        return;
+      }
+      if (!machine) console.log(`\nFile plan:\n${displayPlan(files, root)}\n`);
+      if (planOnly) return;
+      if (
+        !parsed.values.yes &&
+        !(await confirm(
+          "Adopt this existing Supabase MCP function with Chumbo?",
+        ))
+      ) {
+        throw new Error(
+          "No files changed. Re-run with --yes for non-interactive use.",
+        );
+      }
+      await applyPlan(files);
+      if (machine) {
+        printJson({
+          schemaVersion: 1,
+          command: "init",
+          status: "complete",
+          projectRoot: root,
+          functionName,
+          auth: adoptedAuth,
+          adoptedOfficial: true,
+          files: fileSummary(files, root),
+          nextCommand: `npx chumbo setup --resume --function ${functionName} --yes --json`,
+        });
+        return;
+      }
+      console.log(
+        `Adopted existing Supabase MCP '${functionName}' with Chumbo.`,
+      );
+      if (official.plan.advisoryTip) {
+        console.log(`Tip: ${official.plan.advisoryTip}`);
+      }
+      console.log(
+        `\nContinue with:\n  chumbo setup --resume --function ${functionName}`,
+      );
+      return;
+    }
+  }
+
   const auth = choice(
     parsed.values.auth,
     ["oauth", "api-key", "bearer", "public"] as const,
@@ -805,7 +1009,7 @@ async function init(args: string[]): Promise<void> {
   const files = await planInit({
     cwd: root,
     functionName,
-    serverName: parsed.values["server-name"] ?? basename(root),
+    serverName,
     auth,
     consent,
     patchConfig: !parsed.values["no-config"],
@@ -817,7 +1021,7 @@ async function init(args: string[]): Promise<void> {
   if (conflicts.length > 0) {
     throw new Error("Resolve the listed file conflicts, then run init again.");
   }
-  const planOnly = Boolean(parsed.values["dry-run"]);
+  const planOnly = Boolean(parsed.values["dry-run"] || parsed.values.plan);
   const needsConfirmation = machine && !parsed.values.yes && !planOnly;
   if (machine && (planOnly || needsConfirmation)) {
     printJson({
@@ -1282,8 +1486,18 @@ async function setup(args: string[]): Promise<void> {
   }
   const root = await requireSupabaseProject();
   const functionName = parsed.values.function ?? "mcp";
+  const serverName = parsed.values["server-name"] ?? basename(root);
   const localEndpoint = await resolveLocalMcpEndpoint(root, functionName);
-  const existingInspection = await inspectGeneratedAuth(root, functionName);
+  const officialAdoption = await planOfficialEntryAdoption(
+    root,
+    functionName,
+    serverName,
+  );
+  const adoptOfficial =
+    officialAdoption.inspection?.kind === "supabase-official";
+  const existingInspection =
+    officialAdoption.inspection ??
+    (await inspectGeneratedAuth(root, functionName));
   const existingAuth = existingInspection?.mode;
   const requestedStateNamespace = parsed.values["state-namespace"];
   if (
@@ -1368,20 +1582,38 @@ async function setup(args: string[]): Promise<void> {
     existingAuth && consent === "minimal" && !detectedConsent,
   );
   const addInsights = Boolean(existingAuth && insights && !detectedInsights);
-  let applied = Boolean(existingAuth) && !addConsent && !addInsights;
+  let applied =
+    Boolean(existingAuth) && !adoptOfficial && !addConsent && !addInsights;
+
+  if (adoptOfficial) {
+    if (
+      !officialAdoption.plan ||
+      officialAdoption.plan.status === "conflict" ||
+      !officialAdoption.file
+    ) {
+      const blocker =
+        officialAdoption.plan?.blocker ??
+        "Could not automatically adopt the existing Supabase MCP server.";
+      const snippet = officialAdoption.plan?.manualSnippet
+        ? `\n\nManual snippet:\n${officialAdoption.plan.manualSnippet}`
+        : "";
+      throw new Error(`${blocker}${snippet}`);
+    }
+    files.push(officialAdoption.file);
+  }
 
   if (!existingAuth || addConsent || addInsights) {
     const fullPlan = await planInit({
       cwd: root,
       functionName,
-      serverName: parsed.values["server-name"] ?? basename(root),
+      serverName,
       auth,
       consent,
       patchConfig: !parsed.values["no-config"],
       stateNamespace,
       insights,
     });
-    files =
+    const plannedFiles =
       addConsent || addInsights
         ? fullPlan.filter(
             (file) =>
@@ -1395,6 +1627,7 @@ async function setup(args: string[]): Promise<void> {
                   file.path.endsWith(join("insights", "index.html")))),
           )
         : fullPlan;
+    files = [...files, ...plannedFiles];
     const conflicts = files.filter((file) => file.status === "conflict");
     if (conflicts.length > 0) {
       throw new Error(
@@ -1944,6 +2177,56 @@ async function status(args: string[]): Promise<void> {
   if (report.status === "blocked") process.exitCode = 1;
 }
 
+function parseOptionalPositiveInt(
+  value: string | undefined,
+  flag: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  if (
+    !Number.isFinite(parsed) ||
+    parsed <= 0 ||
+    String(parsed) !== value.trim()
+  ) {
+    throw new Error(`${flag} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function parseOptionalPort(
+  value: string | undefined,
+  flag: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  if (
+    !Number.isFinite(parsed) ||
+    parsed < 0 ||
+    parsed > 65_535 ||
+    String(parsed) !== value.trim()
+  ) {
+    throw new Error(`${flag} must be a port number between 0 and 65535.`);
+  }
+  return parsed;
+}
+
+function splitCommaList(value: string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const items = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
+}
+
+async function readAllStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 async function doctor(args: string[]): Promise<void> {
   const parsed = parse(args);
   if (parsed.values["call-args"] && !parsed.values["call-tool"]) {
@@ -1952,6 +2235,10 @@ async function doctor(args: string[]): Promise<void> {
   if (parsed.values["second-token"] && !parsed.values.token) {
     throw new Error("--second-token requires --token");
   }
+  const maxCatalogTokens = parseOptionalPositiveInt(
+    parsed.values["max-catalog-tokens"],
+    "--max-catalog-tokens",
+  );
   // Without --function, the name comes from a /functions/v1/<name> URL.
   const inferred = functionNameFromUrl(parsed.values.url);
   const checks = await runDoctor({
@@ -1974,20 +2261,35 @@ async function doctor(args: string[]): Promise<void> {
     callTool: parsed.values["call-tool"],
     callArgs: parseCallArgs(parsed.values["call-args"]),
   });
+  if (maxCatalogTokens !== undefined) {
+    const budgetCheck = checks.find((check) => check.name === "context-budget");
+    if (
+      budgetCheck?.metrics &&
+      budgetCheck.metrics.totalPromptTokens > maxCatalogTokens
+    ) {
+      budgetCheck.ok = false;
+      budgetCheck.blocking = true;
+      budgetCheck.detail = `${budgetCheck.metrics.totalPromptTokens} prompt tokens exceeds --max-catalog-tokens ${maxCatalogTokens}.`;
+    }
+  }
+  const report = buildDoctorReport(checks);
   if (parsed.values.json) {
-    printJson({
-      schemaVersion: 1,
-      command: "doctor",
-      status: allChecksPass(checks) ? "complete" : "blocked",
-      checks,
-    });
+    printJson(report);
   } else {
     for (const check of checks) {
       const marker = check.ok ? "✓" : check.blocking === false ? "!" : "✗";
       console.log(`${marker} ${check.name}: ${check.detail}`);
+      if (check.remediation) {
+        if (check.remediation.migrationCommand) {
+          console.log(`  Migration: ${check.remediation.migrationCommand}`);
+        }
+        for (const sqlLine of check.remediation.sql.split("\n")) {
+          console.log(`  ${sqlLine}`);
+        }
+      }
     }
   }
-  if (checks.some((check) => !check.ok && check.blocking !== false)) {
+  if (report.status === "blocked") {
     process.exitCode = 1;
   }
 }
@@ -2030,35 +2332,269 @@ async function dev(args: string[]): Promise<void> {
   npx chumbo dev --function ${functionName} --env-file supabase/functions/.env.local`,
     );
   }
+  try {
+    const banner = await gatherDevStartupBanner({
+      projectRoot: root,
+      functionName,
+    });
+    for (const line of banner.lines) {
+      console.log(line);
+    }
+  } catch {
+    /* fail-open pre-spawn banner */
+  }
+  const workbenchRequested = Boolean(
+    parsed.values.workbench || parsed.values.app,
+  );
+  const workbenchPort = parseOptionalPort(
+    parsed.values["workbench-port"],
+    "--workbench-port",
+  );
+  let workbench: Awaited<ReturnType<typeof startDevWorkbench>> | undefined;
+  if (workbenchRequested) {
+    const simulator = parsed.values.app
+      ? await startDevAppSimulator()
+      : undefined;
+    workbench = await startDevWorkbench({
+      projectRoot: root,
+      functionName,
+      mcpEndpointUrl: localUrl,
+      port: workbenchPort,
+      envFile: parsed.values["env-file"],
+      ...(simulator
+        ? {
+            appSimulator: {
+              panelHtml: (workbenchToken) =>
+                simulator.renderWorkbenchSlotHtml({
+                  workbenchToken,
+                  initialAppName: parsed.values.app,
+                }),
+              close: () => simulator.close(),
+            },
+          }
+        : {}),
+    });
+    console.log(`Local workbench: ${workbench.url}`);
+  }
   console.log(
     `Prove the generated starter in another terminal:\n  npx chumbo doctor --function ${functionName} --url ${localUrl}${credential} --call-tool whoami`,
   );
   console.log(
     `Explore with MCP Inspector:\n  npx @modelcontextprotocol/inspector`,
   );
-  const result = await runCommand(
-    "supabase",
-    [
-      "functions",
-      "serve",
-      functionName,
-      ...(parsed.values["env-file"]
-        ? ["--env-file", parsed.values["env-file"]]
-        : []),
-    ],
-    root,
-    false,
-  );
-  if (!result.ok) throw new Error(`Supabase CLI ${result.detail}`);
+  try {
+    const result = await runCommand(
+      "supabase",
+      [
+        "functions",
+        "serve",
+        functionName,
+        ...(parsed.values["env-file"]
+          ? ["--env-file", parsed.values["env-file"]]
+          : []),
+      ],
+      root,
+      false,
+    );
+    if (!result.ok) throw new Error(`Supabase CLI ${result.detail}`);
+  } finally {
+    await workbench?.close();
+  }
 }
 
-async function main(): Promise<void> {
-  const [command, ...args] = process.argv.slice(2);
-  if (!command || command === "--help" || command === "-h") {
+async function tryCmd(args: string[]): Promise<void> {
+  const parsed = parse(args);
+  if (parsed.positionals.length > 1) {
+    throw new Error("Usage: chumbo try [tool] [options]");
+  }
+  const tool = parsed.positionals[0] ?? null;
+  const parsedArgs = await parseTryArgs({
+    argsFlag: parsed.values.args,
+    callArgsFlag: parsed.values["call-args"],
+    tool,
+    cwd: process.cwd(),
+    readStdin: readAllStdin,
+  });
+  const report = await runTry({
+    cwd: process.cwd(),
+    functionName: parsed.values.function,
+    target: parsedTarget(parsed.values.target, "--target"),
+    url: parsed.values.url,
+    tool,
+    args: parsedArgs.args,
+    rawArgsSource: parsedArgs.rawArgsSource,
+    as: splitCommaList(parsed.values.as),
+    token: parsed.values.token,
+    secondToken: parsed.values["second-token"],
+    ephemeralUsers: Boolean(parsed.values["ephemeral-users"]),
+    envFile: parsed.values["env-file"],
+    scopes: splitCommaList(parsed.values.scopes),
+    plan: Boolean(parsed.values.plan),
+    yes: Boolean(parsed.values.yes),
+    json: Boolean(parsed.values.json),
+    isTTY: Boolean(process.stdin.isTTY),
+    confirmWrite: confirm,
+  });
+  if (parsed.values.json) {
+    printJson(report);
+  } else {
+    console.log(formatTryReport(report));
+  }
+  if (report.status === "blocked") {
+    process.exitCode = 1;
+  }
+}
+
+const SURFACE_DIFF_CATEGORIES = [
+  "breaking",
+  "authority-widening",
+  "context-regression",
+  "additive",
+] as const;
+
+async function surface(args: string[]): Promise<void> {
+  const parsed = parse(args);
+  const [subcommand, ...extra] = parsed.positionals;
+  if (
+    !subcommand ||
+    !["snapshot", "diff"].includes(subcommand) ||
+    extra.length > 0
+  ) {
+    throw new Error("Use `chumbo surface snapshot` or `chumbo surface diff`.");
+  }
+  const common = {
+    cwd: process.cwd(),
+    functionName: parsed.values.function,
+    target: parsedTarget(parsed.values.target, "--target"),
+    url: parsed.values.url,
+    token: parsed.values.token,
+    as: parsed.values.as,
+    profile: parsed.values.profile,
+    allProfiles: Boolean(parsed.values["all-profiles"]),
+    scopes: splitCommaList(parsed.values.scopes),
+    envFile: parsed.values["env-file"],
+    lockfile: parsed.values.lockfile,
+    plan: Boolean(parsed.values.plan),
+    json: Boolean(parsed.values.json),
+  };
+  if (subcommand === "snapshot") {
+    const { report, exitCode } = await runSurfaceSnapshot({
+      ...common,
+      yes: Boolean(parsed.values.yes),
+      isTTY: Boolean(process.stdin.isTTY),
+      confirmWrite: confirm,
+    });
+    if (parsed.values.json) {
+      printJson(report);
+    } else {
+      console.log(`Lockfile: ${report.lockfilePath}`);
+      console.log(`Status:   ${report.status}`);
+      for (const entry of report.surfaces) {
+        console.log(
+          `  - ${entry.key}: ${entry.toolCount} tool(s), ~${entry.totalPromptTokens} prompt tokens (${entry.contentDigest.slice(0, 16)}…)`,
+        );
+      }
+      if (report.nextCommand) {
+        console.log(`\nNext: ${report.nextCommand}`);
+      }
+    }
+    if (exitCode !== 0) process.exitCode = exitCode;
+    return;
+  }
+  const failOnRaw = splitCommaList(parsed.values["fail-on"]);
+  const failOn = failOnRaw?.map((item) =>
+    choice(item, SURFACE_DIFF_CATEGORIES, "breaking", "--fail-on"),
+  );
+  const report = await runSurfaceDiff({
+    ...common,
+    failOn,
+    frozen: Boolean(parsed.values.frozen),
+    maxTokenDelta: parseOptionalPositiveInt(
+      parsed.values["max-token-delta"],
+      "--max-token-delta",
+    ),
+    maxCatalogTokens: parseOptionalPositiveInt(
+      parsed.values["max-catalog-tokens"],
+      "--max-catalog-tokens",
+    ),
+  });
+  if (parsed.values.json) {
+    printJson(report);
+  } else {
+    console.log(formatSurfaceDiffReport(report));
+  }
+  if (report.exitCode !== 0) {
+    process.exitCode = report.exitCode;
+  }
+}
+
+async function testCmd(args: string[]): Promise<void> {
+  const parsed = parse(args);
+  const [subcommand, ...extra] = parsed.positionals;
+  if (subcommand !== "scaffold" || extra.length > 0) {
+    throw new Error("Use `chumbo test scaffold`.");
+  }
+  const runner = parsed.values.runner
+    ? choice(
+        parsed.values.runner,
+        ["deno", "vitest"] as const,
+        "deno",
+        "--runner",
+      )
+    : undefined;
+  const { report, exitCode } = await runTestScaffold({
+    cwd: process.cwd(),
+    functionName: parsed.values.function,
+    fromReceipt: parsed.values["from-receipt"],
+    steps: splitCommaList(parsed.values.steps),
+    runner,
+    out: parsed.values.out,
+    lockfile: parsed.values.lockfile,
+    plan: Boolean(parsed.values.plan),
+    yes: Boolean(parsed.values.yes),
+    json: Boolean(parsed.values.json),
+    isTTY: Boolean(process.stdin.isTTY),
+    readStdin: readAllStdin,
+    confirmWrite: confirm,
+  });
+  if (parsed.values.json) {
+    printJson(report);
+  } else {
+    console.log(`Runner: ${report.runner}`);
+    console.log(`Output: ${report.outPath}`);
+    console.log(`Status: ${report.status}`);
+    for (const file of report.files) {
+      console.log(`  ${file.status.padEnd(9)} ${file.path}`);
+    }
+    if (report.nextCommand) {
+      console.log(`\nNext: ${report.nextCommand}`);
+    }
+  }
+  if (exitCode !== 0) {
+    process.exitCode = exitCode;
+  }
+}
+
+export async function main(
+  rawArgs: string[] = process.argv.slice(2),
+): Promise<void> {
+  const { hostArgs } = splitArgsAtDoubleDash(rawArgs);
+  const [command, ...args] = rawArgs;
+  if (
+    !command ||
+    (hostArgs.length === 1 && (command === "--help" || command === "-h"))
+  ) {
     console.log(HELP);
     return;
   }
-  if (args.includes("--help")) {
+  if (command === "cli") return cliCommand(args);
+  if (command === "app") {
+    const exitCode = await appCommand(args);
+    if (exitCode !== 0) process.exitCode = exitCode;
+    return;
+  }
+  const ownSubArgs = hostArgs.slice(1);
+  if (ownSubArgs.includes("--help") || ownSubArgs.includes("-h")) {
     console.log(HELP);
     return;
   }
@@ -2067,22 +2603,27 @@ async function main(): Promise<void> {
   if (command === "init") return init(args);
   if (command === "doctor") return doctor(args);
   if (command === "dev") return dev(args);
+  if (command === "try") return tryCmd(args);
+  if (command === "surface") return surface(args);
+  if (command === "test") return testCmd(args);
   if (command === "skill") return skill(args);
   if (command === "cloud") return cloud(args);
   throw new Error(`Unknown command '${command}'.\n\n${HELP}`);
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  if (process.argv.includes("--json")) {
-    printJson({
-      schemaVersion: 1,
-      command: process.argv[2] ?? "unknown",
-      status: "error",
-      error: { code: "command_failed", message },
-    });
-  } else {
-    console.error(message);
-  }
-  process.exitCode = 1;
-});
+if (!process.env.VITEST) {
+  main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (process.argv.includes("--json")) {
+      printJson({
+        schemaVersion: 1,
+        command: process.argv[2] ?? "unknown",
+        status: "error",
+        error: { code: "command_failed", message },
+      });
+    } else {
+      console.error(message);
+    }
+    process.exitCode = 1;
+  });
+}

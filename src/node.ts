@@ -97,6 +97,15 @@ async function writeResponse(
  */
 export function toNodeHandler(app: NodeFetchApp): NodeRequestHandler {
   return (incoming, outgoing) => {
+    const abortController = new AbortController();
+    const onDisconnect = () => {
+      if (!outgoing.writableEnded) {
+        abortController.abort();
+      }
+    };
+    incoming.once("aborted", onDisconnect);
+    outgoing.once("close", onDisconnect);
+
     void (async () => {
       const method = incoming.method ?? "GET";
       const body =
@@ -106,21 +115,35 @@ export function toNodeHandler(app: NodeFetchApp): NodeRequestHandler {
       const request = new Request(requestUrl(incoming), {
         method,
         headers: requestHeaders(incoming),
+        signal: abortController.signal,
         ...(body ? { body, duplex: "half" } : {}),
       } as RequestInit);
       const response = await app.fetch(request);
-      await writeResponse(response, outgoing);
-    })().catch((error: unknown) => {
-      if (!outgoing.headersSent) {
-        outgoing.statusCode = 500;
-        outgoing.setHeader("content-type", "application/json");
-        outgoing.end(JSON.stringify({ error: "server_error" }));
-      } else {
-        outgoing.destroy(
-          error instanceof Error ? error : new Error("Response failed"),
-        );
+      if (abortController.signal.aborted || outgoing.destroyed) {
+        void response.body?.cancel().catch(() => {});
+        return;
       }
-    });
+      await writeResponse(response, outgoing);
+    })()
+      .catch((error: unknown) => {
+        if (abortController.signal.aborted || outgoing.destroyed) {
+          if (!outgoing.destroyed) outgoing.destroy();
+          return;
+        }
+        if (!outgoing.headersSent) {
+          outgoing.statusCode = 500;
+          outgoing.setHeader("content-type", "application/json");
+          outgoing.end(JSON.stringify({ error: "server_error" }));
+        } else {
+          outgoing.destroy(
+            error instanceof Error ? error : new Error("Response failed"),
+          );
+        }
+      })
+      .finally(() => {
+        incoming.off("aborted", onDisconnect);
+        outgoing.off("close", onDisconnect);
+      });
   };
 }
 

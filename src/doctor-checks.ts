@@ -1,16 +1,46 @@
 import type { DoctorCheck } from "./doctor.js";
+import { extractDeniedPostgresObjects } from "./internal/grant-diagnostics.js";
+import type { SetupAuthMode } from "./setup.js";
+import {
+  estimateCatalogTokens,
+  type CatalogTokenReport,
+  type EstimateCatalogTokensOptions,
+} from "./surface-tokens.js";
 
 /** The parts of a `tools/list` entry that doctor inspects. */
 export interface ProbeTool {
   name?: unknown;
+  title?: unknown;
   description?: unknown;
   inputSchema?: {
+    type?: unknown;
     properties?: unknown;
     required?: unknown;
+    [key: string]: unknown;
   };
+  outputSchema?: Record<string, unknown>;
   annotations?: {
+    title?: unknown;
     readOnlyHint?: unknown;
+    destructiveHint?: unknown;
+    idempotentHint?: unknown;
+    openWorldHint?: unknown;
   } | null;
+  _meta?: Record<string, unknown>;
+}
+
+export interface DoctorSqlRemediation {
+  readonly kind: "supabase-data-api-grants";
+  readonly targetRole: "authenticated" | "anon" | "rpc-definer";
+  readonly schemas: readonly string[];
+  readonly relations: readonly string[];
+  readonly sequences: readonly string[];
+  readonly affectedTools: readonly string[];
+  /** Suggested command: `supabase migration new grant_mcp_data_api_access` */
+  readonly migrationCommand: string;
+  /** Copy-pasteable, control-stripped, identifier-validated SQL snippet. */
+  readonly sql: string;
+  readonly notes: readonly string[];
 }
 
 /** One tool result doctor obtained, kept so advisory checks can inspect it. */
@@ -103,6 +133,24 @@ export function toolSurfaceCheck(
   const oversized = [...perTool.values()]
     .filter((record) => resultBytes(record) > RESULT_BUDGET_BYTES)
     .map((record) => record.tool);
+  const missingReadingCard = [...perTool.values()]
+    .filter((record) => {
+      const content = record.result?.content;
+      if (!Array.isArray(content)) return false;
+      const hasResourceLink = content.some(
+        (entry) => isRecord(entry) && entry.type === "resource_link",
+      );
+      if (!hasResourceLink) return false;
+      const hasTextCard = content.some(
+        (entry) =>
+          isRecord(entry) &&
+          entry.type === "text" &&
+          typeof entry.text === "string" &&
+          entry.text.trim().length > 0,
+      );
+      return !hasTextCard;
+    })
+    .map((record) => record.tool);
 
   const findings: string[] = [];
   if (weakDescription.length > 0) {
@@ -125,6 +173,11 @@ export function toolSurfaceCheck(
       `${plural(oversized.length, "result")} larger than 16 KiB (${nameList(oversized)}); return a page of rows or serve the full content as an MCP Resource`,
     );
   }
+  if (missingReadingCard.length > 0) {
+    findings.push(
+      `${plural(missingReadingCard.length, "result")} with a resource_link and no text reading card (${nameList(missingReadingCard)}); include concise summary text with resourceResult() so hosts that cannot open MCP resources still work`,
+    );
+  }
   const scope = `${plural(tools.length, "tool")}${perTool.size > 0 ? ` and ${plural(perTool.size, "result")}` : ""} checked`;
   return {
     name: "tool-surface",
@@ -134,6 +187,72 @@ export function toolSurfaceCheck(
         ? `${scope}; no issues found`
         : `${scope}. ${findings.join("; ")}.`,
     blocking: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Context budget check
+// ---------------------------------------------------------------------------
+
+function formatKiB(bytes: number): string {
+  return `${(bytes / 1024).toFixed(1)} KiB`;
+}
+
+/** Deterministic cold-start token & schema bloat check. Never blocking. */
+export function contextBudgetCheck(
+  tools: readonly ProbeTool[],
+  options?: EstimateCatalogTokensOptions,
+): DoctorCheck {
+  const report: CatalogTokenReport = estimateCatalogTokens(tools, options);
+  const ok =
+    !report.overColdStartBudget &&
+    report.bloatedInputTools.length === 0 &&
+    report.bloatedOutputTools.length === 0;
+  const largest = report.tools[0];
+  if (ok) {
+    const largestNote = largest
+      ? `; largest: '${largest.name}' (~${largest.promptTokens.toLocaleString("en-US")} tokens)`
+      : "";
+    return {
+      name: "context-budget",
+      ok: true,
+      detail: `~${report.totalPromptTokens.toLocaleString("en-US")} cold-start tokens across ${plural(report.toolCount, "tool")} (${formatKiB(report.totalWireBytes)} wire)${largestNote}`,
+      blocking: false,
+      metrics: report,
+    };
+  }
+
+  const parts: string[] = [
+    `~${report.totalPromptTokens.toLocaleString("en-US")} cold-start tokens across ${plural(report.toolCount, "tool")}${report.overColdStartBudget ? ` (exceeds ${report.maxCatalogTokens.toLocaleString("en-US")}-token budget; ${formatKiB(report.totalWireBytes)} wire)` : ` (${formatKiB(report.totalWireBytes)} wire)`}`,
+  ];
+  if (report.bloatedInputTools.length > 0) {
+    const detailed = report.bloatedInputTools
+      .slice(0, NAME_LIMIT)
+      .map((name) => {
+        const match = report.tools.find((tool) => tool.name === name);
+        return `'${name}' ~${(match?.inputSchemaTokens ?? 0).toLocaleString("en-US")} tokens`;
+      });
+    parts.push(
+      `${plural(report.bloatedInputTools.length, "bloated inputSchema", "bloated inputSchemas")} (${detailed.join(", ")})`,
+    );
+  }
+  if (report.bloatedOutputTools.length > 0) {
+    const detailed = report.bloatedOutputTools
+      .slice(0, NAME_LIMIT)
+      .map((name) => {
+        const match = report.tools.find((tool) => tool.name === name);
+        return `'${name}' ~${(match?.outputSchemaTokens ?? 0).toLocaleString("en-US")} tokens`;
+      });
+    parts.push(
+      `${plural(report.bloatedOutputTools.length, "bloated outputSchema", "bloated outputSchemas")} (${detailed.join(", ")})`,
+    );
+  }
+  return {
+    name: "context-budget",
+    ok: false,
+    detail: `${parts.join("; ")}. Narrow schemas with projectInputFields or split surfaces with capability profiles.`,
+    blocking: false,
+    metrics: report,
   };
 }
 
@@ -161,46 +280,152 @@ function errorText(record: ToolResultRecord): string {
   return parts.join("\n");
 }
 
-const IDENTIFIER = /^[A-Za-z_][\w$]*$/;
+export interface DataApiGrantsContext {
+  readonly auth?: SetupAuthMode | "multi";
+  readonly tools?: readonly ProbeTool[];
+}
 
-/** Splits `schema.table` or `table` into a safe, quoted-free identifier. */
-function qualified(value: string): string | undefined {
-  const cleaned = value.replace(/["'`]/g, "").replace(/[.,;:)]+$/, "");
-  const parts = cleaned.split(".");
-  if (parts.length > 2 || !parts.every((part) => IDENTIFIER.test(part))) {
-    return undefined;
+function buildGrantSqlRemediation(input: {
+  readonly auth: SetupAuthMode | "multi" | undefined;
+  readonly schemas: readonly string[];
+  readonly relations: readonly string[];
+  readonly sequences: readonly string[];
+  readonly affectedTools: readonly string[];
+  readonly probeTools: readonly ProbeTool[];
+}): DoctorSqlRemediation {
+  const toolMap = new Map<string, ProbeTool>();
+  for (const tool of input.probeTools) {
+    if (typeof tool.name === "string" && tool.name) {
+      toolMap.set(tool.name, tool);
+    }
   }
-  return parts.length === 2 ? cleaned : `public.${cleaned}`;
+  const writeTools = input.affectedTools.filter(
+    (name) => toolMap.get(name)?.annotations?.readOnlyHint !== true,
+  );
+  const hasWrites = writeTools.length > 0;
+  const migrationCommand = "supabase migration new grant_mcp_data_api_access";
+
+  const lines: string[] = [];
+  const notes: string[] = [];
+
+  // API-key mode (and public writes) must never grant direct anon table privileges.
+  if (input.auth === "api-key" || (input.auth === "public" && hasWrites)) {
+    const targetRel = input.relations[0] ?? "<schema>.<table>";
+    lines.push(
+      "-- API-key and public write handlers use the anonymous PostgREST role.",
+      "-- Do not grant direct anon table writes on private tables.",
+      `-- Expose a narrow SECURITY DEFINER RPC function instead, or switch to user-scoped oauth/bearer auth:`,
+      `-- CREATE OR REPLACE FUNCTION public.mcp_action(...) RETURNS ... LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$ ... $$;`,
+      `-- REVOKE ALL ON FUNCTION public.mcp_action(...) FROM PUBLIC;`,
+      `-- GRANT EXECUTE ON FUNCTION public.mcp_action(...) TO anon;`,
+    );
+    notes.push(
+      input.auth === "api-key"
+        ? `ctx.supabase in api-key mode carries no Supabase user JWT (uses anon). Use a narrow SECURITY DEFINER RPC for ${targetRel}, or switch to oauth/bearer for per-user RLS.`
+        : `Do not grant write privileges to anon on ${targetRel}. Route public mutations through a narrow SECURITY DEFINER function with explicit input validation.`,
+    );
+    return {
+      kind: "supabase-data-api-grants",
+      targetRole: "rpc-definer",
+      schemas: [...input.schemas],
+      relations: [...input.relations],
+      sequences: [...input.sequences],
+      affectedTools: [...input.affectedTools],
+      migrationCommand,
+      sql: lines.join("\n"),
+      notes,
+    };
+  }
+
+  const targetRole: "authenticated" | "anon" =
+    input.auth === "public" ? "anon" : "authenticated";
+
+  if (targetRole === "anon") {
+    lines.push(
+      "-- Warning: anon grants expose rows matched by anon RLS policies to unauthenticated PostgREST callers.",
+    );
+    notes.push(
+      "Verify that anon RLS policies expose only intentionally public rows.",
+    );
+  }
+
+  for (const schema of input.schemas) {
+    if (schema !== "public") {
+      lines.push(`GRANT USAGE ON SCHEMA ${schema} TO ${targetRole};`);
+    }
+  }
+
+  if (input.relations.length > 0) {
+    for (const relation of input.relations) {
+      lines.push(`ALTER TABLE ${relation} ENABLE ROW LEVEL SECURITY;`);
+      lines.push(`GRANT SELECT ON TABLE ${relation} TO ${targetRole};`);
+      if (hasWrites && targetRole === "authenticated") {
+        lines.push(
+          `-- Uncomment only the write privileges ${nameList(writeTools)} performs:`,
+          `-- GRANT INSERT, UPDATE, DELETE ON TABLE ${relation} TO authenticated;`,
+        );
+      }
+    }
+    notes.push(
+      `Ensure RLS policies on ${input.relations.join(", ")} restrict rows to auth.uid() or the caller's tenant.`,
+    );
+  } else if (input.schemas.length > 0) {
+    if (input.schemas.every((schema) => schema === "public")) {
+      lines.push(`GRANT USAGE ON SCHEMA public TO ${targetRole};`);
+    }
+    notes.push(
+      `Grant table-level SELECT (and narrow write privileges if needed) on tables inside ${input.schemas.join(", ")} with RLS enabled.`,
+    );
+  } else {
+    lines.push(
+      `-- Replace <schema>.<table> with the table your tool queries:`,
+      `-- ALTER TABLE <schema>.<table> ENABLE ROW LEVEL SECURITY;`,
+      `-- GRANT SELECT ON TABLE <schema>.<table> TO ${targetRole};`,
+    );
+    notes.push(
+      "Identify the denied table from Supabase Postgres logs and add explicit grants with RLS enabled in a migration.",
+    );
+  }
+
+  for (const sequence of input.sequences) {
+    lines.push(`GRANT USAGE, SELECT ON SEQUENCE ${sequence} TO ${targetRole};`);
+  }
+
+  return {
+    kind: "supabase-data-api-grants",
+    targetRole,
+    schemas: [...input.schemas],
+    relations: [...input.relations],
+    sequences: [...input.sequences],
+    affectedTools: [...input.affectedTools],
+    migrationCommand,
+    sql: lines.join("\n"),
+    notes,
+  };
 }
 
 /** Spots Postgres and PostgREST permission failures in failed tool calls. */
 export function dataApiGrantsCheck(
   results: readonly ToolResultRecord[],
+  context?: DataApiGrantsContext,
 ): DoctorCheck | undefined {
   if (results.length === 0) return undefined;
   const tables = new Set<string>();
   const schemas = new Set<string>();
+  const sequences = new Set<string>();
   const tools = new Set<string>();
   let unnamed = false;
   for (const record of results) {
     const text = errorText(record);
     if (!text) continue;
-    let hit = false;
-    for (const match of text.matchAll(
-      /permission denied for (?:table|relation|view)\s+("?[\w$]+"?(?:\."?[\w$]+"?)?)/gi,
-    )) {
-      hit = true;
-      const table = qualified(match[1] ?? "");
-      if (table) tables.add(table);
-      else unnamed = true;
-    }
-    for (const match of text.matchAll(
-      /permission denied for schema\s+("?[\w$]+"?)/gi,
-    )) {
-      hit = true;
-      const bare = (match[1] ?? "").replace(/"/g, "");
-      if (IDENTIFIER.test(bare)) schemas.add(bare);
-    }
+    const extracted = extractDeniedPostgresObjects([text]);
+    let hit =
+      extracted.relations.length > 0 ||
+      extracted.schemas.length > 0 ||
+      extracted.sequences.length > 0;
+    for (const rel of extracted.relations) tables.add(rel);
+    for (const schema of extracted.schemas) schemas.add(schema);
+    for (const seq of extracted.sequences) sequences.add(seq);
     if (!hit && (/\b42501\b/.test(text) || /permission denied/i.test(text))) {
       hit = true;
       unnamed = true;
@@ -215,6 +440,14 @@ export function dataApiGrantsCheck(
       blocking: false,
     };
   }
+  const remediation = buildGrantSqlRemediation({
+    auth: context?.auth,
+    schemas: [...schemas],
+    relations: [...tables],
+    sequences: [...sequences],
+    affectedTools: [...tools],
+    probeTools: context?.tools ?? [],
+  });
   const named = [...tables].slice(0, NAME_LIMIT);
   const subject =
     named.length > 0
@@ -223,16 +456,19 @@ export function dataApiGrantsCheck(
         ? `schema ${[...schemas].map((schema) => `'${schema}'`).join(", ")}`
         : "a table or schema the tool reads";
   const fix =
-    named.length > 0
-      ? ` To let signed-in users read it, run: grant select on table ${named[0]} to authenticated; Writes need insert, update, or delete as appropriate. Keep row-level security on.`
-      : schemas.size > 0
-        ? ` For example: grant usage on schema ${[...schemas][0]} to authenticated;`
-        : " Grant the authenticated role the access the tool needs on that table.";
+    remediation.targetRole === "rpc-definer"
+      ? ` ${remediation.notes[0] ?? "Use a narrow SECURITY DEFINER RPC or switch to user-scoped oauth/bearer auth."}`
+      : named.length > 0
+        ? ` To let ${remediation.targetRole === "anon" ? "public callers" : "signed-in users"} read it, run: grant select on table ${named[0]} to ${remediation.targetRole};${remediation.targetRole === "authenticated" ? " Writes need insert, update, or delete as appropriate." : ""} Keep row-level security on.`
+        : schemas.size > 0
+          ? ` For example: grant usage on schema ${[...schemas][0]} to ${remediation.targetRole};`
+          : ` Grant the ${remediation.targetRole} role the access the tool needs on that table.`;
   return {
     name: "data-api-grants",
     ok: false,
-    detail: `${plural(tools.size, "tool")} (${nameList([...tools])}) failed with a Postgres permission error on ${subject}${unnamed && named.length > 0 ? " and others" : ""}. From 2026-10-30, new tables in the public schema are not exposed to the Data API until granted to a role, including tables recreated by a local supabase db reset and by preview branches. Put the grant in a migration.${fix}`,
+    detail: `${plural(tools.size, "tool")} (${nameList([...tools])}) failed with a Postgres permission error on ${subject}${unnamed && named.length > 0 ? " and others" : ""}. From 2026-10-30, new tables in the public schema are not exposed to the Data API until granted to a role, including tables recreated by a local supabase db reset and by preview branches. Put the grant in a migration (${remediation.migrationCommand}).${fix}`,
     blocking: false,
+    remediation,
   };
 }
 

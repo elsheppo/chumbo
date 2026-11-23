@@ -60,8 +60,11 @@ execution system.
 
 ## Protocol and deployment composition
 
-- [Interactive MCP Apps](https://github.com/elsheppo/chumbo/tree/main/docs/patterns/mcp-apps-on-supabase)
-  add an embedded interface when a real interaction needs one.
+- **`chumbo/middleware` (`withChumbo`, `chumboMcpHandler`, `withMcpCors`, `withMcpTransportArmor`):** Compose Chumbo result middleware, lifecycle events, surface proofs, access gates, CORS, transport armor, and state directly onto an existing `@supabase/middleware` pipeline (`withSupabase`, `withOAuthProtectedResource`) without replacing `index.ts`.
+- **Ergonomic coordination wrappers:** Build on `ctx.state` / `ctx.sessionState` with `observeResource` & `requireObserved` (3-step CAS), `mintPreview` & `consumePreview` (single-use payload-bound confirmation tokens), and `activeWorkspaceStore` & `registerUseWorkspace` (session-scoped workspace selection with stateless fallback).
+- **Turnkey MCP Apps (`defineMcpApp`, `registerMcpApp`, `chumbo/app`, `chumbo app`):** Register `ui://` Resources with automatic presentation injection (`injectAppPresentation`, `buildHubUrl`), auto-derived CSP domains, idempotent client mutations (`callAppTool`, `createAppMutation`), single-file builds (`npx chumbo app add|build|list`), and local host simulation (`npx chumbo dev --workbench --app <name>`). See [Interactive MCP Apps](https://github.com/elsheppo/chumbo/tree/main/docs/patterns/mcp-apps-on-supabase).
+- **Project-branded CLIs & end-user onboarding (`chumbo cli`, `chumbo/connect`):** Scaffold, archive, or test a project-owned CLI locally with `npx chumbo cli init|status|render|try` (manifest-backed safe updates, headless `<BINARY>_TOKEN` / `--token-stdin` auth, HMAC-partitioned `tools/list` cache, `<binary> skill install`, and `<binary> completions <zsh|bash|fish>`), and generate auth-mode-aware Claude, ChatGPT, Claude Code, Cursor, and CLI onboarding flows with `describeAgentConnections` / `renderConnectMarkdown` from `chumbo/connect`.
+- **Self-hosted Insights (`chumbo/insights`):** Pair `createTelemetrySink` and `composeEventSinks` with `chumbo setup --insights` to inspect payload-free usage and run timelines inside your own Supabase project.
 - [Many MCPs from one function](https://github.com/elsheppo/chumbo/tree/main/docs/patterns/many-mcps-one-function)
   lets one deployment resolve several server definitions.
 - [Clean client-facing URLs](https://github.com/elsheppo/chumbo/tree/main/docs/reference/clean-urls)

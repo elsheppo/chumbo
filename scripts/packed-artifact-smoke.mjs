@@ -114,13 +114,43 @@ try {
   const insightsUrl = pathToFileURL(
     join(packageRoot, "dist", "insights.js"),
   ).href;
+  const middlewareUrl = pathToFileURL(
+    join(packageRoot, "dist", "middleware.js"),
+  ).href;
+  const testingUrl = pathToFileURL(
+    join(packageRoot, "dist", "testing.js"),
+  ).href;
+  const connectUrl = pathToFileURL(
+    join(packageRoot, "dist", "connect.js"),
+  ).href;
   run(process.execPath, [
     "--input-type=module",
     "--eval",
     `const api = await import(${JSON.stringify(runtimeUrl)});
 const insights = await import(${JSON.stringify(insightsUrl)});
+const middleware = await import(${JSON.stringify(middlewareUrl)});
+const testing = await import(${JSON.stringify(testingUrl)});
+const connect = await import(${JSON.stringify(connectUrl)});
 if (typeof api.createSupabaseMcp !== "function") throw new Error("createSupabaseMcp missing");
-for (const name of ["collectionInputSchema", "collectionOutputSchema", "collectionResult"]) {
+for (const name of [
+  "collectionInputSchema",
+  "collectionOutputSchema",
+  "collectionResult",
+  "defineCursor",
+  "registerCollection",
+  "guidedResult",
+  "renderGuidedResult",
+  "fromSupabaseError",
+  "defineProfiles",
+  "withProfile",
+  "projectInputFields",
+  "resolveCanonicalVocabulary",
+  "defineMcpApp",
+  "registerMcpApp",
+  "observeResource",
+  "mintPreview",
+  "withRunInput",
+]) {
   if (typeof api[name] !== "function") throw new Error(name + " missing");
 }
 if (api.collectionInputSchema().parse({}).limit !== 20) throw new Error("Collection default drifted");
@@ -128,6 +158,15 @@ if (typeof api.createRunCorrelation !== "function") throw new Error("createRunCo
 if (typeof api.durableStateLimits !== "object") throw new Error("durableStateLimits missing");
 for (const name of ["createTelemetrySink", "composeEventSinks", "buildRunTimeline", "createSupabaseInsightsAdapter"]) {
   if (typeof insights[name] !== "function") throw new Error("insights." + name + " missing");
+}
+for (const name of ["withChumbo", "withMcpCors", "withMcpTransportArmor", "chumboMcpHandler"]) {
+  if (typeof middleware[name] !== "function") throw new Error("middleware." + name + " missing");
+}
+for (const name of ["createMcpTestClient", "createTestAuthHarness", "lintUnmountedToolReferences", "estimateCatalogTokens", "diffSurfaceSnapshots"]) {
+  if (typeof testing[name] !== "function") throw new Error("testing." + name + " missing");
+}
+for (const name of ["describeAgentConnections", "renderConnectMarkdown"]) {
+  if (typeof connect[name] !== "function") throw new Error("connect." + name + " missing");
 }`,
   ]);
 
@@ -213,6 +252,7 @@ createSupabaseMcp({
   await cp(packageRoot, join(nodeModules, "chumbo"), { recursive: true });
   for (const dependency of [
     "@modelcontextprotocol/server",
+    "@supabase/middleware",
     "@supabase/server",
     "@supabase/supabase-js",
     "zod",
@@ -243,13 +283,32 @@ createSupabaseMcp({
     `import {
   createRunCorrelation,
   createSupabaseMcp,
+  defineMcpApp,
+  defineProfiles,
   durableStateLimits,
+  guidedResult,
   runCorrelationLimits,
   type SupabaseMcpContext,
   type SupabaseMcpRunCorrelation,
   type SupabaseMcpState,
   type SupabaseMcpSurfaceProof,
 } from "chumbo";
+import {
+  chumboMcpHandler,
+  withChumbo,
+  withMcpCors,
+  withMcpTransportArmor,
+} from "chumbo/middleware";
+import {
+  createMcpTestClient,
+  createTestAuthHarness,
+  estimateCatalogTokens,
+  lintUnmountedToolReferences,
+} from "chumbo/testing";
+import {
+  describeAgentConnections,
+  renderConnectMarkdown,
+} from "chumbo/connect";
 
 function stateFrom(context: SupabaseMcpContext): SupabaseMcpState | undefined {
   return context.state;
@@ -273,10 +332,18 @@ const runs: SupabaseMcpRunCorrelation = createRunCorrelation({
   },
 });
 
+const profiles = defineProfiles({
+  reader: { tools: ["ping"] },
+});
+
 const app = createSupabaseMcp({
   server: { name: "packed deno smoke", version: "1.0.0" },
   resourceUrl: "https://example.test/mcp",
   auth: { mode: "api-key", key: "test-key" },
+  profiles: {
+    catalog: profiles,
+    select: () => "reader",
+  },
   state: {
     hmacKey: "0123456789abcdef0123456789abcdef",
     namespaces: { observations: { ttlSeconds: 60 } },
@@ -290,8 +357,31 @@ const app = createSupabaseMcp({
   },
 });
 
+const authHarness = await createTestAuthHarness();
+const testClient = createMcpTestClient(app, { authHarness });
+const plan = describeAgentConnections({
+  productName: "packed-smoke",
+  endpoint: "https://example.test/functions/v1/mcp",
+  authMode: "oauth",
+});
+
 if (
   typeof app.fetch !== "function" ||
+  typeof withChumbo !== "function" ||
+  typeof withMcpCors !== "function" ||
+  typeof withMcpTransportArmor !== "function" ||
+  typeof chumboMcpHandler !== "function" ||
+  typeof defineMcpApp !== "function" ||
+  typeof guidedResult !== "function" ||
+  typeof testClient.anon !== "function" ||
+  typeof lintUnmountedToolReferences !== "function" ||
+  typeof estimateCatalogTokens !== "function" ||
+  !renderConnectMarkdown({
+    productName: "packed-smoke",
+    endpoint: "https://example.test/functions/v1/mcp",
+    authMode: "oauth",
+  }).includes("packed-smoke") ||
+  plan.clients.length === 0 ||
   durableStateLimits.keyBytes !== 512 ||
   runCorrelationLimits.tokenBytes !== 1024
 ) {
@@ -311,7 +401,13 @@ if (
     )}\n`,
   );
   run("deno", ["check", "--config", join(fixture, "deno.json"), denoConsumer]);
-  run("deno", ["run", "--config", join(fixture, "deno.json"), denoConsumer]);
+  run("deno", [
+    "run",
+    "--allow-env",
+    "--config",
+    join(fixture, "deno.json"),
+    denoConsumer,
+  ]);
 
   console.log(
     `Packed artifact passed package identity, dual CLI, Node ESM, strict TypeScript, Deno runtime/type, and ${declarationFiles.length}-file declaration graph checks.`,

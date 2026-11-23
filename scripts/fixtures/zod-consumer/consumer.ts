@@ -5,9 +5,31 @@ import {
   collectionOutputSchema,
   collectionResult,
   createSupabaseMcp,
+  defineCursor,
+  guidedResult,
+  resultGuidanceSchema,
+  withRunInput,
 } from "chumbo";
 
 const item = z.object({ id: z.string(), label: z.string() });
+const cursor = defineCursor({
+  keys: { id: z.string() },
+  filters: { category: z.enum(["open", "closed"]) },
+});
+const encoded = cursor.encode({ id: "item-1" }, { category: "open" });
+const decoded = cursor.decode(encoded, { category: "open" });
+assert.equal(decoded.ok, true);
+const guided = guidedResult(
+  "Loaded item-1.",
+  { id: "item-1" },
+  { next: "Call get_item with id." },
+);
+assert.equal(
+  resultGuidanceSchema.parse(guided.structuredContent).next,
+  "Call get_item with id.",
+);
+const runAwareInput = withRunInput(z.object({ id: z.string() }));
+assert.equal(runAwareInput.parse({ id: "item-1" }).id, "item-1");
 const input = collectionInputSchema({
   cursorSchema: z.string().regex(/^item-/),
 }).extend({ category: z.enum(["open", "closed"]) });
